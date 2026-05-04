@@ -1,0 +1,25 @@
+# Bỏ qua thư mục chứa thư viện (rất nặng và có thể cài lại bằng npm install)
+node_modules/
+
+# Bỏ qua thư mục chứa code đã build (chỉ sinh ra khi chạy lệnh build)
+dist/
+dist-ssr/
+
+# Bỏ qua các file log lỗi
+logs
+*.log
+npm-debug.log*
+
+# Bỏ qua các file biến môi trường cục bộ (nếu có dùng)
+.env
+.env.local
+*.local
+
+# Bỏ qua thư mục build của Tauri (phần lõi Rust)
+src-tauri/target/
+
+# Bỏ qua các file cấu hình của Editor/OS (không cần thiết để share cho người khác)
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store

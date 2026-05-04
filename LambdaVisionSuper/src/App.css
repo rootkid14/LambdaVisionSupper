@@ -1,0 +1,34 @@
+@import "tailwindcss";
+
+@theme {
+  --animate-neon-pulse: neon-pulse 6s ease-in-out infinite;
+
+  @keyframes neon-pulse {
+    0%, 100% {
+      /* Trạng thái tối: 1 lớp mờ */
+      filter: drop-shadow(0 0 15px rgba(168, 85, 247, 0.5));
+    }
+    50% {
+      /* Trạng thái sáng nhất: Chồng 3 lớp ánh sáng! */
+      /* Lớp 1: Lõi cực sáng (15px, opacity 1) */
+      /* Lớp 2: Hào quang giữa (35px, opacity 0.8) */
+      /* Lớp 3: Hào quang tỏa rộng (60px, opacity 0.5) */
+      filter: drop-shadow(0 0 15px rgba(168, 85, 247, 1)) 
+              drop-shadow(0 0 35px rgba(168, 85, 247, 0.8)) 
+              drop-shadow(0 0 60px rgba(168, 85, 247, 0.5));
+    }
+  }
+
+  --animate-slide-up: slide-up 0.8s ease-out forwards;
+
+  @keyframes slide-up {
+    0% {
+      opacity: 0;
+      transform: translateY(50px);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}

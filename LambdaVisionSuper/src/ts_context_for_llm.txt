@@ -1,0 +1,3557 @@
+### FILE: vite-env.d.ts ###
+/// <reference types="vite/client" />
+
+### FILE: api/axiosClient.ts ###
+import axios from "axios";
+export const api_version = "/api/v1";
+export const axiosClient = axios.create({
+    headers: {
+        'Content-Type': 'application/json',
+    },
+});
+// Thêm Interceptor để tự động gắn baseURL từ LocalStorage trước mọi request
+axiosClient.interceptors.request.use((config) => {
+    try {
+        // Tên "fleet-storage" là tên bạn đặt trong persist của Zustand (ở FleetDashboardStores)
+        const storageStr = localStorage.getItem("fleet-storage");
+        if (storageStr) {
+            const parsed = JSON.parse(storageStr);
+            const gateway = parsed?.state?.gateway;
+            // Nếu tìm thấy gateway trong ổ cứng và request chưa có baseURL, tự động gắn vào
+            if (gateway && !config.baseURL) {
+                config.baseURL = gateway;
+            }
+        }
+    } catch (e) {
+        console.error("Lỗi khi đọc gateway từ LocalStorage", e);
+    }
+    return config;
+}, (error) => {
+    return Promise.reject(error);
+});
+
+### FILE: api/dbEngineApi.ts ###
+import { axiosClient, api_version } from "./axiosClient";
+export const DBEngineAPI = {
+    // 1. Lấy danh sách bảng trong DB
+    master_getTables: async () => {
+        const response = await axiosClient.get(`${api_version}/db/tables`);
+        return response.data;
+    },
+    proxy_getTables: async (server_id: string) => {
+        const response = await axiosClient.get(`/proxy/${server_id}${api_version}/db/tables`);
+        return response.data;
+    },
+    // 2. Lấy cấu hình các cột (Schema) của một bảng
+    master_getSchema: async (table_name: string) => {
+        const response = await axiosClient.get(`${api_version}/db/schema/${table_name}`);
+        return response.data;
+    },
+    proxy_getSchema: async (server_id: string, table_name: string) => {
+        const response = await axiosClient.get(`/proxy/${server_id}${api_version}/db/schema/${table_name}`);
+        return response.data;
+    },
+    // 3. Gửi kịch bản truy vấn (AST JSON) và nhận kết quả
+    master_executeQuery: async (payload: any) => {
+        const response = await axiosClient.post(`${api_version}/db/query`, payload);
+        return response.data;
+    },
+    proxy_executeQuery: async (server_id: string, payload: any) => {
+        const response = await axiosClient.post(`/proxy/${server_id}${api_version}/db/query`, payload);
+        return response.data;
+    },
+    master_uploadImage: async (file: File) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        const response = await axiosClient.post(`${api_version}/db/images/upload`, formData, {
+            headers: {
+                'Content-Type': 'multipart/form-data'
+            }
+        });
+        return response.data;
+    },
+    proxy_uploadImage: async (server_id: string, file: File) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        const response = await axiosClient.post(`/proxy/${api_version}${server_id}/db/images/upload`, formData, {
+            headers: {
+                'Content-Type': 'multipart/form-data'
+            }
+        });
+        return response.data;
+    },
+    // 2. GET IMAGE URL (Tạo chuỗi URL sạch để nhét vào thẻ <img src="...">)
+    master_getImageUrl: (filename: string) => {
+        // CLEAN CODE: Dùng getUri() để tự động sinh URL đầy đủ dựa trên baseURL hiện tại
+        return axiosClient.getUri({
+            url: `${api_version}/db/images/${filename}/download`
+        });
+    },
+    proxy_getImageUrl: (server_id: string, filename: string) => {
+        // CLEAN CODE: Dùng getUri()
+        return axiosClient.getUri({
+            url: `/proxy/${server_id}${api_version}/db/images/${filename}/download`
+        });
+    },
+    // 3. DOWNLOAD IMAGE BLOB (Lấy file thô về để làm tính năng "Tải Ảnh Về Máy")
+    master_downloadImageBlob: async (filename: string) => {
+        const response = await axiosClient.get(`${api_version}/db/images/${filename}/download`, {
+            responseType: 'blob'
+        });
+        return response.data;
+    },
+    proxy_downloadImageBlob: async (server_id: string, filename: string) => {
+        const response = await axiosClient.get(`/proxy/${server_id}${api_version}/db/images/${filename}/download`, {
+            responseType: 'blob'
+        });
+        return response.data;
+    },
+    master_createTable: async (payload: { table_name: string, columns: any[] }) => {
+        // Giả định prefix API của bạn là '/db', điều chỉnh lại cho khớp với route thực tế của bạn
+        const response = await axiosClient.post(`${api_version}/db/tables/create`, payload);
+        return response.data;
+    },
+    proxy_createTable: async (server_id: string, payload: { table_name: string, columns: any[] }) => {
+        const response = await axiosClient.post(`/proxy/${server_id}${api_version}/db/tables/create`, payload);
+        return response.data;
+    },
+    // ==========================================
+    // 2. API CHÈN DỮ LIỆU ĐỘNG (INSERT DATA)
+    // ==========================================
+    master_insertData: async (payload: { table: string, data: Record<string, any> }) => {
+        const response = await axiosClient.post(`${api_version}/db/insert`, payload);
+        return response.data;
+    },
+    proxy_insertData: async (server_id: string, payload: { table: string, data: Record<string, any> }) => {
+        const response = await axiosClient.post(`/proxy/${server_id}${api_version}/db/insert`, payload);
+        return response.data;
+    },
+};
+
+### FILE: api/fleetApi.ts ###
+import { axiosClient, api_version } from './axiosClient';
+import { WorkerInfoCard, LocalServerInfo, ResourceInfo, DeviceInfo, AddServerInfo, AddHttpDeviceInfo, ResourceType } from "../Stores/FleetDashboardStores";;
+import { AxiosProgressEvent } from 'axios';
+export const FleetAPI = {
+    // Help master worker aggregate a big picture
+    getFleetStatus: async (): Promise<WorkerInfoCard[]> => {
+        const resp = await axiosClient.get(`/fleetstatus`);
+        return resp.data;
+    },
+    getMasterLocalServers: async (): Promise<LocalServerInfo[]> => {
+        const resp = await axiosClient.get(`${api_version}/infra/servers`);
+        return resp.data;
+    },
+    getMasterLocalDevices: async (): Promise<DeviceInfo[]> => {
+        const resp = await axiosClient.get(`${api_version}/infra/devices`)
+        return resp.data;
+    },
+    getMasterLocalResource: async (): Promise<ResourceInfo> => {
+        const resp = await axiosClient.get(`${api_version}/infra/resources/status`);
+        return resp.data;
+    },
+    master_addLocalWorker: async (info: AddServerInfo): Promise<any> => {
+        const resp = await axiosClient.post(`${api_version}/infra/servers/add`, info)
+        return resp.data;
+    },
+    master_removeLocalServer: async(server_id_to_remove: string) : Promise<any> => {
+        const resp = await axiosClient.delete(`${api_version}/infra/servers/delete/${server_id_to_remove}`)
+        return resp.data;
+    },
+    master_addLocalDevice: async (info: AddHttpDeviceInfo): Promise<any> => {
+        const resp = await axiosClient.post(`${api_version}/infra/devices/add`, info)
+        return resp.data;
+    },
+    master_removeLocalDevice: async(device_id_to_remove: string) : Promise<any> => {
+        const resp = await axiosClient.delete(`${api_version}/infra/devices/delete/${device_id_to_remove}`)
+        return resp.data;
+    },
+    master_downloadFile: async (filename: string, filetype: string): Promise<Blob> => {
+        const resp = await axiosClient.get(`${api_version}/infra/resources/files/${filetype}/${filename}/download`, {
+            responseType: 'blob' // QUAN TRỌNG: Nói cho Axios biết đây là file nhị phân
+        });
+        return resp.data;
+    },
+    master_uploadFile: async (file: File, filetype: string, onUploadProgress?: (progressEvent: AxiosProgressEvent) => void): Promise<any> => {
+        const formData = new FormData();
+        formData.append('file', file);
+        const resp = await axiosClient.post(`${api_version}/infra/resources/files/${filetype}/upload`, formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+            onUploadProgress
+        });
+        return resp.data;
+    },
+    master_removeResource: async (filename_to_remove: string, filetype: ResourceType) => {
+        const resp = await axiosClient.delete(`${api_version}/infra/resources/delete/${filetype}/${filename_to_remove}`)
+        return resp.data
+    },
+    proxy_getWorkerLocalServers: async (server_id: string): Promise<LocalServerInfo[]> => {
+        // Returning a list of local workers relative to this server_id List[{"id", "host", "status", "ping"}]
+        const resp = await axiosClient.get(`/proxy/${server_id}${api_version}/infra/servers`);
+        return resp.data; // Đã thêm ;
+    },
+    proxy_getWorkerLocalResource: async (server_id: string): Promise<ResourceInfo> => {
+        // Returning an overview of the files and graphs resources being deployed onto this worker
+        const resp = await axiosClient.get(`/proxy/${server_id}${api_version}/infra/resources/status`);
+        return resp.data; // Đã thêm ;
+    },
+    proxy_getWorkerLocalDevices: async (server_id: string): Promise<DeviceInfo[]> => {
+        //Returning list of local devices relative to this server_id
+        const resp = await axiosClient.get(`/proxy/${server_id}${api_version}/infra/devices`);
+        return resp.data;
+    },
+    proxy_addLocalWorker: async (server_id: string , info: AddServerInfo): Promise<any> => {
+        const resp = await axiosClient.post(`/proxy/${server_id}${api_version}/infra/servers/add`, info)
+        return resp.data
+    },
+    proxy_removeLocalServer: async(server_id :string, server_id_to_remove: string) : Promise<any> => {
+        const resp = await axiosClient.delete(`/proxy/${server_id}${api_version}/infra/servers/delete/${server_id_to_remove}`)
+        return resp.data;
+    },
+    proxy_addLocalDevice: async (server_id: string , info: AddHttpDeviceInfo): Promise<any> => {
+        const resp = await axiosClient.post(`/proxy/${server_id}${api_version}/infra/devices/add`, info)
+        return resp.data
+    },
+    proxy_removeLocalDevice: async(server_id :string, device_id_to_remove: string) : Promise<any> => {
+        const resp = await axiosClient.delete(`/proxy/${server_id}${api_version}/infra/devices/delete/${device_id_to_remove}`)
+        return resp.data;
+    },
+    proxy_uploadFile: async (server_id: string, file: File, filetype: string, onUploadProgress?: (progressEvent: AxiosProgressEvent) => void): Promise<any> => {
+        const formData = new FormData();
+        formData.append('file', file);
+        const resp = await axiosClient.post(`/proxy/${server_id}${api_version}/infra/resources/files/${filetype}/upload`, formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+            onUploadProgress
+        });
+        return resp.data;
+    },
+    proxy_downloadFile: async (server_id: string, filename: string, filetype: string): Promise<Blob> => {
+        const resp = await axiosClient.get(`/proxy/${server_id}${api_version}/infra/resources/files/${filetype}/${filename}/download`, {
+            responseType: 'blob' // QUAN TRỌNG: Nói cho Axios biết đây là file nhị phân
+        });
+        return resp.data;
+    },
+    proxy_removeResource: async (server_id: string, filename_to_remove: string, filetype: ResourceType) => {
+        const resp = await axiosClient.delete(`/proxy/${server_id}${api_version}/infra/resources/delete/${filetype}/${filename_to_remove}`)
+        return resp.data
+    },
+    master_loadFileToRam: async (filename: string): Promise<any> => {
+        const resp = await axiosClient.post(`${api_version}/infra/resources/files/load-to-ram/${filename}`);
+        return resp.data;
+    },
+    proxy_loadFileToRam: async (server_id: string, filename: string): Promise<any> => {
+        const resp = await axiosClient.post(`/proxy/${server_id}${api_version}/infra/resources/files/load-to-ram/${filename}`);
+        return resp.data;
+    },
+    master_unloadFileFromRam: async (filename: string): Promise<any> => {
+        const resp = await axiosClient.post(`${api_version}/infra/resources/files/unload-from-ram/${filename}`);
+        return resp.data;
+    },
+    proxy_unloadFileFromRam: async (server_id: string, filename: string): Promise<any> => {
+        const resp = await axiosClient.post(`/proxy/${server_id}${api_version}/infra/resources/files/unload-from-ram/${filename}`);
+        return resp.data;
+    },
+};
+
+### FILE: api/nodeApi.ts ###
+import { axiosClient, api_version } from './axiosClient';
+import { PreflightData } from '../Stores/FlowStore';
+export const NodeAPI = {
+    // Gọi BE để lấy mảng manifest các nodes
+    master_getCatalog: async (): Promise<any> => {
+        const response = await axiosClient.get(`${api_version}/nodes/catalog`);
+        return response;
+    },
+    master_preflight_run: async (preflightData: PreflightData) : Promise<any> =>{
+        const resp = await axiosClient.post(`${api_version}/nodes/preflight`, preflightData);
+        return resp;
+    },
+    master_deploy_graph_to_ram: async(graph_file_name: string) : Promise<any> => {
+        const resp = await axiosClient.post(`${api_version}/nodes/deploygraph/${graph_file_name}`)
+        return resp.data
+    },
+    master_undeploy_graph_from_ram: async(logic_object_id: string) : Promise<any> => {
+        const resp = await axiosClient.delete(`${api_version}/nodes/undeploygraph/${logic_object_id}`)
+        return resp.data
+    },
+    master_execute_logic: async(logic_object_id: string, payload: any) : Promise<any> => {
+        const resp = await axiosClient.post(`${api_version}/nodes/executelogic/${logic_object_id}`, payload)
+        return resp.data
+    },
+    master_get_logic_id_list: async() : Promise<any> => {
+        const resp = await axiosClient.get(`${api_version}/nodes/getLogicIDs`)
+        return resp.data
+    },
+    master_get_inout_schemas: async(logic_object_id: string) : Promise<any> => {
+        const resp = await axiosClient.get(`${api_version}/nodes/getinoutschema/${logic_object_id}`)
+        return resp.data
+    },
+    proxy_getCatalog: async (server_id: string): Promise<any> => {
+        const response = await axiosClient.get(`/proxy/${server_id}${api_version}/nodes/catalog`);
+        return response;
+    },
+    proxy_preflight_run: async (server_id: string, preflightData: PreflightData) : Promise<any> =>{
+        const resp = await axiosClient.post(`/proxy/${server_id}${api_version}/nodes/preflight`, preflightData);
+        return resp;
+    },
+    proxy_deploy_graph_to_ram: async(server_id : string, graph_file_name: string) : Promise<any> => {
+        const resp = await axiosClient.post(`/proxy/${server_id}${api_version}/nodes/deploygraph/${graph_file_name}`)
+        return resp.data
+    },
+    proxy_undeploy_graph_from_ram: async(server_id: string, logic_object_id: string) : Promise<any> => {
+        const resp = await axiosClient.delete(`/proxy/${server_id}${api_version}/nodes/undeploygraph/${logic_object_id}`)
+        return resp.data
+    },
+    proxy_execute_logic: async(server_id: string, logic_object_id: string, payload: any) : Promise<any> => {
+        const resp = await axiosClient.post(`/proxy/${server_id}${api_version}/nodes/executelogic/${logic_object_id}`, payload)
+        return resp.data
+    },
+    proxy_get_logic_id_list: async(server_id: string) : Promise<any> => {
+        const resp = await axiosClient.get(`/proxy/${server_id}${api_version}/nodes/getLogicIDs`)
+        return resp.data
+    },
+    proxy_get_inout_schemas: async(server_id: string, logic_object_id: string) : Promise<any> => {
+        const resp = await axiosClient.get(`/proxy/${server_id}${api_version}/nodes/getinoutschema/${logic_object_id}`)
+        return resp.data
+    },
+    master_get_logic_dependencies: async (): Promise<Record<string, string>> => {
+        const resp = await axiosClient.get(`${api_version}/nodes/dependencies`);
+        return resp.data;
+    },
+    proxy_get_logic_dependencies: async (server_id: string): Promise<Record<string, string>> => {
+        const resp = await axiosClient.get(`/proxy/${server_id}${api_version}/nodes/dependencies`);
+        return resp.data;
+    },
+    master_sync_dependencies: async (payload: { logic_objects: Record<string, string> }): Promise<any> => {
+        const resp = await axiosClient.post(`${api_version}/nodes/sync-dependencies`, payload);
+        return resp.data;
+    },
+    proxy_sync_dependencies: async (server_id: string, payload: { logic_objects: Record<string, string> }): Promise<any> => {
+        const resp = await axiosClient.post(`/proxy/${server_id}${api_version}/nodes/sync-dependencies`, payload);
+        return resp.data;
+    },
+};
+
+### FILE: ProjectCompiler/ProjectCompilerCore/ProjectCompilerCore.ts ###
+import { useFleetStore } from '../../Stores/FleetDashboardStores';
+import { useUIEngine } from '../../UI_Engine/UIEngineStores/InspectionStore';
+import { useTagDb } from '../../UI_Engine/UIEngineStores/GlobalTagsStore';
+import { useSequencerStore } from '../../UI_Engine/UIEngineStores/SequencerStores';
+import { NodeAPI } from '../../api/nodeApi';
+import { FleetAPI } from '../../api/fleetApi';
+import { axiosClient } from '../../api/axiosClient';
+// ==========================================
+// ĐỊNH NGHĨA CẤU TRÚC FILE CHUẨN
+// ==========================================
+export interface Dependencies {
+    files: string[];
+    logic_objects: Record<string, string>;
+}
+export interface WorkerInformation {
+    worker_id: string;
+    worker_host: string;
+    resource: Dependencies;
+}
+export interface FleetConfig {
+    master_gateway_host: string;
+    workers_information: WorkerInformation[];
+}
+export interface UIInformation {
+    activeScreenId: string | null;
+    nameLabelConfig: any;
+    components_map: Record<string, any>;
+}
+export interface SequencerInformation {
+    engine_tick_ms: number;
+    nodes: any[];
+    edges: any[];
+}
+export interface ProjectBundle {
+    project_uuid: string;
+    fleet: FleetConfig;
+    UI: UIInformation;
+    tags_db: Record<string, any>;
+    sequencer: SequencerInformation;
+}
+// ==========================================
+// MODULE COMPILER (CORE LOGIC)
+// ==========================================
+export const ProjectCompiler = {
+    // ----------------------------------------------------
+    // 1. EXPORT PROJECT
+    // ----------------------------------------------------
+    exportProject: async (projectName: string = "Lambda_Project") => {
+        // ... (GIỮ NGUYÊN CODE EXPORT CỦA BẠN - Không thay đổi gì)
+        const fleetState = useFleetStore.getState();
+        const uiState = useUIEngine.getState();
+        const tagState = useTagDb.getState();
+        const seqState = useSequencerStore.getState();
+        const cleanTags: Record<string, any> = tagState.tags;
+        const requiredLogicsByWorker: Record<string, Set<string>> = {};
+        seqState.nodes.forEach((node: any) => {
+            if (node.type === 'proc') {
+                const config = node.data?.sequencer_data?.config;
+                const workerId = config?.logic_object_info?.worker_id;
+                const logicId = config?.logic_object_info?.logic_object_id;
+                if (workerId && logicId) {
+                    if (!requiredLogicsByWorker[workerId]) {
+                        requiredLogicsByWorker[workerId] = new Set();
+                    }
+                    requiredLogicsByWorker[workerId].add(logicId);
+                }
+            }
+        });
+        const workerResourceMap: Record<string, Dependencies> = {};
+        for (const workerId of Object.keys(requiredLogicsByWorker)) {
+            workerResourceMap[workerId] = { files: [], logic_objects: {} };
+            const isMaster = workerId === "master_gateway";
+            try {
+                const be_dependencies = await (isMaster
+                    ? NodeAPI.master_get_logic_dependencies()
+                    : NodeAPI.proxy_get_logic_dependencies(workerId));
+                requiredLogicsByWorker[workerId].forEach(logicId => {
+                    const graphFileName = be_dependencies[logicId] || logicId;
+                    workerResourceMap[workerId].logic_objects[logicId] = graphFileName;
+                });
+            } catch (error) {
+                console.error(`Không thể lấy dependencies từ Worker [${workerId}]:`, error);
+                requiredLogicsByWorker[workerId].forEach(logicId => {
+                    workerResourceMap[workerId].logic_objects[logicId] = logicId;
+                });
+            }
+        }
+        const workersInfo: WorkerInformation[] = [];
+        if (fleetState.master_worker) {
+            workersInfo.push({
+                worker_id: fleetState.master_worker.server_id,
+                worker_host: fleetState.master_worker.host,
+                resource: workerResourceMap['master_gateway'] || { files: [], logic_objects: {} }
+            });
+        }
+        fleetState.fleet_worker.forEach((w) => {
+            workersInfo.push({
+                worker_id: w.server_id,
+                worker_host: w.host,
+                resource: workerResourceMap[w.server_id] || { files: [], logic_objects: {} }
+            });
+        });
+        Object.keys(workerResourceMap).forEach(wId => {
+            if (wId !== 'master_gateway' && !workersInfo.find(w => w.worker_id === wId)) {
+                workersInfo.push({
+                    worker_id: wId,
+                    worker_host: "unknown_host",
+                    resource: workerResourceMap[wId]
+                });
+            }
+        });
+        const bundle: ProjectBundle = {
+            project_uuid: crypto.randomUUID(),
+            fleet: {
+                master_gateway_host: fleetState.gateway || "",
+                workers_information: workersInfo
+            },
+            UI: {
+                activeScreenId: uiState.activeScreenId,
+                nameLabelConfig: uiState.nameLabelConfig,
+                components_map: uiState.components_map
+            },
+            tags_db: cleanTags,
+            sequencer: {
+                engine_tick_ms: seqState.engine_tick_ms,
+                nodes: seqState.nodes,
+                edges: seqState.edges
+            }
+        };
+        const jsonString = JSON.stringify(bundle, null, 2);
+        const blob = new Blob([jsonString], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${projectName.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    },
+    // ----------------------------------------------------
+    // 2. TRIGGER MỞ GIAO DIỆN (UI)
+    // ----------------------------------------------------
+    triggerImport: (file: File) => {
+        if (!file.name.endsWith('.json') && !file.name.endsWith('.lambda_proj')) {
+            alert("File không hợp lệ. Vui lòng chọn file .lambda_proj hoặc .json");
+            return;
+        }
+        useUIEngine.getState().setImportFile(file);
+    },
+    // ----------------------------------------------------
+    // 3. IMPORT PROJECT (CORE LOGIC)
+    // ----------------------------------------------------
+    importProject: async (
+        file: File,
+        onLog: (type: 'info' | 'success' | 'warning' | 'error', message: string) => void,
+        onStatus: (status: 'reading' | 'restoring' | 'fleet' | 'logic' | 'compiling' | 'done' | 'failed') => void
+    ) => {
+        try {
+            // STEP 1: ĐỌC VÀ PHÂN TÍCH FILE
+            onStatus('reading');
+            onLog('info', `Đang đọc file: ${file.name}...`);
+            const fileText = await file.text();
+            const bundle: ProjectBundle = JSON.parse(fileText);
+            if (!bundle.project_uuid || !bundle.UI || !bundle.sequencer) {
+                throw new Error("ERROR : File Must BE JSON");
+            }
+            onLog('success', `=========  ANALYZED JSON FILED. Project ID: ${bundle.project_uuid} =========`);
+            // STEP 2: NẠP DỮ LIỆU FRONTEND
+            onStatus('restoring');
+            onLog('info', 'Load UI, Data Tags, Sequencer Map into RAM...');
+            useUIEngine.setState({
+                components_map: bundle.UI.components_map,
+                activeScreenId: bundle.UI.activeScreenId,
+                nameLabelConfig: bundle.UI.nameLabelConfig
+            });
+            useTagDb.setState({ tags: bundle.tags_db });
+            useSequencerStore.setState({
+                nodes: bundle.sequencer.nodes,
+                edges: bundle.sequencer.edges,
+                engine_tick_ms: bundle.sequencer.engine_tick_ms || 25,
+                isGraphDirty: true
+            });
+            onLog('success', '============ REBUILT UI SUCCESSFULLY ==========');
+            // STEP 3: ĐÁNH THỨC FLEET BUS
+            onStatus('fleet');
+            onLog('info', 'Restoring Fleet Connections (Fleet Topology)...');
+            const gateway = bundle.fleet.master_gateway_host;
+            if (gateway) {
+                axiosClient.defaults.baseURL = gateway;
+                useFleetStore.setState({ gateway });
+                onLog('info', `Established Gateway Router: ${gateway}`);
+            }
+            for (const worker of bundle.fleet.workers_information) {
+                if (worker.worker_id !== "master_gateway" && worker.worker_host !== "unknown_host") {
+                    onLog('info', `Requesting Worker: [${worker.worker_id}], message sent to Master...`);
+                    try {
+                        await FleetAPI.master_addLocalWorker({ server_id: worker.worker_id, host: worker.worker_host });
+                        onLog('success', `Worker [${worker.worker_id}] has been established.`);
+                    } catch (e: any) {
+                        onLog('warning', `Worker [${worker.worker_id}] did not response. Error DETAIL: ${e.message}`);
+                    }
+                }
+            }
+            await useFleetStore.getState().silentRefreshFleet();
+            // STEP 4: ĐỒNG BỘ LOGIC (ĐÁNH THỨC BE RAM)
+            onStatus('logic');
+            onLog('info', 'Requesting BE to load Dependencies...');
+            let hasLogicError = false;
+            for (const worker of bundle.fleet.workers_information) {
+                const logicObjectsMap = worker.resource?.logic_objects || {};
+                if (Object.keys(logicObjectsMap).length > 0) {
+                    onLog('info', `Requesting Sync RAM to [${worker.worker_id}]...`);
+                    try {
+                        const isMaster = worker.worker_id === "master_gateway";
+                        const payload = { logic_objects: logicObjectsMap };
+                        const syncRes = await (isMaster
+                            ? NodeAPI.master_sync_dependencies(payload)
+                            : NodeAPI.proxy_sync_dependencies(worker.worker_id, payload));
+                        for (const [logicId, report] of Object.entries(syncRes.details as Record<string, any>)) {
+                            if (report.success) {
+                                const msg = report.status === "exist" ? "Existed in ram" : "Constructing new instance from disk";
+                                onLog('success', `[${worker.worker_id}] Object '${logicId}': ${msg}.`);
+                            } else {
+                                hasLogicError = true;
+                                onLog('error', `[${worker.worker_id}] Lỗi nạp '${logicId}': ${report.error_message}`);
+                            }
+                        }
+                    } catch (e: any) {
+                        hasLogicError = true;
+                        onLog('error', `Communication Error with [${worker.worker_id}] when trying to Sync: ${e.message}`);
+                    }
+                }
+            }
+            if (hasLogicError) {
+                throw new Error(`Severe Issue happen trying to load / create the Logic Object Instance to RAM`);
+            }
+            // STEP 5: BIÊN DỊCH SEQUENCER GRAPH
+            onStatus('compiling');
+            onLog('info', '============== Compiling Sequencer Graph... =============');
+            await useSequencerStore.getState().compileGraph();
+            // CHỐNG LỖI BẤT ĐỒNG BỘ STATE: Chờ 100ms để Zustand kịp ghi nhận kết quả Compile
+            await new Promise(resolve => setTimeout(resolve, 100));
+            const isDirty = useSequencerStore.getState().isGraphDirty;
+            if (isDirty) {
+                 onLog('error', 'Sequencer Graph Validation Failed!');
+                 throw new Error("There is something wrong during compilation of the Sequencer Graph");
+            }
+            onLog('success', '======================= LOAD SUCCESSFULLY. SYSTEM READY ===================');
+            onStatus('done');
+        } catch (err: any) {
+            onLog('error', err.message || "Unknown Error");
+            onStatus('failed');
+            throw err; // Ném lỗi ra để Component bên ngoài biết
+        }
+    }
+};
+
+### FILE: Stores/DatabaseEngineStore.ts ###
+import { create } from "zustand";
+import { DBEngineAPI } from "../api/dbEngineApi";
+export interface DBFilter {
+    id: string;
+    column: string;
+    // Thêm toán tử BETWEEN
+    operator: '==' | '!=' | '>' | '<' | 'CONTAINS' | 'BETWEEN';
+    value: any; // Chuyển thành any vì giá trị có thể là mảng ['start', 'end']
+}
+export interface ColumnConfig {
+    originalName: string;
+    displayName: string;
+    isVisible: boolean;
+    isImage: boolean;
+    // Thêm boolean
+    dataType: 'text' | 'number' | 'datetime' | 'boolean';
+}
+export interface DBEngineErrorModal {
+    ErrorMessage: string;
+    isOpen: boolean;
+}
+export interface DBImageModal {
+    isOpen: boolean;
+    imageFileName: string | null;
+}
+export interface DatabaseEngineStore {
+    selectedServerId: string | null;
+    selectedTable: string | null;
+    setSelectedServer: (serverId: string) => void;
+    setSelectedTable: (table: string) => void;
+    tables: string[];
+    schemaConfig: Record<string, ColumnConfig>;
+    filters: DBFilter[];
+    queryResults: any[];
+    isLoading: boolean;
+    errorModal: DBEngineErrorModal;
+    imageModal: DBImageModal;
+    fetchTables: (serverId: string) => Promise<void>;
+    fetchSchema: (serverId: string, tableName: string) => Promise<void>;
+    updateColumnConfig: (columnName: string, updates: Partial<ColumnConfig>) => void;
+    addFilter: () => void;
+    updateFilter: (id: string, updates: Partial<DBFilter>) => void;
+    removeFilter: (id: string) => void;
+    executeQuery: () => Promise<void>;
+    openImageViewModal: (filename: string) => void;
+    closeImageViewModal: () => void;
+    showErrorMessage: (msg: string) => void;
+    closeErrorModal: () => void;
+    downloadImage: (filename: string) => Promise<void>;
+    isCreateTableModalOpen: boolean;
+    openCreateTableModal: () => void;
+    closeCreateTableModal: () => void;
+    createTable: (payload: any) => Promise<void>;
+}
+export const useDBEngineStore = create<DatabaseEngineStore>((set, get) => ({
+    selectedServerId: null,
+    selectedTable: null,
+    tables: [],
+    schemaConfig: {},
+    filters: [],
+    queryResults: [],
+    isLoading: false,
+    errorModal: { ErrorMessage: "", isOpen: false },
+    imageModal: { isOpen: false, imageFileName: null },
+    isCreateTableModalOpen: false,
+    openCreateTableModal: () => set({ isCreateTableModalOpen: true }),
+    closeCreateTableModal: () => set({ isCreateTableModalOpen: false }),
+    setSelectedServer: async (serverId) => {
+        set({ selectedServerId: serverId, selectedTable: null, schemaConfig: {}, queryResults: [] });
+        if (serverId) await get().fetchTables(serverId);
+    },
+    setSelectedTable: async (table) => {
+        set({ selectedTable: table, queryResults: [] });
+        const serverId = get().selectedServerId;
+        if (serverId && table) await get().fetchSchema(serverId, table);
+    },
+    fetchTables: async (serverId) => {
+        set({ isLoading: true });
+        const isMaster = serverId === "master_gateway";
+        try {
+            const resp = await (
+                isMaster
+                ? DBEngineAPI.master_getTables()
+                : DBEngineAPI.proxy_getTables(serverId)
+            );
+            // FIX LỖI: resp đã là mảng dữ liệu thật, không cần chấm data nữa
+            set({ tables: Array.isArray(resp) ? resp : [], isLoading: false });
+        } catch (error: any) {
+            get().showErrorMessage(error?.response?.data?.detail || "Lỗi khi tải danh sách bảng từ Server.");
+            set({ tables: [], isLoading: false });
+        }
+    },
+    fetchSchema: async (serverId, tableName) => {
+        set({ isLoading: true });
+        const isMaster = serverId === "master_gateway";
+        try {
+            const resp = await (
+                isMaster
+                ? DBEngineAPI.master_getSchema(tableName)
+                : DBEngineAPI.proxy_getSchema(serverId, tableName)
+            );
+            // FIX LỖI: resp chính là Object Schema config
+            set({ schemaConfig: resp || {}, isLoading: false });
+        } catch (error: any) {
+            get().showErrorMessage(error?.response?.data?.detail || "Lỗi khi tải Schema của bảng.");
+            set({ schemaConfig: {}, isLoading: false });
+        }
+    },
+    updateColumnConfig: (columnName, updates) => set((state) => ({
+        schemaConfig: {
+            ...state.schemaConfig,
+            [columnName]: { ...state.schemaConfig[columnName], ...updates }
+        }
+    })),
+    addFilter: () => set((state) => ({
+        filters: [...state.filters, { id: `flt_${Date.now()}`, column: '', operator: '==', value: '' }]
+    })),
+    updateFilter: (id, updates) => set((state) => ({
+        filters: state.filters.map(f => f.id === id ? { ...f, ...updates } : f)
+    })),
+    removeFilter: (id) => set((state) => ({
+        filters: state.filters.filter(f => f.id !== id)
+    })),
+    executeQuery: async () => {
+        const { selectedServerId, selectedTable, schemaConfig, filters } = get();
+        if (!selectedServerId || !selectedTable) return;
+        set({ isLoading: true });
+        const payload = {
+            table: selectedTable,
+            select_columns: Object.keys(schemaConfig).filter(k => schemaConfig[k].isVisible),
+            conditions: filters.filter(f => f.column && f.value !== '')
+        };
+        const isMaster = selectedServerId === "master_gateway";
+        try {
+            const resp = await (
+                isMaster
+                ? DBEngineAPI.master_executeQuery(payload)
+                : DBEngineAPI.proxy_executeQuery(selectedServerId, payload)
+            );
+            // FIX LỖI: resp chính là mảng chứa các object row kết quả
+            set({ queryResults: Array.isArray(resp) ? resp : [], isLoading: false });
+        } catch (error: any) {
+            get().showErrorMessage(error?.response?.data?.detail || "Lỗi khi truy vấn Database.");
+            set({ isLoading: false });
+        }
+    },
+    openImageViewModal: (filename) => set({ imageModal: { isOpen: true, imageFileName: filename } }),
+    closeImageViewModal: () => set({ imageModal: { isOpen: false, imageFileName: null } }),
+    showErrorMessage: (msg) => set({ errorModal: { isOpen: true, ErrorMessage: msg } }),
+    closeErrorModal: () => set({ errorModal: { isOpen: false, ErrorMessage: "" } }),
+    downloadImage: async (filename) => {
+        const { selectedServerId } = get();
+        if (!selectedServerId) return;
+        const isMaster = selectedServerId === "master_gateway";
+        try {
+            // 1. Gọi API lấy file thô (Blob)
+            const blob = await (
+                isMaster
+                ? DBEngineAPI.master_downloadImageBlob(filename)
+                : DBEngineAPI.proxy_downloadImageBlob(selectedServerId, filename)
+            );
+            // 2. Ép trình duyệt mở hộp thoại tải file (Save As...)
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename; // Tên file khi lưu về máy
+            document.body.appendChild(a);
+            a.click();
+            // 3. Dọn dẹp bộ nhớ
+            a.remove();
+            window.URL.revokeObjectURL(url);
+        } catch (error) {
+            get().showErrorMessage("Lỗi mạng: Không thể tải ảnh về máy.");
+        }
+    },
+    createTable: async (payload) => {
+        const { selectedServerId } = get();
+        if (!selectedServerId) return;
+        set({ isLoading: true });
+        const isMaster = selectedServerId === "master_gateway";
+        try {
+            await (isMaster
+                ? DBEngineAPI.master_createTable(payload)
+                : DBEngineAPI.proxy_createTable(selectedServerId, payload));
+            get().closeCreateTableModal();
+            await get().fetchTables(selectedServerId); // Refresh danh sách bảng ngay lập tức
+        } catch (error: any) {
+            get().showErrorMessage(error?.response?.data?.detail || "Lỗi khi tạo bảng mới.");
+            set({ isLoading: false });
+        }
+    },
+}));
+
+### FILE: Stores/FleetDashboardStores.ts ###
+import { create } from "zustand";
+import { axiosClient } from "../api/axiosClient";
+import { FleetAPI } from "../api/fleetApi";
+import { persist, createJSONStorage } from "zustand/middleware";
+import { NodeAPI } from "../api/nodeApi";
+export interface Hardware {
+    cpu_percent: number;
+    ram_used_mb: number;
+    ram_total_mb: number;
+    ram_percent: number;
+}
+export interface DeviceInfo {
+    host: string;
+    alive: boolean;
+    ping: number;
+}
+export interface WorkerInfoCard {
+    server_id: string;
+    host: string;
+    alive: boolean;
+    role: "master" | "worker";
+    ping: number;
+    hardware: Hardware;
+    device_list: DeviceInfo[];
+    logic_obj_count: number;
+}
+export interface LocalServerInfo {
+    id: string;
+    host: string;
+    status: "online" | "offline";
+    ping: number;
+}
+export interface FilesState {
+    filename: Record<string, { size: number; inram: boolean }>
+}
+export interface GraphsState {
+    name: string;
+    size: number;
+}
+export interface PluginsState {
+    name: string;
+    size: number;
+}
+export interface ActiveLogicsState {
+    name: string;
+    graph_name: string;
+}
+export interface ResourceInfo {
+    files_state: FilesState[];
+    graphs_state: GraphsState[]; // Đã sửa lỗi typo "graphs_sate"
+    plugins_state: PluginsState[];
+    active_logics: ActiveLogicsState[];
+}
+export interface WorkerDetails {
+    selected_worker_id : string,
+    localSevsInfo: LocalServerInfo[];
+    DevsInfo: DeviceInfo[];
+    ResourceInfo: ResourceInfo;
+}
+export interface AddServerInfo {
+    server_id : string,
+    host: string
+}
+export interface AddHttpDeviceInfo {
+    device_id : string,
+    host: string
+}
+export type ResourceType = 'file' | 'graph' | 'plugin';
+type FleetStore = {
+    // DATA
+    gateway: string | null;
+    fleet_worker: WorkerInfoCard[];        // Use to display data on dashboard and somedata on pool drawers
+    master_worker: WorkerInfoCard | null;  // Use to display data on dashboard
+    selected_worker: WorkerDetails | null; //Use to load the data to pool drawer
+    // UI
+    isLoading: boolean;
+    isSwitchMasterOpen: boolean;
+    isPoolsDrawerOpen: boolean;
+    errorMessage : string;
+    isErrorModalOpen: boolean;
+    isAddNewServerUIOpen: boolean;
+    isAttacheNewDeviceUIOpen: boolean;
+    isUploadingResource: boolean;
+    isDownloadingResource: boolean;
+    uploadProgress : number;
+    // Actions:
+    setGatewayandLoadFleet: (host: string) => void;
+    openSwitchMaster: () => void;
+    closeSwitchMaster: () => void;
+    openPoolsDrawer: (worker_id: string) => void;
+    closePoolsDrawer: () => void;
+    addNewServer: (server_id_to_add: string, host: string) => Promise<void>;
+    removeServer: (server_id_to_remove: string) => Promise<void>
+    attachNewHttpDevice: (device_id_to_add: string, host: string) => Promise<void>;
+    removeHttpDevice: (device_id_to_remove: string, host: string) => Promise<void>;
+    uploadResource: (file: File, type: ResourceType) => Promise<void>;
+    downloadResource: (filename: string, type: ResourceType) => Promise<void>;
+    removeResource: (filename: string, type : ResourceType) => Promise<void>;
+    deployGraph: (graph_file_name: string) => Promise<any>;
+    undeployLogic: (logic_obj_id : string) => Promise<any>;
+    silentRefreshFleet: () => Promise<void>;
+    toggleFileRamStatus: (filename: string, isCurrentlyInRam: boolean) => Promise<void>;
+};
+export const useFleetStore = create<FleetStore>()(persist(
+    (set,get) => ({
+    gateway: null,
+    fleet_worker: [],
+    master_worker: null,
+    selected_worker: null,
+    errorMessage: '',
+    isLoading: false,
+    isSwitchMasterOpen: true,
+    isPoolsDrawerOpen: false,
+    isErrorModalOpen: false,
+    isAddNewServerUIOpen: false,
+    isAttacheNewDeviceUIOpen: false,
+    isUploadingResource: false,
+    isDownloadingResource: false,
+    uploadProgress : 0,
+    setGatewayandLoadFleet: async (host: string) => {
+        if (!host.trim()) return;
+        // 1. Lưu lại gateway đang hoạt động hiện tại để dự phòng (Rollback)
+        const previousGateway = get().gateway;
+        // 2. Chuẩn hóa địa chỉ nhập vào (Auto-fix lỗi thiếu http://)
+        let formattedHost = host.trim();
+        if (!/^https?:\/\//i.test(formattedHost)) {
+            formattedHost = `http://${formattedHost}`;
+        }
+        try {
+            // Thử thiết lập kết nối tới địa chỉ mới
+            axiosClient.defaults.baseURL = formattedHost;
+            set({ isLoading: true });
+            const data: any = await FleetAPI.getFleetStatus();
+            // Kiểm tra tính hợp lệ của dữ liệu trả về
+            if (!Array.isArray(data)) {
+                throw new Error(data.error || "Dữ liệu trả về từ Gateway không hợp lệ (Không phải mảng)");
+            }
+            const master = data.find((node: any) => node.role === "master") ?? null;
+            const workers = data.filter((node: any) => node.role !== "master");
+            // KẾT NỐI THÀNH CÔNG: Cập nhật state mới và đóng modal nhập gateway
+            set({
+                gateway: formattedHost,
+                master_worker: master,
+                fleet_worker: workers,
+                isSwitchMasterOpen: false, // Thành công thì đóng modal
+                errorMessage: ""
+            });
+        } catch (error: any) {
+            console.error("Load fleet failed", error);
+            // Xử lý thông báo lỗi chi tiết
+            let errorMsg = "Lỗi kết nối không xác định.";
+            if (error.code === 'ERR_NETWORK' || error.message.includes('Network Error')) {
+                errorMsg = `Không thể kết nối đến Gateway [${formattedHost}]. Vui lòng kiểm tra Server hoặc Port.`;
+            } else if (error instanceof TypeError && error.message.includes("URL")) {
+                errorMsg = `Địa chỉ IP/URL bạn nhập không đúng định dạng.`;
+            } else {
+                errorMsg = error.message || "Lỗi giao tiếp với hệ thống.";
+            }
+            // 3. LOGIC ROLLBACK (QUAY LẠI CÁI CŨ) THEO YÊU CẦU CỦA BẠN
+            if (previousGateway) {
+                // Nếu đã có gateway cũ đang chạy tốt -> Quay lại an toàn
+                axiosClient.defaults.baseURL = previousGateway;
+                set({
+                    gateway: previousGateway, // Giữ nguyên gateway cũ trong store
+                    errorMessage: errorMsg,
+                    isErrorModalOpen: true,
+                    // Lúc này Dashboard vẫn hiển thị dữ liệu của gateway cũ, không bị trắng trang
+                });
+            } else {
+                // Nếu trước đó chưa có gateway nào (null) -> Bắt buộc ở lại màn hình nhập
+                set({
+                    gateway: null,
+                    errorMessage: errorMsg,
+                    isErrorModalOpen: true,
+                    isSwitchMasterOpen: true // Giữ nguyên modal SwitchMaster trên màn hình
+                });
+            }
+        } finally {
+            set({ isLoading: false });
+        }
+    },
+    openSwitchMaster: () => set({ isSwitchMasterOpen: true }),
+    closeSwitchMaster: () => set({ isSwitchMasterOpen: false }),
+    openPoolsDrawer: async (worker_id: string) => {
+        if (!worker_id.trim()) return;
+        try {
+            const isMaster = worker_id === "master_gateway";
+            const [local_resource, local_servers, local_devices] = await Promise.all([
+                isMaster ? FleetAPI.getMasterLocalResource() : FleetAPI.proxy_getWorkerLocalResource(worker_id),
+                isMaster ? FleetAPI.getMasterLocalServers() : FleetAPI.proxy_getWorkerLocalServers(worker_id),
+                isMaster ? FleetAPI.getMasterLocalDevices() : FleetAPI.proxy_getWorkerLocalDevices(worker_id)
+            ]);
+            const WorkerDetailsData: WorkerDetails = {
+                selected_worker_id : worker_id,
+                localSevsInfo: local_servers,
+                // Thêm ?? [] để đảm bảo luôn trả về Array như type yêu cầu, tránh lỗi khi local_devices là undefined
+                DevsInfo: local_devices ?? [],
+                ResourceInfo: local_resource
+            };
+            set({ selected_worker: WorkerDetailsData });
+            set({ isPoolsDrawerOpen: true });
+        } catch (error) {
+            console.error("Load worker details failed", error);
+        }
+    },
+    closePoolsDrawer: () => {
+        set({ selected_worker: null });
+        set({ isPoolsDrawerOpen: false });
+    },
+    addNewServer: async (server_id_to_add : string, host: string) => {
+        const new_server_info : AddServerInfo = {
+            server_id: server_id_to_add,
+            host: host
+        }
+        const selected_worker_id = get().selected_worker?.selected_worker_id
+        const isMaster = selected_worker_id === "master_gateway"
+        if(!selected_worker_id) {
+            set({
+                errorMessage: "selected worker is is null, cancelling",
+                isErrorModalOpen: true
+            })
+            return;
+        }
+        try {
+            const resp = await (
+            isMaster
+                ? FleetAPI.master_addLocalWorker(new_server_info)
+                : FleetAPI.proxy_addLocalWorker(selected_worker_id, new_server_info)
+            )
+            if (resp.success) {
+                await get().openPoolsDrawer(selected_worker_id)
+                if (isMaster) {
+                    await get().setGatewayandLoadFleet(get().gateway!)
+                }
+                set({ isAddNewServerUIOpen: false})
+                return
+            }
+            set({
+                errorMessage:
+                resp.message || "Add server failed",
+                isErrorModalOpen: true
+            })
+        } catch (error: any) {
+            set({
+                errorMessage:
+                error?.response?.data?.detail ||
+                error.message ||
+                "Network error",
+                isErrorModalOpen: true
+            })
+        }
+    },
+    removeServer: async (server_id_to_remove : string) => {
+        const selected_worker_id = get().selected_worker?.selected_worker_id
+        const isMaster = selected_worker_id === "master_gateway"
+        if(!selected_worker_id) {
+            set({
+                errorMessage: "selected worker is is null, cancelling",
+                isErrorModalOpen: true
+            })
+            return;
+        }
+        try{
+            const resp = await (
+                isMaster
+                    ?FleetAPI.master_removeLocalServer(server_id_to_remove)
+                    :FleetAPI.proxy_removeLocalServer(selected_worker_id, server_id_to_remove)
+            )
+            if(resp.success) {
+                await get().openPoolsDrawer(selected_worker_id)
+                if(isMaster){
+                    await get().setGatewayandLoadFleet(get().gateway!)
+                }
+                return;
+            }
+        } catch (error : any){
+            set({
+                errorMessage: error?.response?.data?.detail || error.message || "Network Error",
+                isErrorModalOpen: true
+            })
+        }
+    },
+    attachNewHttpDevice : async (device_id_to_add : string, host: string) => {
+        const new_device_info : AddHttpDeviceInfo = {
+            device_id: device_id_to_add,
+            host: host
+        }
+        const selected_worker_id = get().selected_worker?.selected_worker_id
+        const isMaster = selected_worker_id === "master_gateway"
+        if(!selected_worker_id) {
+            set({
+                errorMessage: "selected worker is is null, cancelling",
+                isErrorModalOpen: true
+            })
+            return;
+        }
+        try {
+            const resp = await (
+            isMaster
+                ? FleetAPI.master_addLocalDevice(new_device_info)
+                : FleetAPI.proxy_addLocalDevice(selected_worker_id, new_device_info)
+            )
+            if (resp.success) {
+                await get().openPoolsDrawer(selected_worker_id)
+                if (isMaster) {
+                    await get().setGatewayandLoadFleet(get().gateway!)
+                }
+                set({ isAttacheNewDeviceUIOpen: false})
+                return
+            }
+            set({
+                errorMessage:
+                resp.message || "Add device failed",
+                isErrorModalOpen: true
+            })
+        } catch (error: any) {
+            set({
+                errorMessage:
+                error?.response?.data?.detail ||
+                error.message ||
+                "Network error",
+                isErrorModalOpen: true
+            })
+        }
+    },
+    removeHttpDevice: async (device_id_to_remove: string) => {
+        const selected_worker_id = get().selected_worker?.selected_worker_id
+        const isMaster = selected_worker_id === "master_gateway"
+        if(!selected_worker_id) {
+            set({
+                errorMessage: "selected worker is is null, cancelling",
+                isErrorModalOpen: true
+            })
+            return;
+        }
+        try{
+            const resp = await (
+                isMaster
+                    ?FleetAPI.master_removeLocalDevice(device_id_to_remove)
+                    :FleetAPI.proxy_removeLocalDevice(selected_worker_id, device_id_to_remove)
+            )
+            if(resp.success) {
+                await get().openPoolsDrawer(selected_worker_id)
+                if(isMaster){
+                    await get().setGatewayandLoadFleet(get().gateway!)
+                }
+                return;
+            }
+        } catch (error : any){
+            set({
+                errorMessage: error?.response?.data?.detail || error.message || "Network Error",
+                isErrorModalOpen: true
+            })
+        }
+    },
+    uploadResource: async (file: File, type: ResourceType) => {
+        const selected_worker_id = get().selected_worker?.selected_worker_id;
+        if (!selected_worker_id) {
+            set({ errorMessage: "Không xác định được Worker đang thao tác", isErrorModalOpen: true });
+            return;
+        }
+        const isMaster = selected_worker_id === "master_gateway"; // Kiểm tra Master
+        set({ isUploadingResource: true, uploadProgress: 0 });
+        try {
+            const handleProgress = (progressEvent: any) => {
+                if (progressEvent.total) {
+                    const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+                    set({ uploadProgress: percentCompleted });
+                }
+            };
+            let resp;
+            if (isMaster) {
+                // Nếu là Master, gọi API thẳng
+                resp = await FleetAPI.master_uploadFile(file, type, handleProgress);
+            } else {
+                // Nếu là Worker, gọi qua Proxy
+                resp = await FleetAPI.proxy_uploadFile(selected_worker_id, file, type, handleProgress);
+            }
+            if (resp.success) {
+                set({ uploadProgress: 100 });
+                await get().openPoolsDrawer(selected_worker_id);
+            } else {
+                set({ errorMessage: resp.message || "Upload thất bại", isErrorModalOpen: true });
+            }
+        } catch (error: any) {
+            set({
+                errorMessage: error?.response?.data?.detail || error.message || "Lỗi mạng khi upload",
+                isErrorModalOpen: true
+            });
+        } finally {
+            setTimeout(() => {
+                set({ isUploadingResource: false, uploadProgress: 0 });
+            }, 500);
+        }
+    },
+    downloadResource: async (filename: string, type: ResourceType) => {
+        const selected_worker_id = get().selected_worker?.selected_worker_id;
+        if (!selected_worker_id) {
+            set({ errorMessage: "Không xác định được Worker đang thao tác", isErrorModalOpen: true });
+            return;
+        }
+        const isMaster = selected_worker_id === "master_gateway"; // Kiểm tra Master
+        set({ isDownloadingResource: true });
+        try {
+            let blob: Blob;
+            if (isMaster) {
+                // Master download trực tiếp
+                blob = await FleetAPI.master_downloadFile(filename, type);
+            } else {
+                // Worker download qua proxy
+                blob = await FleetAPI.proxy_downloadFile(selected_worker_id, filename, type);
+            }
+            // Xử lý tạo link ảo để ép trình duyệt tải file về máy
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            // Dọn dẹp bộ nhớ
+            a.remove();
+            window.URL.revokeObjectURL(url);
+        } catch (error: any) {
+            if (error.response?.data instanceof Blob) {
+                const textError = await error.response.data.text();
+                try {
+                    const jsonError = JSON.parse(textError);
+                    set({ errorMessage: jsonError.detail || "Lỗi tải file", isErrorModalOpen: true });
+                } catch {
+                    set({ errorMessage: textError, isErrorModalOpen: true });
+                }
+            } else {
+                set({
+                    errorMessage: error?.message || "Lỗi mạng khi download",
+                    isErrorModalOpen: true
+                });
+            }
+        } finally {
+            set({ isDownloadingResource: false });
+        }
+    },
+    removeResource: async (filename: string, type : ResourceType) => {
+        const selected_worker_id = get().selected_worker?.selected_worker_id;
+        if (!selected_worker_id) {
+            set({ errorMessage: "Không xác định được Worker đang thao tác", isErrorModalOpen: true });
+            return;
+        }
+        const isMaster = selected_worker_id === "master_gateway"; // Kiểm tra Master
+        try{
+            const resp = await (
+                isMaster
+                ?FleetAPI.master_removeResource(filename, type)
+                :FleetAPI.proxy_removeResource(selected_worker_id, filename, type)
+            )
+            if (resp?.success){
+                await get().openPoolsDrawer(selected_worker_id)
+                return resp;
+            } else {
+                set({ errorMessage: "Something failed trying to delete the file, did not receive success message", isErrorModalOpen: true });
+            }
+        } catch (error: any) {
+            set({ errorMessage: error?.response?.data?.detail ||error.message ||"Network error", isErrorModalOpen: true });
+        }
+    },
+    deployGraph: async (graph_file_name : string) => {
+        const selected_worker_id = get().selected_worker?.selected_worker_id;
+        if (!selected_worker_id) {
+            set({ errorMessage: "Không xác định được Worker đang thao tác", isErrorModalOpen: true });
+            return;
+        }
+        const isMaster = selected_worker_id === "master_gateway"; // Kiểm tra Master
+        try{
+            const resp = await (
+                isMaster
+                ?NodeAPI.master_deploy_graph_to_ram(graph_file_name)
+                :NodeAPI.proxy_deploy_graph_to_ram(selected_worker_id ,graph_file_name)
+            )
+            if (resp?.success) {
+                await get().openPoolsDrawer(selected_worker_id)
+                return;
+            } else {
+                set({errorMessage: resp?.error_message || "Failed to deploy the graph to Ram", isErrorModalOpen: true})
+            }
+        } catch (error: any){
+            set({ errorMessage: error?.response?.data?.detail ||error.message ||"Network error", isErrorModalOpen: true });
+        }
+    },
+    undeployLogic: async (logic_obj_id: string) => {
+        const selected_worker_id = get().selected_worker?.selected_worker_id;
+        if (!selected_worker_id) {
+            set({ errorMessage: "Không xác định được Worker đang thao tác", isErrorModalOpen: true });
+            return;
+        }
+        const isMaster = selected_worker_id === "master_gateway"; // Kiểm tra Master
+        try {
+            const resp = await (
+                isMaster
+                ?NodeAPI.master_undeploy_graph_from_ram(logic_obj_id)
+                :NodeAPI.proxy_undeploy_graph_from_ram(selected_worker_id, logic_obj_id)
+            )
+            if(resp.success){
+                await get().openPoolsDrawer(selected_worker_id)
+                return;
+            } else {
+                set({errorMessage: resp?.error_message || "Failed to Undeploy the graph to Ram", isErrorModalOpen: true})
+            }
+        } catch (error : any){
+            set({ errorMessage: error?.response?.data?.detail ||error.message ||"Network error", isErrorModalOpen: true });
+        }
+    },
+    silentRefreshFleet: async () => {
+        const host = get().gateway;
+        if (!host) return;
+        try {
+            // FIX BUG MẤT KẾT NỐI API SAU KHI F5:
+            // Phải nạp lại địa chỉ host vào axiosClient vì RAM đã bị xóa
+            axiosClient.defaults.baseURL = host;
+            // Chỉ gọi API ngầm, KHÔNG set isLoading = true để tránh giật UI
+            const data: any = await FleetAPI.getFleetStatus();
+            if (Array.isArray(data)) {
+                const master = data.find((node: any) => node.role === "master") ?? null;
+                const workers = data.filter((node: any) => node.role !== "master");
+                set({
+                    master_worker: master,
+                    fleet_worker: workers,
+                });
+            }
+        } catch (error) {
+            console.error("Silent refresh failed", error);
+        }
+    },
+    toggleFileRamStatus: async (filename: string, isCurrentlyInRam: boolean) => {
+            const selected_worker_id = get().selected_worker?.selected_worker_id;
+            if (!selected_worker_id) {
+                set({ errorMessage: "Không xác định được Worker đang thao tác", isErrorModalOpen: true });
+                return;
+            }
+            const isMaster = selected_worker_id === "master_gateway";
+            try {
+                let resp;
+                if (isCurrentlyInRam) {
+                    // Đang ở trong RAM -> Gọi API Unload
+                    resp = await (isMaster
+                        ? FleetAPI.master_unloadFileFromRam(filename)
+                        : FleetAPI.proxy_unloadFileFromRam(selected_worker_id, filename));
+                } else {
+                    // Chưa ở trong RAM -> Gọi API Load
+                    resp = await (isMaster
+                        ? FleetAPI.master_loadFileToRam(filename)
+                        : FleetAPI.proxy_loadFileToRam(selected_worker_id, filename));
+                }
+                if (resp?.success) {
+                    // Load/Unload thành công thì refresh lại UI của Drawer ngay lập tức
+                    await get().openPoolsDrawer(selected_worker_id);
+                } else {
+                    set({ errorMessage: resp?.message || "Thao tác RAM thất bại", isErrorModalOpen: true });
+                }
+            } catch (error: any) {
+                set({ errorMessage: error?.response?.data?.detail || error.message || "Lỗi mạng", isErrorModalOpen: true });
+            }
+        },
+}),
+{
+    name: "fleet-storage", // Tên bộ nhớ lưu IP Server
+    storage: createJSONStorage(() => localStorage),
+    // CHỈ LƯU DUY NHẤT ĐỊA CHỈ IP (GATEWAY) ĐỂ BẢO VỆ MẠNG
+    partialize: (state) => ({ gateway: state.gateway }),
+}
+));
+
+### FILE: UI_Engine/hooks/useKeyboardTrigger.ts ###
+// src/UI_Engine/Hooks/useKeyboardTrigger.ts
+import { useEffect } from 'react';
+import { useKeyboardTriggerStore } from '../UIEngineStores/KeyboardTriggerStore';
+import { useTagDb } from '../UIEngineStores/GlobalTagsStore';
+import { useSequencerStore } from '../UIEngineStores/SequencerStores'; // <-- IMPORT MỚI
+export const useKeyboardTrigger = () => {
+    const shortcuts = useKeyboardTriggerStore(state => state.shortcuts);
+    const { writeTag, readTag } = useTagDb.getState();
+    const isEngineRunning = useSequencerStore(state => state.isEngineRunning); // Lắng nghe state của Engine
+    useEffect(() => {
+        // --- CẢI TIẾN QUAN TRỌNG: NẾU ENGINE CHƯA CHẠY, NGẮT LUÔN VIỆC LẮNG NGHE ---
+        if (!isEngineRunning) return;
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+            if (e.repeat) return;
+            shortcuts.forEach(shortcut => {
+                if (shortcut.keyCode === e.code && shortcut.targetTag) {
+                    e.preventDefault();
+                    switch (shortcut.actionType) {
+                        case 'toggle': writeTag(shortcut.targetTag, !readTag(shortcut.targetTag)); break;
+                        case 'setToTrue': writeTag(shortcut.targetTag, true); break;
+                        case 'setToFalse': writeTag(shortcut.targetTag, false); break;
+                        case 'pulse': writeTag(shortcut.targetTag, true); break;
+                    }
+                }
+            });
+        };
+        const handleKeyUp = (e: KeyboardEvent) => {
+            if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+            shortcuts.forEach(shortcut => {
+                if (shortcut.keyCode === e.code && shortcut.targetTag && shortcut.actionType === 'pulse') {
+                    writeTag(shortcut.targetTag, false);
+                }
+            });
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        window.addEventListener('keyup', handleKeyUp);
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('keyup', handleKeyUp);
+        };
+    }, [shortcuts, isEngineRunning]); // Trigger re-render hook khi Engine đổi trạng thái
+};
+
+### FILE: UI_Engine/UIEngineHelper/useTagHelper.ts ###
+import { useTagDb } from "../UIEngineStores/GlobalTagsStore";
+export const useTagValue = <T = any>(tagName: string) : T | undefined => {
+    return useTagDb((state) => state.tags[tagName] as T);
+};
+export const useWriteTag = () => {
+    return useTagDb((state) => state.writeTag);
+};
+
+### FILE: UI_Engine/UIEngineStores/GlobalTagsStore.ts ###
+import { create } from "zustand";
+import { persist, createJSONStorage, StateStorage } from "zustand/middleware";
+import { get, set, del } from 'idb-keyval';
+const idbStorage: StateStorage = {
+    getItem: async (name: string) => (await get(name)) || null,
+    setItem: async (name: string, value: string) => await set(name, value),
+    removeItem: async (name: string) => await del(name),
+};
+export type TagValue = string | number | boolean | null | Record<string, any> | any[] | Blob | File;
+export const inferTagType = (value: any): string => { // Trong PropertiesSidebar thì tên là inferType nhé
+    if (value === null || value === undefined) return 'any';
+    if (typeof value === 'boolean') return 'boolean';
+    if (typeof value === 'number') return 'number';
+    // Nhận diện mảng và JSON
+    if (Array.isArray(value)) return 'list';
+    if (typeof value === 'object') return 'dict';
+    if (typeof value === 'string') {
+        // Gom chung Ảnh Base64 và Raw Base64 vào 1 kiểu duy nhất là 'base64'
+        if (value.startsWith('data:image/')) return 'base64';
+        if (value.length > 200 && !value.includes(' ') && /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
+            return 'base64';
+        }
+        return 'string';
+    }
+    return 'any';
+};
+interface TagDBStore {
+    tags: Record<string, TagValue>;
+    isGlobalTagsTableOpen: boolean;
+    writeTag: (key: string, value: TagValue) => void;
+    writeTagsBatch: (tagsToUpdate: Record<string, TagValue>) => void;
+    readTag: (key: string) => TagValue | undefined;
+    getAllTags: () => Record<string, TagValue>;
+    deleteTag: (key: string) => void;
+}
+export const useTagDb = create<TagDBStore>()(
+    persist(
+        (set, get) => ({
+            tags: {},
+            isGlobalTagsTableOpen: false,
+            writeTag: (key, value) => set((state) => ({
+                tags: { ...state.tags, [key]: value }
+            })),
+            writeTagsBatch: (tagsToUpdate) => set((state) => ({
+                tags: { ...state.tags, ...tagsToUpdate }
+            })),
+            readTag: (key) => get().tags[key],
+            getAllTags: () => get().tags,
+            deleteTag: (key) => set((state) => {
+                const newTags = { ...state.tags };
+                delete newTags[key];
+                return { tags: newTags };
+            })
+        }),
+        {
+            name: "tag-db-storage",
+            storage: createJSONStorage(() => idbStorage),
+        }
+    )
+);
+
+### FILE: UI_Engine/UIEngineStores/InspectionStore.ts ###
+import { create } from "zustand";
+import { useTagDb } from './GlobalTagsStore';
+import { COLOR_PALETTE } from "../../utils/ColorConst";
+export type DrawType = 'screen' | 'thumbnail' | 'frame' | 'bounding_box' | 'text' | 'line' | 'bounding_circle';
+export interface DataBinding {
+    propName: string;
+    globalTagKey: string;
+}
+export interface BaseUINode{
+    id: string;
+    name: string;
+    type: DrawType;
+}
+export interface Screen extends BaseUINode{
+    id: string;
+    type: DrawType;
+    children_id: string[];
+    size_x : number;
+    size_y : number;
+    style: {
+        fillColor: string;
+    };
+    bindings: DataBinding[];
+}
+export interface Thumbnail extends BaseUINode{
+    id: string;
+    type: DrawType;
+    screen_id: string;
+}
+export interface Frame extends BaseUINode{
+    id: string;
+    type: DrawType;
+    parent_id: string;
+    children_id : string[];
+    x : number;
+    y : number;
+    size_x : number;
+    size_y : number;
+    rotation: number;
+    style: {
+        strokeColor: string;
+        border_thickness: number;
+        fillColor: string;
+        default_image: any;
+        bgImage: any;
+    }
+    bindings: DataBinding[];
+    isVisible: boolean;
+}
+export interface BoundingBoxNode extends BaseUINode{
+    id: string;
+    type: DrawType;
+    parent_id: string;
+    z_order : number;
+    x: number;
+    y: number;
+    size_x : number;
+    size_y : number;
+    rotation: number;
+    style: {
+        strokeColor: string;
+        border_thickness: number;
+        dash?: number[]
+    }
+    bindings: DataBinding[];
+    isVisible: boolean;
+}
+export interface TextNode extends BaseUINode{
+    id: string;
+    type: DrawType;
+    parent_id: string;
+    z_order: number
+    content: string;
+    x: number;
+    y: number;
+    size_x: number;
+    size_y: number;
+    rotation: number;
+    style: {
+        fontSize: number;
+        fontColor: string;
+        fontFamily: string;
+        fillcolor: string;
+        align: 'left' | 'center' | 'right';
+    };
+    binding: DataBinding[];
+    isVisible: boolean;
+}
+export interface BoundingCircleNode extends BaseUINode{
+    id: string;
+    type: DrawType;
+    parent_id: string;
+    z_order : number;
+    x: number;
+    y: number;
+    radius : number;
+    style: {
+        strokeColor: string;
+        border_thickness: number;
+        dash?: number;
+    }
+    bindings: DataBinding[];
+    isVisible: boolean;
+}
+export interface LineNode extends BaseUINode{
+    id: string;
+    type: DrawType;
+    parent_id: string;
+    z_order : number;
+    x1: number;
+    x2: number;
+    y1 : number;
+    y2 : number;
+    style: {
+        strokeColor: string;
+        thickness: number;
+        dash?: number;
+    }
+    bindings: DataBinding[];
+    isVisible: boolean;
+}
+export interface ActionMenuContext {
+    isOpen: boolean;
+    x: number;
+    y: number;
+    target_id: string;
+    target_type: DrawType;
+}
+export interface PropertiesPanelContext {
+    isOpen: boolean;
+    target_id: string | null;
+}
+export interface NameLabelConfig {
+    isVisible: boolean;
+    fontSize: number;
+    fontColor: string;
+    fontFamily: string;
+}
+export interface UIEngineStore {
+    components_map: Record<string, any>;
+    selectedNodeIds: string[];
+    showDataTable: boolean;
+    nameLabelConfig: NameLabelConfig;
+    showTerminalLog: boolean;
+    activeScreenId: string | null;
+    importFileContext: File | null;
+    setImportFile: (file: File | null) => void;
+    viewportMode: 'normal' | 'fullViewPort' | 'fullScreen';
+    actionMenu: ActionMenuContext;
+    propertyPanel: PropertiesPanelContext;
+    renameModal: { isOpen: boolean; target_id: string; currentName: string };
+    // Actions
+    updateComponentProps: (id: string, new_props: any) => void;
+    renameComponent: (id: string, newName: string) => void;
+    addComponent: (type: DrawType, parent_id: string, initial_x: number, initial_y: number) => void;
+    addScreen: () => void;
+    deleteComponents: (ids: string[]) => void;
+    selectComponents: (ids: string[]) => void;
+    changeScreen: (screen_id: string) => void;
+    setViewportMode: (mode: 'normal' | 'fullViewPort' | 'fullScreen') => void;
+    // UI Toggles & Menus
+    openActionMenu: (target_id: string, target_type: DrawType, client_x: number, client_y: number, local_x: number, local_y: number) => void;
+    closeActionMenu: () => void;
+    openPropertiesPanel: (target_id: string) => void;
+    closePropertiesPanel: () => void;
+    openRenameModal: (id: string, name: string) => void;
+    closeRenameModal: () => void;
+    toggleTerminalLog: () => void;
+    updateNameLabelConfig: (newConfig: Partial<NameLabelConfig>) => void;
+    // Binding
+    bindTagToProperty: (nodeId: string, propName: string, globalTagKey: string) => void;
+    unbindTag: (nodeId: string, propName: string) => void;
+}
+export const useUIEngine = create<UIEngineStore>((set, get) => ({
+    components_map: {
+        // Screen Mặc định
+        'screen_1': {
+            id: 'screen_1',
+            type: 'screen',
+            name: 'Main Screen',
+            // KHAI BÁO ID CỦA FRAME CON ĐỂ SCREEN RENDER NÓ
+            children_id: ['frame_intro'],
+            size_x: 1920,
+            size_y: 1080,
+            style: { fillColor: '
+            bindings: []
+        },
+        // --- FRAME HƯỚNG DẪN MẶC ĐỊNH ---
+        'frame_intro': {
+            id: 'frame_intro',
+            type: 'frame',
+            name: 'Welcome Frame',
+            parent_id: 'screen_1',
+            // KHAI BÁO ID CỦA TEXT CON ĐỂ FRAME RENDER NÓ
+            children_id: ['text_intro'],
+            x: 100, // Cách mép trái màn hình 100px
+            y: 100, // Cách mép trên màn hình 100px
+            size_x: 600,
+            size_y: 400,
+            rotation: 0,
+            style: {
+                strokeColor: '
+                border_thickness: 2,
+                fillColor: 'rgba(138, 180, 248, 0.1)'
+            },
+            bindings: [],
+            isVisible: true
+        },
+        // --- TEXT HƯỚNG DẪN BÊN TRONG FRAME ---
+        'text_intro': {
+            id: 'text_intro',
+            type: 'text',
+            name: 'Guide Text',
+            parent_id: 'frame_intro',
+            content: "WELCOME TO LAMBDAVISION SUPER\n\n[ Hướng dẫn sử dụng nhanh ]\n\n1. Chuột phải vào nền trống để thêm Frame.\n2. Chuột phải vào Frame để thêm các UI (Box, Circle, Text).\n3. Mở Action Menu > Properties để thiết lập Data Bindings.\n4. Ấn nút Settings ở thanh Toolbar để cài phím tắt.\n5. Cuộn chuột để Zoom, kéo nền để Pan, chuột phải > Full Viewport.\n\nChúc bạn có một trải nghiệm hệ thống tuyệt vời!",
+            x: 40,
+            y: 40,
+            size_x: 520,
+            size_y: 320,
+            rotation: 0,
+            style: {
+                fontSize: 18,
+                fontColor: '
+                fontFamily: 'monospace'
+            },
+            bindings: [],
+            isVisible: true
+        }
+    },
+    selectedNodeIds: [], showDataTable: false, showNames: true, showTerminalLog: false, activeScreenId: 'screen_1',
+    actionMenu: { isOpen: false, x: 0, y: 0, target_id: '', target_type: 'screen' } as any,
+    propertyPanel: { isOpen: false, target_id: null },
+    renameModal: { isOpen: false, target_id: '', currentName: '' },
+    nameLabelConfig: {
+        isVisible: true,
+        fontSize: 20,
+        fontColor: '
+        fontFamily: 'Arial'
+    },
+    viewportMode: 'normal',
+    importFileContext: null,
+    updateComponentProps: (id, new_props) => set((state) => {
+        const node = state.components_map[id];
+        if (!node) return state;
+        return { components_map: { ...state.components_map, [id]: { ...node, ...new_props } } };
+    }),
+    renameComponent: (id, newName) => set((state) => {
+        const node = state.components_map[id];
+        if (!node) return state;
+        return { components_map: { ...state.components_map, [id]: { ...node, name: newName } } };
+    }),
+    addScreen: () => set((state) => {
+        const newId = `screen_${Date.now()}`;
+        const count = Object.values(state.components_map).filter(n => n.type === 'screen').length + 1;
+        return {
+            components_map: {
+                ...state.components_map,
+                [newId]: {
+                    id: newId,
+                    type: 'screen',
+                    name: `Screen ${count}`,
+                    children_id: [],
+                    size_x: 1920,
+                    size_y: 1080,
+                    // Thêm style khi đẻ Screen mới
+                    style: { fillColor: '
+                    bindings: []
+                }
+            },
+            activeScreenId: newId
+        };
+    }),
+    addComponent: (type, parent_id, initial_x, initial_y) => set((state) => {
+        const newId = `${type}_${Date.now()}`;
+        const parent = state.components_map[parent_id];
+        if(!parent) return state;
+        // Thuật toán: Thêm vào Frame -> Auto Center & Resize an toàn
+        let finalX = initial_x; let finalY = initial_y;
+        let finalW = 100; let finalH = 100; let finalR = 50;
+        if (parent.type === 'frame' && type !== 'frame') {
+            finalW = Math.min(100, parent.size_x * 0.8); // Không được to quá 80% Frame
+            finalH = Math.min(100, parent.size_y * 0.8);
+            finalR = Math.min(50, parent.size_x * 0.4, parent.size_y * 0.4);
+            // Căn chính giữa Frame
+            finalX = type === 'bounding_circle' ? parent.size_x / 2 : (parent.size_x - finalW) / 2;
+            finalY = type === 'bounding_circle' ? parent.size_y / 2 : (parent.size_y - finalH) / 2;
+        }
+        const newNode: any = { id: newId, type, name: `${type} ${Math.floor(Math.random() * 100)}`, parent_id, x: finalX, y: finalY, rotation: 0, bindings: [], isVisible: true };
+        if (type === 'frame') { newNode.size_x = 400; newNode.size_y = 300; newNode.children_id = []; newNode.style = { strokeColor: '
+        if (type === 'bounding_box') { newNode.size_x = finalW; newNode.size_y = finalH; newNode.style = { strokeColor: '
+        if (type === 'bounding_circle') { newNode.radius = finalR; newNode.style = { strokeColor: '
+        if (type === 'text') { newNode.size_x = 100; newNode.size_y = 30; newNode.content = 'Double click to edit'; newNode.style = { fontSize: 16, fontColor: '
+        return { components_map: { ...state.components_map, [newId]: newNode, [parent_id]: { ...parent, children_id: [...(parent.children_id || []), newId] } } };
+    }),
+    deleteComponents: (ids) => set((state) => {
+        const newMap = { ...state.components_map };
+        let newActiveScreenId = state.activeScreenId;
+        ids.forEach(id => {
+            const node = newMap[id];
+            if (node) {
+                if (node.parent_id && newMap[node.parent_id]) { newMap[node.parent_id].children_id = newMap[node.parent_id].children_id.filter((c: string) => c !== id); }
+                if (node.type === 'screen' && id === state.activeScreenId) {
+                    const remaining = Object.keys(newMap).filter(k => newMap[k].type === 'screen' && k !== id);
+                    newActiveScreenId = remaining.length > 0 ? remaining[0] : null;
+                }
+            }
+            delete newMap[id];
+        });
+        return { components_map: newMap, selectedNodeIds: [], actionMenu: { ...state.actionMenu, isOpen: false }, activeScreenId: newActiveScreenId };
+    }),
+    selectComponents: (ids) => set({ selectedNodeIds: ids }), changeScreen: (id) => set({ activeScreenId: id, selectedNodeIds: [] }),
+    setViewportMode: (mode) => set({ viewportMode: mode }),
+    openActionMenu: (id, type, cx, cy, lx, ly) => set({ actionMenu: { isOpen: true, x: cx, y: cy, target_id: id, target_type: type, local_x: lx, local_y: ly } as any, selectedNodeIds: type !== 'screen' && type !== 'thumbnail' ? [id] : [] }),
+    closeActionMenu: () => set((state) => ({ actionMenu: { ...state.actionMenu, isOpen: false } })),
+    openPropertiesPanel: (id) => set((state) => ({
+        propertyPanel: { isOpen: true, target_id: id },
+        actionMenu: { ...state.actionMenu, isOpen: false }
+    })),
+    closePropertiesPanel: () => set({ propertyPanel: { isOpen: false, target_id: null } }),
+    openRenameModal: (id, name) => set((state) => ({
+        renameModal: { isOpen: true, target_id: id, currentName: name },
+        actionMenu: { ...state.actionMenu, isOpen: false }
+    })),
+    closeRenameModal: () => set({ renameModal: { isOpen: false, target_id: '', currentName: '' } }),
+    toggleTerminalLog: () => set((state) => ({ showTerminalLog: !state.showTerminalLog })),
+    updateNameLabelConfig: (newConfig) => set((state) => ({
+        nameLabelConfig: { ...state.nameLabelConfig, ...newConfig }
+    })),
+    bindTagToProperty: (nodeId, propName, tagKey) => set((state) => {
+        const node = state.components_map[nodeId];
+        return { components_map: { ...state.components_map, [nodeId]: { ...node, bindings: [...node.bindings.filter((b: any) => b.propName !== propName), { propName, globalTagKey: tagKey }] } } };
+    }),
+    unbindTag: (nodeId, propName) => set((state) => {
+        const node = state.components_map[nodeId];
+        return { components_map: { ...state.components_map, [nodeId]: { ...node, bindings: node.bindings.filter((b: any) => b.propName !== propName) } } };
+    }),
+    setImportFile: (file) => set({ importFileContext: file }),
+}));
+export const useDataBinding = (bindings: DataBinding[] = [], propName: string, localValue: any) => {
+    const binding = bindings.find(b => b.propName === propName);
+    const globalValue = useTagDb(state => binding ? state.tags[binding.globalTagKey] : undefined);
+    if (globalValue === undefined || globalValue === null || globalValue === "" || globalValue === "data:image/empty") {
+        return localValue;
+    }
+    return globalValue;
+};
+
+### FILE: UI_Engine/UIEngineStores/KeyboardTriggerStore.ts ###
+import { create } from "zustand";
+import { persist, createJSONStorage } from "zustand/middleware";
+export type TriggerActionType = 'toggle' | 'setToTrue' | 'setToFalse' | 'pulse';
+export interface Shortcut {
+    id: string;
+    keyLabel: string; // VD: 'SPACE', 'A', 'ENTER' (để hiển thị)
+    keyCode: string;  // VD: 'Space', 'KeyA', 'Enter' (để hệ thống bắt chính xác)
+    targetTag: string;
+    actionType: TriggerActionType;
+}
+export interface KeyboardTriggerStore {
+    isSettingsModalOpen: boolean;
+    shortcuts: Shortcut[];
+    // Actions
+    toggleSettingsModal: () => void;
+    addShortcut: () => void;
+    updateShortcut: (id: string, updates: Partial<Shortcut>) => void;
+    removeShortcut: (id: string) => void;
+}
+export const useKeyboardTriggerStore = create<KeyboardTriggerStore>()(
+    persist(
+        (set) => ({
+            isSettingsModalOpen: false,
+            shortcuts: [],
+            toggleSettingsModal: () => set((state) => ({
+                isSettingsModalOpen: !state.isSettingsModalOpen
+            })),
+            addShortcut: () => set((state) => ({
+                shortcuts: [
+                    ...state.shortcuts,
+                    {
+                        id: `shortcut_${Date.now()}`,
+                        keyLabel: 'UNASSIGNED',
+                        keyCode: '',
+                        targetTag: '',
+                        actionType: 'toggle'
+                    }
+                ]
+            })),
+            updateShortcut: (id, updates) => set((state) => ({
+                shortcuts: state.shortcuts.map(s => s.id === id ? { ...s, ...updates } : s)
+            })),
+            removeShortcut: (id) => set((state) => ({
+                shortcuts: state.shortcuts.filter(s => s.id !== id)
+            }))
+        }),
+        {
+            name: "keyboard-trigger-storage",
+            storage: createJSONStorage(() => localStorage),
+            // Không lưu trạng thái đóng/mở của modal khi F5
+            partialize: (state) => ({ shortcuts: state.shortcuts }),
+        }
+    )
+);
+
+### FILE: UI_Engine/UIEngineStores/SequencerEngine.ts ###
+import { Node, Edge } from "@xyflow/react";
+import { useTagDb, TagValue } from "./GlobalTagsStore";
+import { useSequencerStore,
+    NodeStartConfig,
+    SequencerNodeType,
+    NodeEndConfig,
+    NodeSplitConfig,
+    NodeJoinConfig,
+    NodeSwitchConfig,
+    NodeComputeConfig,
+    OperandType,
+    NodeAndConfig,
+    NodeDelayConfig,
+    NodeTagOvwrByValConfig,
+    NodeExtractJSONConfig,
+    NodeProcessConfig,
+    NodeBuildJSONConfig,
+    NodeScriptConfig,
+    NodeWriteDBConfig,
+    TokenValue} from "./SequencerStores";
+import { NodeAPI } from "../../api/nodeApi";
+import { DBEngineAPI } from "../../api/dbEngineApi";
+interface BaseSequenceNode {
+    execute(token_id: string) : Promise<void>;
+    reset?(): void;
+}
+class NodeStart implements BaseSequenceNode {
+    private next_node_id: string;
+    private on_begin_map: Record<string, TagValue>;
+    private engine: SequencerEngine;
+    constructor(config: NodeStartConfig){
+        this.next_node_id = config.next_node_id;
+        this.on_begin_map = config.on_begin_map;
+        this.engine = SequencerEngine.getInstance();
+    }
+    async execute(token_id : string): Promise<void> {
+        //For start function, simply do the on begin data manipulation then move the token to the next node.(good for initializing first state)
+        const tagStore = useTagDb.getState();
+        for (const [key, value] of Object.entries(this.on_begin_map)) {
+            //Write data from node config into the tag db table
+            tagStore.writeTag(key, value);
+        }
+        //Move to next node
+        this.engine.moveToken(token_id, this.next_node_id);
+    }
+}
+class NodeEnd implements BaseSequenceNode {
+    private on_end_map : Record<string, TagValue>;
+    private engine : SequencerEngine;
+    constructor(config: NodeEndConfig){
+        this.on_end_map = config.on_end_map;
+        this.engine = SequencerEngine.getInstance();
+    }
+    async execute(token_id : string): Promise<void> {
+        // update the tag DB table with data from config then kill the token (good for cleaning up)
+        const tagStore = useTagDb.getState();
+        for (const[key, value] of Object.entries(this.on_end_map)){
+            tagStore.writeTag(key, value);
+        }
+        this.engine.killToken(token_id);
+    }
+}
+class NodeSplit implements BaseSequenceNode {
+    private next_nodes_id_list : string[];
+    private engine : SequencerEngine;
+    constructor(config: NodeSplitConfig){
+        this.next_nodes_id_list = config.next_nodes_id_list;
+        this.engine = SequencerEngine.getInstance();
+    }
+    async execute(token_id : string): Promise<void> {
+        //Spawn n new tokens for split
+        for (const node_id of this.next_nodes_id_list ){
+            this.engine.spawnToken(node_id);
+        }
+        //then remove the previous single token
+        this.engine.killToken(token_id);
+    }
+}
+class NodeJoin implements BaseSequenceNode{
+    private next_node_id: string;
+    private token_count : number;
+    private tokens_gathered : string[];
+    private required_token_count : number;
+    private engine: SequencerEngine;
+    constructor(config: NodeJoinConfig){
+        this.next_node_id = config.next_node_id;
+        this.token_count = 0;
+        this.tokens_gathered = [];
+        this.required_token_count = config.required_tokens_count;
+        this.engine = SequencerEngine.getInstance();
+    }
+    async execute(token_id : string): Promise<void> {
+        // FIX 1: Dùng hàm .includes() của ES6, vứt bỏ vòng lặp for...in đi cho đời thanh thản
+        if (this.tokens_gathered.includes(token_id)) {
+            return;
+        }
+        this.tokens_gathered.push(token_id);
+        // FIX 2: Bắt nó đứng phạt góc (Chuyển sang WAITING, không giết)
+        this.engine.changeTokenStatus(token_id, "WAITING");
+        this.token_count += 1;
+        if (this.token_count === this.required_token_count){
+            // BƯỚC 3: Đủ KPI rồi thì giết sạch các Token đang đứng chờ
+            for (const t_id of this.tokens_gathered) {
+                 this.engine.killToken(t_id);
+            }
+            // Và đẻ ra Token mới đi tiếp
+            this.engine.spawnToken(this.next_node_id);
+            this.token_count = 0;
+            this.tokens_gathered = [];
+        }
+    }
+    reset(): void {
+        this.token_count = 0;
+        this.tokens_gathered = [];
+    }
+}
+class NodeSwitch implements BaseSequenceNode {
+    private next_node_id_map: Record<string, string>; //value_to_compare : next_node_id
+    private tag_id: string;
+    private engine: SequencerEngine;
+    constructor(config: NodeSwitchConfig){
+        this.next_node_id_map = config.next_node_id_map;
+        this.tag_id = config.tag_id;
+        this.engine = SequencerEngine.getInstance();
+    }
+    async execute(token_id : string): Promise<void> {
+        const tagStore = useTagDb.getState();
+        const compared_val = String(tagStore.readTag(this.tag_id))
+        for(const [key, value] of Object.entries(this.next_node_id_map)){
+            if(compared_val === key) {
+                this.engine.moveToken(token_id, value);
+                return;
+            }
+        }
+    }
+}
+const toNumber = (v: any): number => {
+    // Helper function
+    const n = Number(v);
+    if (Number.isNaN(n)) return 0;
+    return n;
+};
+class NodeCompute implements BaseSequenceNode {
+    private next_node_id: string;
+    private tag_id_a : string;
+    private tag_id_b : string;
+    private operand : OperandType;
+    private target_tag_id: string;
+    private engine: SequencerEngine;
+    constructor(config: NodeComputeConfig){
+        this.next_node_id = config.next_node_id;
+        this.tag_id_a = config.tag_id_a;
+        this.tag_id_b = config.tag_id_b;
+        this.operand = config.operand
+        this.target_tag_id = config.target_tag_id;
+        this.engine = SequencerEngine.getInstance();
+    }
+    async execute(token_id : string): Promise<void> {
+        const tagStore = useTagDb.getState();
+        const a = toNumber(tagStore.readTag(this.tag_id_a));
+        const b = toNumber(tagStore.readTag(this.tag_id_b));
+        let result: number | boolean = 0;
+        switch (this.operand) {
+            case "+":
+                result = a + b;
+                break;
+            case "-":
+                result = a - b;
+                break;
+            case "*":
+                result = a * b;
+                break;
+            case "/":
+                result = b !== 0 ? a / b : 0;
+                break;
+            case ">":
+                result = a > b;
+                break;
+            case ">=":
+                result = a >= b;
+                break;
+            case "<":
+                result = a < b;
+                break;
+            case "<=":
+                result = a <= b;
+                break;
+            case "==":
+                result = a === b;
+                break;
+            default:
+                useSequencerStore.setState({isSequencerErrorModalOpen: true, SequencerErrorMessage: `Unsupported operand: ${this.operand}`})
+                return;
+        }
+        tagStore.writeTag(this.target_tag_id, result);
+        this.engine.moveToken(token_id, this.next_node_id);
+    }
+}
+const toBoolean = (v: any): boolean => {
+    if(typeof v === "boolean") return v;
+    if(typeof v === "number") return v !== 0;
+    if(typeof v === "string") return v.toLowerCase() === "true";
+    if(v == null) return false;
+    if(Array.isArray(v)) return v.length > 0;
+    if(typeof v === "object") return Object.keys(v).length > 0;
+    if(typeof v === "undefined") return false;
+    return false
+}
+class NodeAnd implements BaseSequenceNode {
+    private next_node_id : string;
+    private engine: SequencerEngine;
+    private tag_id_a: string;
+    private tag_id_b: string;
+    constructor(config: NodeAndConfig){
+        this.next_node_id = config.next_node_id;
+        this.engine = SequencerEngine.getInstance();
+        this.tag_id_a = config.tag_id_a;
+        this.tag_id_b = config.tag_id_b;
+    }
+    async execute(token_id : string): Promise<void> {
+        const tagStore = useTagDb.getState();
+        const a = toBoolean(tagStore.readTag(this.tag_id_a));
+        const b = toBoolean(tagStore.readTag(this.tag_id_b));
+        if ( a && b) {
+            this.engine.moveToken(token_id, this.next_node_id);
+        }
+    }
+}
+class NodeOR implements BaseSequenceNode {
+    private next_node_id : string;
+    private engine: SequencerEngine;
+    private tag_id_a: string;
+    private tag_id_b: string;
+    constructor(config: NodeAndConfig){
+        this.next_node_id = config.next_node_id;
+        this.engine = SequencerEngine.getInstance();
+        this.tag_id_a = config.tag_id_a;
+        this.tag_id_b = config.tag_id_b;
+    }
+    async execute(token_id : string): Promise<void> {
+        const tagStore = useTagDb.getState();
+        const a = toBoolean(tagStore.readTag(this.tag_id_a));
+        const b = toBoolean(tagStore.readTag(this.tag_id_b));
+        if ( a || b) {
+            this.engine.moveToken(token_id, this.next_node_id);
+        }
+    }
+}
+class NodeDelay implements BaseSequenceNode {
+    private next_node_id : string;
+    private delay_duration: number;
+    private engine: SequencerEngine;
+    constructor(config: NodeDelayConfig){
+        this.next_node_id = config.next_node_id;
+        this.delay_duration = config.delay_duration;
+        this.engine = SequencerEngine.getInstance();
+    }
+    async execute(token_id : string): Promise<void> {
+        this.engine.changeTokenStatus(token_id, "PROCESSING");
+        this.engine.schedule_move_token(token_id, this.delay_duration, this.next_node_id);
+    }
+}
+class NodeTagOvwrByVal implements BaseSequenceNode {
+    private next_node_id : string;
+    private target_tag_id: string;
+    private overwrite_value : any;
+    private engine: SequencerEngine;
+    constructor(config: NodeTagOvwrByValConfig){
+        this.next_node_id = config.next_node_id;
+        this.target_tag_id = config.target_tag_id;
+        this.overwrite_value = config.ovwr_value;
+        this.engine = SequencerEngine.getInstance();
+    }
+    async execute(token_id : string): Promise<void> {
+        const tagStore = useTagDb.getState();
+        tagStore.writeTag(this.target_tag_id, this.overwrite_value);
+        this.engine.moveToken(token_id, this.next_node_id);
+    }
+}
+class NodeTagOvwrByTag implements BaseSequenceNode {
+    private next_node_id : string;
+    private source_tag_id: string;
+    private target_tag_id : string;
+    private engine: SequencerEngine;
+    constructor(config: NodeTagOvwrByTag){
+        this.next_node_id = config.next_node_id;
+        this.source_tag_id = config.source_tag_id
+        this.target_tag_id = config.target_tag_id;
+        this.engine = SequencerEngine.getInstance();
+    }
+    async execute(token_id : string): Promise<void> {
+        const tagStore = useTagDb.getState();
+        const value = tagStore.readTag(this.source_tag_id) ?? ""
+        tagStore.writeTag(this.target_tag_id, value);
+        this.engine.moveToken(token_id, this.next_node_id);
+    }
+}
+function recursiveExtract(scriptObj: any, sourceObj: any, aliases: Record<string, string>, tagStore: any) {
+    if (typeof scriptObj === 'object' && scriptObj !== null && typeof sourceObj === 'object' && sourceObj !== null) {
+        for (const key in scriptObj) {
+            const scriptVal = scriptObj[key];
+            const sourceVal = sourceObj[key];
+            // Nếu Script là một Alias String (VD: "@name")
+            if (typeof scriptVal === 'string' && scriptVal.startsWith('@')) {
+                if (scriptVal === '@ignore' || sourceVal === undefined) continue;
+                const targetTag = aliases[scriptVal];
+                if (targetTag) {
+                    tagStore.writeTag(targetTag, sourceVal); // Móc từ Source nhét vào Tag
+                }
+            }
+            // Nếu Script là Object lồng nhau, tiếp tục đệ quy đi sâu vào
+            else if (typeof scriptVal === 'object') {
+                recursiveExtract(scriptVal, sourceVal, aliases, tagStore);
+            }
+        }
+    }
+}
+function resolveJSONPath(obj: any, path: string): any {
+    // 1. Kiểm tra đầu vào an toàn
+    if (!path || typeof path !== 'string') return undefined;
+    if (obj === null || obj === undefined) return undefined;
+    // 2. Chuẩn hóa cấu trúc Path cực mạnh:
+    // - Biến cấu trúc mảng arr[0] thành arr.0
+    // - Cắt bỏ dấu chấm thừa ở đầu/cuối (vd: ".data.id" thành "data.id")
+    const normalizedPath = path
+        .replace(/\[(\w+)\]/g, '.$1')
+        .replace(/^\.+|\.+$/g, '');
+    const keys = normalizedPath.split('.');
+    let current = obj;
+    for (let i = 0; i < keys.length; i++) {
+        const key = keys[i];
+        // 3. SỬA BUG CHÍ MẠNG: Dùng === thay vì =
+        if (current === null || current === undefined) {
+            // Chủ động ném lỗi (Throw) để Node đang chạy bắt được và báo cho UI
+            throw new Error(`Đường dẫn JSON bị đứt gãy tại khóa '${key}'. Dữ liệu tại đây không tồn tại.`);
+        }
+        // Đề phòng trường hợp cố tình trỏ vào một giá trị nguyên thủy (như số/chuỗi)
+        if (typeof current !== 'object') {
+            throw new Error(`Không thể tìm khóa '${key}' vì '${keys[i-1]}' không phải là Object/Array.`);
+        }
+        current = current[key];
+    }
+    return current;
+}
+class NodeExtractJSON implements BaseSequenceNode {
+    private next_node_id: string;
+    private source_tag_id: string;
+    private aliases: Record<string, string>;
+    private script: string;
+    private engine: SequencerEngine;
+    constructor(config: NodeExtractJSONConfig){
+        this.next_node_id = config.next_node_id;
+        this.source_tag_id = config.source_tag_id;
+        this.aliases = config.aliases || {};
+        this.script = config.script || "{}";
+        this.engine = SequencerEngine.getInstance();
+    }
+    async execute(token_id : string): Promise<void> {
+        const tagStore = useTagDb.getState();
+        try {
+            const sourceData = tagStore.readTag(this.source_tag_id);
+            if (!sourceData || typeof sourceData !== 'object') {
+                throw new Error(`Tag nguồn '${this.source_tag_id}' bị rỗng hoặc không phải JSON Object hợp lệ.`);
+            }
+            const scriptTemplate = JSON.parse(this.script); // Parse an toàn
+            recursiveExtract(scriptTemplate, sourceData, this.aliases, tagStore);
+            this.engine.moveToken(token_id, this.next_node_id);
+        } catch (error: any) {
+            useSequencerStore.setState({ isSequencerErrorModalOpen: true, SequencerErrorMessage: `Extract JSON Error: ${error.message}`});
+            this.engine.changeTokenStatus(token_id, "PROCESSING");
+        }
+    }
+}
+function buildJSONFromPathMap(map: Record<string, any>, tagStore: any): any {
+    const result: any = {};
+    for (const path in map) {
+        const tag_id = map[path];
+        // Đọc GIÁ TRỊ THỰC TẾ từ Tag DB thay vì lấy tên tag
+        const actual_value = tagStore.readTag(tag_id);
+        // Bỏ qua nếu giá trị không tồn tại (undefined)
+        if (actual_value === undefined) continue;
+        // Chuẩn hóa path: cắt bỏ dấu '.' ở đầu (ví dụ: ".innum" -> "innum")
+        const cleanPath = path.replace(/^\.+/, '');
+        const keys = cleanPath.split('.');
+        let current = result;
+        for (let i = 0; i < keys.length; i++) {
+            const key = keys[i];
+            if (i === keys.length - 1) {
+                current[key] = actual_value; // Nhét giá trị thực tế vào
+            } else {
+                if (!current[key] || typeof current[key] !== "object") {
+                    current[key] = {};
+                }
+                current = current[key];
+            }
+        }
+    }
+    return result;
+}
+function recursiveBuild(scriptObj: any, aliases: Record<string, string>, tagStore: any): any {
+    // Nếu là một Alias String -> Nhét dữ liệu từ Tag vào
+    if (typeof scriptObj === 'string' && scriptObj.startsWith('@')) {
+        if (scriptObj === '@ignore') return undefined; // Sẽ bị JSON.stringify lược bỏ sau này
+        const sourceTag = aliases[scriptObj];
+        return sourceTag ? tagStore.readTag(sourceTag) : null;
+    }
+    // Nếu là Mảng -> Chạy lặp tạo mảng
+    else if (Array.isArray(scriptObj)) {
+        return scriptObj.map(item => recursiveBuild(item, aliases, tagStore));
+    }
+    // Nếu là Object -> Duyệt tiếp tục
+    else if (typeof scriptObj === 'object' && scriptObj !== null) {
+        const result: any = {};
+        for (const key in scriptObj) {
+            const builtVal = recursiveBuild(scriptObj[key], aliases, tagStore);
+            if (builtVal !== undefined) {
+                result[key] = builtVal;
+            }
+        }
+        return result;
+    }
+    // Nếu chỉ là Text/Number cứng ghi trong template thì giữ nguyên
+    return scriptObj;
+}
+class NodeBuildJSON implements BaseSequenceNode {
+    private next_node_id: string;
+    private target_tag_id: string;
+    private aliases: Record<string, string>;
+    private script: string;
+    private engine: SequencerEngine;
+    constructor(config: NodeBuildJSONConfig){
+        this.next_node_id = config.next_node_id;
+        this.target_tag_id = config.target_tag_id;
+        this.aliases = config.aliases || {};
+        this.script = config.script || "{}";
+        this.engine = SequencerEngine.getInstance();
+    }
+    async execute(token_id : string): Promise<void> {
+        const tagStore = useTagDb.getState();
+        try {
+            const scriptTemplate = JSON.parse(this.script); // Parse Template
+            const builtJSON = recursiveBuild(scriptTemplate, this.aliases, tagStore);
+            tagStore.writeTag(this.target_tag_id, builtJSON); // Ghi đè JSON mới tinh vào Tag đích
+            this.engine.moveToken(token_id, this.next_node_id);
+        } catch (error: any) {
+            useSequencerStore.setState({ isSequencerErrorModalOpen: true, SequencerErrorMessage: `Build JSON Script Lỗi cú pháp: ${error.message}`});
+            this.engine.changeTokenStatus(token_id, "PROCESSING");
+        }
+    }
+}
+class NodeProcess implements BaseSequenceNode {
+    private next_node_id: string;
+    private worker_id: string;
+    private logic_object_id: string;
+    private payload_formation_map: Record<string, any>;  //json path : tag
+    private response_receive_map: Record<string, string>;  //json path : tag
+    private engine: SequencerEngine
+    constructor(config: NodeProcessConfig){
+        this.next_node_id = config.next_node_id;
+        this.worker_id = config.logic_object_info.worker_id;
+        this.logic_object_id = config.logic_object_info.logic_object_id;
+        this.payload_formation_map = config.payload_formation_map;
+        this.response_receive_map = config.response_receive_map;
+        this.engine = SequencerEngine.getInstance();
+    }
+    async execute(token_id : string): Promise<void> {
+        const tagStore = useTagDb.getState();
+        const payload = buildJSONFromPathMap(this.payload_formation_map, tagStore);
+        const isMaster = this.worker_id === "master_gateway";
+        try{
+            //Require Worker to execute the logic object with payload
+            this.engine.changeTokenStatus(token_id, "PROCESSING");
+            const resp = await (
+                isMaster
+                ?NodeAPI.master_execute_logic(this.logic_object_id, payload)
+                :NodeAPI.proxy_execute_logic(this.worker_id, this.logic_object_id, payload)
+            )
+            //If receive the good response => write results to tags table
+            if(resp.success){
+                const response_data = resp.data ?? {};
+                for(const [path, tag] of Object.entries(this.response_receive_map)){
+                    const extracted_data = resolveJSONPath(response_data, path)
+                    tagStore.writeTag(tag, extracted_data);
+                }
+                this.engine.moveToken(token_id, this.next_node_id);
+            }
+            else {
+                const error_message = `${this.logic_object_id} of ${this.worker_id} Error: faile at node ${resp.failed_node_id}, details: ${resp.error_message}`;
+                useSequencerStore.setState({isSequencerErrorModalOpen: true, SequencerErrorMessage: error_message})
+                useSequencerStore.getState().appendCompilerLog(error_message);
+                return;
+            }
+        } catch (error: any) {
+            const error_message = error.response?.data?.detail || `Network Error trying to call logic ${this.logic_object_id} from ${this.worker_id}`;
+            useSequencerStore.setState({isSequencerErrorModalOpen: true, SequencerErrorMessage: error_message})
+            useSequencerStore.getState().appendCompilerLog(error_message);
+            return;
+        }
+    }
+}
+class NodePortalIn implements BaseSequenceNode {
+    private next_node_id: string; // Chứa ID của Portal Out
+    private engine: SequencerEngine;
+    constructor(config: any){
+        this.next_node_id = config.next_node_id;
+        this.engine = SequencerEngine.getInstance();
+    }
+    async execute(token_id: string): Promise<void> {
+        // Dịch chuyển tức thời Token sang cổng Out
+        this.engine.moveToken(token_id, this.next_node_id);
+    }
+}
+class NodePortalOut implements BaseSequenceNode {
+    private next_node_id: string; // Chứa ID của khối tiếp theo thực sự
+    private engine: SequencerEngine;
+    constructor(config: any){
+        this.next_node_id = config.next_node_id;
+        this.engine = SequencerEngine.getInstance();
+    }
+    async execute(token_id: string): Promise<void> {
+        this.engine.moveToken(token_id, this.next_node_id);
+    }
+}
+class NodeScript implements BaseSequenceNode {
+    private next_node_id: string;
+    private input_aliases: Record<string, string>;
+    private output_aliases: Record<string, string>;
+    private script_content: string;
+    private engine: SequencerEngine;
+    constructor(config: NodeScriptConfig){
+        this.next_node_id = config.next_node_id;
+        this.input_aliases = config.input_aliases || {};
+        this.output_aliases = config.output_aliases || {};
+        this.script_content = config.script_content || "";
+        this.engine = SequencerEngine.getInstance();
+    }
+    async execute(token_id: string): Promise<void> {
+        const tagStore = useTagDb.getState();
+        const IN: any = {};
+        const OUT: any = {};
+        try {
+            // 1. Nhặt dữ liệu từ Tag đổ vào object IN
+            for (const [alias, tagId] of Object.entries(this.input_aliases)) {
+                IN[alias] = tagStore.readTag(tagId);
+            }
+            // 2. Ép kiểu tạo AsyncFunction một cách an toàn
+            const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor as any;
+            const userCode = new AsyncFunction('IN', 'OUT', this.script_content);
+            // 3. Thực thi kịch bản của người dùng (Token sẽ chờ lệnh await nếu có)
+            await userCode(IN, OUT);
+            // 4. Lấy kết quả từ object OUT đổ ngược vào Tag
+            for (const [alias, tagId] of Object.entries(this.output_aliases)) {
+                if (OUT[alias] !== undefined) {
+                    tagStore.writeTag(tagId, OUT[alias]);
+                }
+            }
+            this.engine.moveToken(token_id, this.next_node_id);
+        } catch (error: any) {
+            // Bắt cú pháp/Lỗi Runtime cực đỉnh để báo cho người dùng
+            const errorMsg = `JS Script Error: ${error.message}`;
+            useSequencerStore.setState({ isSequencerErrorModalOpen: true, SequencerErrorMessage: errorMsg});
+            useSequencerStore.getState().appendCompilerLog(`[RUNTIME ERROR] ${errorMsg}`);
+            this.engine.changeTokenStatus(token_id, "PROCESSING");
+        }
+    }
+}
+// Sequencer Engine==============================================
+interface Sequencer{
+    live_node_objects: Record<string, BaseSequenceNode> //object uuid, instance
+    cleanUpEngineMemory(): void;
+    setEngineCompiled(): void;
+    create_node_object(type: SequencerNodeType, config: any, node_id: string): void;
+    tick(): void;
+    moveToken(token_id : string, next_node_id: string): void;
+    killToken(token_id: string): void;
+    spawnToken(node_id: string): void;
+}
+interface ScheduledEventMoveToken {
+    token_id: string;
+    executeAt: number;
+    next_node_id: string;
+    finishDelayAt: number;
+}
+function dataURItoFile(dataURI: string, filename: string): File {
+    const arr = dataURI.split(',');
+    const mime = arr[0].match(/:(.*?);/)?.[1] || 'image/jpeg';
+    const bstr = atob(arr[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) {
+        u8arr[n] = bstr.charCodeAt(n);
+    }
+    return new File([u8arr], filename, { type: mime });
+}
+class NodeWriteDB implements BaseSequenceNode {
+    private next_node_id: string;
+    private config: NodeWriteDBConfig;
+    private engine: SequencerEngine;
+    constructor(config: NodeWriteDBConfig){
+        this.next_node_id = config.next_node_id;
+        this.config = config;
+        this.engine = SequencerEngine.getInstance();
+    }
+    async execute(token_id: string): Promise<void> {
+        const tagStore = useTagDb.getState();
+        const payloadData: Record<string, any> = {};
+        const isMaster = this.config.worker_id === "master_gateway";
+        this.engine.changeTokenStatus(token_id, "PROCESSING");
+        try {
+            for (const [colName, tagId] of Object.entries(this.config.mapping)) {
+                let val;
+                // ============================================
+                // KIỂM TRA TỪ KHÓA AUTO THỜI GIAN
+                // ============================================
+                if (tagId === '__AUTO_TIME__') {
+                    // Tạo chuỗi thời gian chuẩn ISO 8601 (Backend SQLAlchemy tự hiểu)
+                    val = new Date().toISOString();
+                } else {
+                    // Đọc từ Global Tags như bình thường
+                    val = tagStore.readTag(tagId as string);
+                }
+                // --- PHÉP THUẬT XỬ LÝ ẢNH ---
+                if (this.config.image_columns[colName] && val && typeof val === 'string' && val.startsWith('data:image')) {
+                    const filename = `img_${Date.now()}_${crypto.randomUUID().substring(0, 5)}.jpg`;
+                    // 1. Chỉ tạo File object
+                    const fileObj = dataURItoFile(val, filename);
+                    // 2. Truyền thẳng fileObj vào API (Bỏ luôn đoạn tạo FormData ở đây)
+                    const uploadRes = await (isMaster
+                        ? DBEngineAPI.master_uploadImage(fileObj)
+                        : DBEngineAPI.proxy_uploadImage(this.config.worker_id, fileObj));
+                    val = uploadRes.file_path;
+                }
+                // Đóng gói vào Payload
+                if (val !== undefined && val !== null && val !== "") {
+                    payloadData[colName] = val;
+                }
+            }
+            // GỌI API INSERT DATA
+            const insertPayload = { table: this.config.table_name, data: payloadData };
+            await (isMaster
+                ? DBEngineAPI.master_insertData(insertPayload)
+                : DBEngineAPI.proxy_insertData(this.config.worker_id, insertPayload));
+            this.engine.moveToken(token_id, this.next_node_id);
+        } catch (error: any) {
+            const errorMsg = `WriteDB Error: ${error.message}`;
+            useSequencerStore.setState({ isSequencerErrorModalOpen: true, SequencerErrorMessage: errorMsg});
+            this.engine.changeTokenStatus(token_id, "PROCESSING");
+        }
+    }
+}
+const NodeClassRegistry: Record<string, any> = {
+    "start": NodeStart,
+    "end": NodeEnd,
+    "split": NodeSplit,
+    "join": NodeJoin,
+    "switch": NodeSwitch,
+    "comp": NodeCompute,
+    "and": NodeAnd,
+    "or": NodeOR,
+    "delay": NodeDelay,
+    "tov": NodeTagOvwrByVal,
+    "tot": NodeTagOvwrByTag,
+    "exjson": NodeExtractJSON,
+    "buildjson": NodeBuildJSON,
+    "proc": NodeProcess,
+    "portal_in" : NodePortalIn,
+    "portal_out" : NodePortalOut,
+    "script": NodeScript,
+    "writedb": NodeWriteDB
+};
+export class SequencerEngine implements Sequencer {
+    private static instance: SequencerEngine | null = null;
+    public static getInstance(): SequencerEngine {
+        if (SequencerEngine.instance === null) {
+            SequencerEngine.instance = new SequencerEngine();
+        }
+        return SequencerEngine.instance;
+    }
+    public token_list: Record<string, TokenValue> = useSequencerStore.getState().run_time_token_list; //token id: token value
+    public live_node_objects: Record<string, BaseSequenceNode>;
+    private timer_queue : ScheduledEventMoveToken[];
+    private compiled : boolean;
+    private isRunning: boolean;
+    private start_node_id: string = "";
+    private constructor(){
+        this.live_node_objects = {};
+        this.timer_queue = [];
+        this.compiled = false;
+        this.isRunning = false;
+    }
+    cleanUpEngineMemory(): void{
+        this.compiled = false;
+        this.token_list = {};
+        this.live_node_objects = {};
+        this.timer_queue = [];
+    }
+    setEngineCompiled(): void{
+        this.compiled = true;
+    }
+    setStartNode(nodeId: string) {
+        this.start_node_id = nodeId;
+    }
+    startEngine(): void {
+        if (Object.keys(this.token_list).length === 0 && this.start_node_id) {
+            this.spawnToken(this.start_node_id);
+        }
+        this.isRunning = true;
+    }
+    stopEngine(): void {
+        this.isRunning = false;
+        // Chỉ xóa Token và Hàng đợi Delay đang chạy dở
+        this.token_list = {};
+        this.timer_queue = [];
+        // Gọi hàm reset() của tất cả các Node (nếu có) để xóa trí nhớ của lần chạy trước
+        for (const node of Object.values(this.live_node_objects)) {
+            if (typeof node.reset === 'function') {
+                node.reset();
+            }
+        }
+    }
+    create_node_object(type: SequencerNodeType, config: any, node_id: string): void {
+        const NodeClass = NodeClassRegistry[type];
+        if (!NodeClass) {
+            throw new Error(`[Engine Error] Unknown logic class for type: ${type}`);
+        }
+        this.live_node_objects[node_id] = new NodeClass(config);
+    }
+    tick(): void {
+        if (!this.compiled || !this.isRunning) return;
+        this.check_timer();
+        for (const [token_id, token_value] of Object.entries(this.token_list)) {
+            if (token_value.status === "READY") {
+                this.live_node_objects[token_value.node_uuid].execute(token_id);
+            }
+        }
+        // SET LẠI DATA CHO REACT RENDER
+        useSequencerStore.setState({ run_time_token_list: { ...this.token_list } });
+        // Đệ quy gọi lại chính nó sau x mili seccond
+        setTimeout(() => this.tick(), useSequencerStore.getState().engine_tick_ms);
+    }
+    moveToken(token_id: string, next_node_id: string): void {
+        const token = this.token_list[token_id];
+        if (!token) {
+            useSequencerStore.setState({isSequencerErrorModalOpen: true, SequencerErrorMessage: `Token ${token_id} not found`})
+            useSequencerStore.getState().appendCompilerLog(`Token ${token_id} not found`);
+            return
+        }
+        const store = useSequencerStore.getState();
+        const targetNode = store.nodes_lookup_map[next_node_id];
+        this.token_list[token_id] = {
+            ...token,
+            node_uuid: next_node_id,
+            status: "READY",
+            color: "bg-green-600", // Xanh lá khi vừa đến
+            x: targetNode ? targetNode.position.x + 10 : 0,
+            y: targetNode ? targetNode.position.y - 15 : 0,
+        };
+    }
+    changeTokenStatus(token_id: string, new_status: 'READY' | 'PROCESSING' | 'WAITING' = "PROCESSING"): void {
+        const token = this.token_list[token_id];
+        if(!token) return;
+        // FIX 3: Thêm logic cập nhật màu sắc dựa trên status
+        let newColor = "bg-green-600";
+        if (new_status === "PROCESSING") newColor = "bg-yellow-600";
+        if (new_status === "WAITING") newColor = "bg-purple-500"; // Màu tím mộng mơ cho kẻ biết chờ đợi
+        this.token_list[token_id] = {
+            ...token,
+            status: new_status,
+            color: newColor
+        };
+    }
+    killToken(token_id: string): void {
+        delete this.token_list[token_id]
+    }
+    spawnToken(nodeId: string): string {
+        const token_id = crypto.randomUUID();
+        const targetNode = useSequencerStore.getState().nodes_lookup_map[nodeId];
+        this.token_list[token_id] = {
+            node_uuid : nodeId,
+            status: "READY",
+            color: "bg-green-600",
+            x: targetNode ? targetNode.position.x + 10 : 0,
+            y: targetNode ? targetNode.position.y - 15 : 0,
+        };
+        return token_id;
+    }
+    schedule_move_token(token_id: string, delay: number,next_node_id: string): void {
+        const execution_time = Date.now();
+        const finish_delay_time = execution_time + (delay * 1000);
+        const new_event : ScheduledEventMoveToken = {
+            token_id : token_id,
+            executeAt : execution_time,
+            next_node_id: next_node_id,
+            finishDelayAt: finish_delay_time
+        }
+        this.timer_queue.push(new_event);
+    }
+    check_timer() : void {
+        for (let i = this.timer_queue.length - 1; i >= 0; i--){
+            const item = this.timer_queue[i];
+            if (Date.now() >= item.finishDelayAt){
+                this.moveToken(item.token_id, item.next_node_id);
+                this.timer_queue.splice(i, 1); // Delete the item and shift all the right side items.
+            }
+        }
+    }
+}
+export class SequencerCompiler {
+    private static isCompiling: boolean = false;
+    // --- TÍNH NĂNG MỚI: Ép Timeout cho Promise để chống treo UI khi đứt mạng ---
+    private static async fetchWithTimeout<T>(promise: Promise<T>, ms: number = 5000): Promise<T> {
+        let timeoutId: ReturnType<typeof setTimeout>;
+        const timeoutPromise = new Promise<never>((_, reject) => {
+            timeoutId = setTimeout(() => {
+                reject(new Error(`Connection timed out after ${ms}ms`));
+            }, ms);
+        });
+        return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
+    }
+    static async compile(nodes: Node[], edges: Edge[]): Promise<boolean> {
+        if (this.isCompiling) return false;
+        this.isCompiling = true;
+        const store = useSequencerStore.getState();
+        store.appendCompilerLog(".............Start compiling ............");
+        try {
+            // Check Rule 1: Only 1 Start node
+            const startNodes = nodes.filter(n => n.type === 'start')
+            if (startNodes.length !== 1) {
+                store.appendCompilerLog("Logic Error: Graph only allow to have 1 Start node!");
+                this.isCompiling = false;
+                return false;
+            }
+            // Check Rule 2: Any node has no input? (Ngoại trừ Start)
+            for (const node of nodes) {
+                if (node.type !== 'start') {
+                    const hasIncoming = edges.some(e => e.target === node.id);
+                    if (!hasIncoming) {
+                        store.appendCompilerLog(`Warning: Node [${node.type}] has no input. Token will never reach it!`);
+                    }
+                }
+            }
+            // Check Rule 3: Liveness Check Thông Minh (Có Cache + Timeout)
+            const processNodes = nodes.filter(n => n.type === 'proc');
+            store.appendCompilerLog(`Checking connection status of ${processNodes.length} process nodes...`);
+            const workerLogicsCache: Record<string, string[]> = {};
+            for (const pNode of processNodes) {
+                const config = (pNode.data?.sequencer_data as any)?.config as NodeProcessConfig;
+                const workerId = config?.logic_object_info?.worker_id;
+                const logicId = config?.logic_object_info?.logic_object_id;
+                if (!workerId || !logicId) {
+                    store.appendCompilerLog(`Graph Error: Process Node '${config?.node_title || pNode.id}' has not selected a Logic Object`);
+                    this.isCompiling = false;
+                    return false;
+                }
+                if (!workerLogicsCache[workerId]) {
+                    try {
+                        store.appendCompilerLog(`Pinging Server [${workerId}]...`);
+                        const isMaster = workerId === 'master_gateway';
+                        const fetchPromise = isMaster ?
+                            NodeAPI.master_get_logic_id_list() :
+                            NodeAPI.proxy_get_logic_id_list(workerId);
+                        // Timeout 4 giây
+                        const availableLogics = await this.fetchWithTimeout<string[]>(fetchPromise, 4000);
+                        workerLogicsCache[workerId] = availableLogics;
+                    } catch (err: any) {
+                        store.appendCompilerLog(`API ERROR: Cannot Connect to Server [${workerId}]. Details: ${err.message || err}`);
+                        this.isCompiling = false;
+                        return false;
+                    }
+                }
+                if (!workerLogicsCache[workerId].includes(logicId)) {
+                    store.appendCompilerLog(`API Error: Logic Object '${logicId}' no longer exists on server '${workerId}'!`);
+                    this.isCompiling = false;
+                    return false;
+                }
+            }
+            // SỬA LỖI LOG: Chuyển dòng log này ra khỏi vòng lặp
+            store.appendCompilerLog("---------------------Validate Graph Successfully -> intializing Engine------------------");
+            // Mapping Portal nodes
+            const portalOutMap: Record<string, string> = {};
+            const portalOuts = nodes.filter(n => n.type === 'portal_out');
+            for (const pOut of portalOuts) {
+                const channel = (pOut.data?.sequencer_data as any)?.config?.channel_name;
+                if (!channel) continue;
+                if (portalOutMap[channel]) {
+                    store.appendCompilerLog(`Graph Error: Kênh '${channel}' đang bị trùng lặp! Chỉ được phép có 1 Portal Out cho mỗi kênh.`);
+                    this.isCompiling = false;
+                    return false;
+                }
+                portalOutMap[channel] = pOut.id;
+            }
+            // ===============================================
+            // Bước 2: Initialize Sequencer Engine & Graph
+            // ===============================================
+            const engine = SequencerEngine.getInstance();
+            engine.stopEngine();
+            engine.cleanUpEngineMemory();
+            engine.setStartNode(startNodes[0].id);
+            for (const node of nodes) {
+                const config = (node.data?.sequencer_data as any)?.config || "";
+                const outgoingEdges = edges.filter(e => e.source === node.id);
+                if (node.type === "split") {
+                    config.next_nodes_id_list = outgoingEdges.map(e => e.target);
+                    engine.create_node_object("split", config, node.id);
+                } else if (node.type === "switch") {
+                    const next_node_id_map: Record<string, string> = {};
+                    outgoingEdges.forEach(e => {
+                        // Sửa lỗi map switch: dùng lại config.cases
+                        if (config.cases) {
+                            const caseIndex = parseInt(e.sourceHandle?.replace('case-', '') || '0', 10);
+                            const caseData = config.cases[caseIndex];
+                            if (caseData) {
+                                next_node_id_map[caseData.value] = e.target;
+                            }
+                        }
+                    });
+                    config.next_node_id_map = next_node_id_map;
+                    engine.create_node_object("switch", config, node.id);
+                } else if (node.type === "join") {
+                    const incomingEdges = edges.filter(e => e.target === node.id);
+                    config.required_tokens_count = incomingEdges.length;
+                    if (outgoingEdges.length !== 1) {
+                        store.appendCompilerLog(`Logic Error: node join [${node.id}] must have exactly 1 output`);
+                        this.isCompiling = false;
+                        return false;
+                    }
+                    config.next_node_id = outgoingEdges[0].target;
+                    engine.create_node_object("join", config, node.id);
+                } else if (node.type === "end") {
+                    // FIX CRASH: Node End tuyệt đối không được có đầu ra
+                    if (outgoingEdges.length > 0) {
+                        store.appendCompilerLog(`GRAPH Error: End node cannot have outgoing edges`);
+                        this.isCompiling = false;
+                        return false;
+                    }
+                    engine.create_node_object("end", config, node.id);
+                } else if (node.type === "portal_in") {
+                    const channel = config.channel_name;
+                    const targetId = portalOutMap[channel];
+                    if (!targetId) {
+                        store.appendCompilerLog(`Graph Error: Portal In [${channel}] không tìm thấy Portal Out nào tương ứng!`);
+                        this.isCompiling = false;
+                        return false;
+                    }
+                    config.next_node_id = targetId; // Chỉa thẳng súng vào Portal Out
+                    engine.create_node_object("portal_in", config, node.id);
+                } else if (node.type === "portal_out") {
+                    if (outgoingEdges.length !== 1) {
+                        store.appendCompilerLog(`GRAPH Error: Portal Out [${config.channel_name}] phải có đúng 1 output`);
+                        this.isCompiling = false;
+                        return false;
+                    }
+                    config.next_node_id = outgoingEdges[0].target;
+                    engine.create_node_object("portal_out", config, node.id);
+                } else {
+                    // CÁC NODE THÔNG THƯỜNG (Start, Proc, Delay, Comp, Logic...)
+                    if (outgoingEdges.length !== 1) {
+                        store.appendCompilerLog(`GRAPH Error: Node [${node.type}] must have exactly 1 output`);
+                        this.isCompiling = false;
+                        return false;
+                    }
+                    config.next_node_id = outgoingEdges[0].target;
+                    engine.create_node_object(node.type as any, config, node.id);
+                }
+            }
+            store.appendCompilerLog(`====================COMPILED SUCCESSFULLY=================`);
+            engine.setEngineCompiled();
+            this.isCompiling = false;
+            return true;
+        } catch (error: any) {
+            // Bọc try..catch tổng để không bao giờ bị dính Silent Crash nữa
+            store.appendCompilerLog(`CRITICAL COMPILER ERROR: ${error.message || error}`);
+            console.error(error);
+            this.isCompiling = false;
+            return false;
+        }
+    }
+}
+
+### FILE: UI_Engine/UIEngineStores/SequencerStores.ts ###
+import { create } from "zustand";
+import {
+  Node,
+  Edge,
+} from "@xyflow/react";
+import { applyNodeChanges, applyEdgeChanges, NodeChange, EdgeChange, Connection, addEdge } from "@xyflow/react";
+import { TagValue } from "./GlobalTagsStore";
+import { NodeAPI } from "../../api/nodeApi";
+import { SequencerEngine, SequencerCompiler } from "./SequencerEngine";
+/* =========================
+   TYPES
+========================= */
+export type OperandType =
+  | "+"
+  | "-"
+  | "*"
+  | "/"
+  | ">"
+  | ">="
+  | "=="
+  | "<="
+  | "<";
+export type SequencerNodeType =
+  | "start" | "end" | "proc" | "split" | "join" | "switch" | "comp"
+  | "and" | "or" | "delay" | "tov" | "tot"
+  | "exjson" | "buildjson"
+  | "portal_in" | "portal_out" | "script" | "writedb";
+/* =========================
+   CONFIG INTERFACES
+========================= */
+export interface NodeStartConfig {
+  next_node_id: string;
+  on_begin_map: Record<string, TagValue>;
+}
+export interface NodeEndConfig {
+  on_end_map: Record<string, TagValue>;
+}
+export interface NodeProcessConfig {
+  next_node_id: string;
+  node_title: string;
+  logic_object_info : NodeProcessServerData;
+  payload_formation_map: Record<string, any>; //json path : get from tag
+  response_receive_map: Record<string, string>;  //json path : write to tag
+}
+export interface NodeSplitConfig {
+  next_nodes_id_list: string[];
+}
+export interface NodeJoinConfig {
+  next_node_id: string;
+  required_tokens_count: number;
+}
+export interface NodeSwitchConfig {
+  next_node_id_map: Record<string, string>; //value_to_compare : next_node_id
+  tag_id: string;
+}
+export interface NodeComputeConfig {
+  next_node_id: string;
+  tag_id_a: string;
+  tag_id_b: string;
+  operand: OperandType;
+  target_tag_id: string;
+}
+export interface NodeAndConfig {
+  next_node_id: string;
+  tag_id_a: string;
+  tag_id_b: string;
+}
+export interface NodeOrConfig {
+  next_node_id: string;
+  tag_id_a: string;
+  tag_id_b: string;
+}
+export interface NodeDelayConfig {
+  next_node_id: string;
+  delay_duration: number;
+}
+export interface NodeTagOvwrByValConfig {
+  next_node_id: string;
+  target_tag_id: string;
+  ovwr_value: any;
+}
+export interface NodeTagOvwrByTagConfig {
+  next_node_id: string;
+  source_tag_id: string;
+  target_tag_id: string;
+}
+export interface NodeExtractJSONConfig {
+  next_node_id: string;
+  source_tag_id: string;
+  aliases: Record<string, string>;
+  script: string;
+}
+export interface NodePortalInConfig {
+  next_node_id: string;
+  channel_name: string;
+}
+export interface NodePortalOutConfig {
+  next_node_id: string;
+  channel_name: string;
+}
+export interface NodeBuildJSONConfig {
+  next_node_id: string;
+  target_tag_id: string;
+  aliases: Record<string, string>;
+  script: string;
+}
+export interface NodeScriptConfig {
+  next_node_id: string;
+  input_aliases: Record<string, string>; // VD: { "boxes": "tag_xyxy" } -> JS: IN.boxes
+  output_aliases: Record<string, string>; // VD: { "total": "tag_qty" } -> JS: OUT.total
+  script_content: string;
+}
+export interface NodeWriteDBConfig {
+  next_node_id: string;
+  worker_id: string;
+  table_name: string;
+  mapping: Record<string, string>; // { "column_name": "tag_id" }
+  image_columns: Record<string, boolean>; // { "column_name": true/false }
+}
+export type SequencerNodeConfig =
+  | NodeStartConfig
+  | NodeEndConfig
+  | NodeProcessConfig
+  | NodeSplitConfig
+  | NodeJoinConfig
+  | NodeSwitchConfig
+  | NodeComputeConfig
+  | NodeAndConfig
+  | NodeOrConfig
+  | NodeDelayConfig
+  | NodeTagOvwrByValConfig
+  | NodeTagOvwrByTagConfig
+  | NodeExtractJSONConfig
+  | NodeBuildJSONConfig
+  | NodeScriptConfig
+  | NodePortalInConfig
+  | NodePortalOutConfig
+  | NodeWriteDBConfig;
+/* =========================
+   NODE DATA
+========================= */
+export interface NodeProcessServerData{
+    worker_id: string,
+    logic_object_id: string,
+}
+export interface SequencerNodeData {
+  type: SequencerNodeType;
+  config: SequencerNodeConfig;
+  ishighlighted: boolean;
+}
+export interface TokenValue {
+    node_uuid: string;
+    status: 'READY' | 'PROCESSING' |'WAITING'
+    x: number;
+    y: number;
+    color: string;
+}
+/* =========================
+   STORE
+========================= */
+export interface SequencerState {
+  nodes: Node[]; //render nodes, dùng compile graph
+  edges: Edge[]; //render nodes, dùng compile graph
+  nodes_lookup_map: Record<string, Node>; //for performance look up, để cập nhật UI biểu diễn token trên graph khi chạy runtime
+  run_time_token_list: Record<string, TokenValue>; //lưu trữ thông tin token để engine dùng và cho cập nhật UI biểu diễn token khi chạy runtime
+  isSequencerErrorModalOpen: boolean; // báo lỗi
+  SequencerErrorMessage: string; // báo lỗi
+  engine_tick_ms: number; //làm một trường để cài đặt tần số quét của sequencer khi chạy
+  isCompiling: boolean; // dùng để đặt trạng thái hệ thống và hiển thị nút ấn
+  isEngineRunning : boolean; // dùng để đặt trạng thái hệ thống và hiển thị nút ấn
+  isGraphDirty : boolean; // dùng để đặt trạng thái hệ thống và hiển thị nút ấn
+  compiler_log_messages : string[]; // dùng để báo cáo thông tin compiling và lưu lỗi thời gian thực
+  usedLogicObjectsIDMap: Record<string, NodeProcessServerData>[]; // node Id : Logic Object ID
+  isEditPropertyPanelOpen : boolean; // Dùng để mở bảng panel properties cài đặt cho node Process
+  isOnStartEndPropertyPanelOpen : boolean; // dùng để mở bảng panel properties cài đặt cho node Start/ end
+  setFieldValue: (node_id : string, field: string, value: any) => void; // Helper dùng đặt lại giá trị của một field dữ liệu bất kỳ trong một node (khi đang tạo graph)
+  createDefaultConfig: (type: SequencerNodeType) => SequencerNodeData; //Helper dùng tạo node
+  addNode: (type: SequencerNodeType,position?: { x: number; y: number }) => void; //Helper dùng tạo node
+  onSelectWorker: (worker_id: string) => Promise<string[]>; // API helper dùng để hiện dữ liệu khi chọn vào worker tương ứng ở trong Process Node properties
+  onSelectLogicObject: (worker_id: string, logic_object_id: string) => Promise<Record<string, any>> // API helper dùng để hiện dữ liệu schema đầu vào / ra của một logic object khi ở trong process node properties
+  appendCompilerLog: (msg: string) => void; //Thêm thông tin vào log
+  compileGraph: () => Promise<void>; //Compile graph thành hệ thống sẵn sàng chạy được cho engine.
+  runEngine: () => void; //Bắt đầu chạy hệ thống
+  stopEngine: () => void; //Dừng hệ thống
+  cleanUpCompilerLog: () => void; //Xóa log hệ thống (có thể làm một nút để dọn dẹp cho đỡ rác mắt nếu cần)
+  onNodesChange: (changes: NodeChange[]) => void;
+  onEdgesChange: (changes: EdgeChange[]) => void;
+  onConnect: (connection: Connection) => void;
+  markGraphDirty: () => void;
+}
+/* =========================
+   STORE
+========================= */
+// TODO: REMEMBER TO PERSIST
+export const useSequencerStore =
+  create<SequencerState>((set, get) => ({
+    nodes: [],
+    edges: [],
+    nodes_lookup_map: {},
+    run_time_token_list: {},
+    isSequencerErrorModalOpen: false,
+    SequencerErrorMessage: "",
+    engine_tick_ms : 25, //25ms = 10fps
+    isCompiling: false,
+    isEngineRunning: false,
+    isGraphDirty: true,
+    compiler_log_messages: [],
+    usedLogicObjectsIDMap: [],
+    isEditPropertyPanelOpen: false,
+    isOnStartEndPropertyPanelOpen: false,
+    /* =========================
+       DEFAULT CONFIG FACTORY
+    ========================= */
+    setFieldValue: (node_id, field, value) => {
+        get().markGraphDirty();
+        set((state) => ({
+            nodes: state.nodes.map((node) =>
+            node.id !== node_id
+                ? node
+                : {
+                    ...node,
+                    data: {
+                    ...node.data,
+                    sequencer_data: {
+                        ...node.data.sequencer_data as any,
+                        config: {
+                        ...(node.data.sequencer_data as any)?.config || {},
+                        [field]: value,
+                        },
+                    },
+                    },
+                }
+            ),
+        }));
+    },
+    createDefaultConfig: (type: SequencerNodeType): SequencerNodeData => {
+      switch (type) {
+        case "start":
+          return {
+            type,
+            config: {
+              next_node_id: "",
+              on_begin_map: {},
+            },
+            ishighlighted : false
+          };
+        case "end":
+          return {
+            type,
+            config: {
+              on_end_map: {},
+            },
+            ishighlighted : false
+          };
+        case "proc":
+          return {
+            type,
+            config: {
+              next_node_id: "",
+              node_title: "Process",
+              logic_object_info : {worker_id: "", logic_object_id: ""},
+              payload_formation_map: {},
+              response_receive_map: {},
+            },
+            ishighlighted : false
+          };
+        case "split":
+          return {
+            type,
+            config: {
+              next_nodes_id_list: [],
+            },
+            ishighlighted : false
+          };
+        case "join":
+          return {
+            type,
+            config: {
+              next_node_id: "",
+              required_tokens_count: 1,
+            },
+            ishighlighted : false
+          };
+        case "switch":
+          return {
+            type,
+            config: {
+              next_node_id_map: {},
+              tag_id: "",
+            },
+            ishighlighted : false
+          };
+        case "comp":
+          return {
+            type,
+            config: {
+              next_node_id: "",
+              tag_id_a: "",
+              tag_id_b: "",
+              operand: "+",
+              target_tag_id: "",
+            },
+            ishighlighted : false
+          };
+        case "and":
+          return {
+            type,
+            config: {
+              next_node_id: "",
+              tag_id_a: "",
+              tag_id_b: "",
+            },
+            ishighlighted : false
+          };
+        case "or":
+          return {
+            type,
+            config: {
+              next_node_id: "",
+              tag_id_a: "",
+              tag_id_b: "",
+            },
+            ishighlighted : false
+          };
+        case "delay":
+          return {
+            type,
+            config: {
+              next_node_id: "",
+              delay_duration: 1,
+            },
+            ishighlighted : false
+          };
+        case "tov":
+          return {
+            type,
+            config: {
+              next_node_id: "",
+              target_tag_id: "",
+              ovwr_value: null,
+            },
+            ishighlighted : false
+          };
+        case "tot":
+          return {
+            type,
+            config: {
+              next_node_id: "",
+              source_tag_id: "",
+              target_tag_id: "",
+            },
+            ishighlighted : false
+          };
+        case "exjson":
+          return {
+            type,
+            config: {
+              next_node_id: "",
+              source_tag_id: "",
+              aliases: {},
+              script: "{\n  \n}",
+            },
+            ishighlighted: false
+          };
+        case "buildjson":
+          return {
+            type,
+            config: {
+              next_node_id: "",
+              target_tag_id: "",
+              aliases: {},
+              script: "{\n  \n}",
+            },
+            ishighlighted: false
+          };
+        case "script":
+          return {
+            type,
+            config: {
+              next_node_id: "",
+              input_aliases: {},
+              output_aliases: {},
+              script_content: "// Write your JS logic here...\n// Ex: let len = IN.arr ? IN.arr.length : 0;\n// OUT.result = len * 2;\n",
+            },
+            ishighlighted: false
+          };
+        case "portal_in":
+          return {
+            type,
+            config: { next_node_id: "", channel_name: "Channel_1" },
+            ishighlighted: false
+          };
+        case "portal_out":
+          return {
+            type,
+            config: { next_node_id: "", channel_name: "Channel_1" },
+            ishighlighted: false
+          };
+        case "writedb":
+          return {
+            type,
+            config: { next_node_id: "", worker_id: "", table_name: "", mapping: {}, image_columns: {} },
+            ishighlighted: false
+          };
+      }
+    },
+    /* =========================
+       ADD NODE
+    ========================= */
+    addNode: (type: SequencerNodeType,position = { x: 100, y: 100 }) => {
+      const id = `${type}_${Date.now()}`;
+      const seqData =
+        get().createDefaultConfig(type);
+      const newNode: Node = {
+        id,
+        type, // phải match nodeTypes của ReactFlow
+        position,
+        data: {
+          sequencer_data: seqData
+        },
+      };
+      set((state) => ({
+        nodes: [...state.nodes, newNode],
+      }));
+    },
+    onSelectWorker : async (worker_id) => {
+      // Process Node Properties Panel will use this result to know how to render its Logic Objects Slection field.
+      const isMaster = worker_id === "master_gateway";
+      try{
+          const resp = await (
+            isMaster
+              ? NodeAPI.master_get_logic_id_list()
+              : NodeAPI.proxy_get_logic_id_list(worker_id)
+          );
+          return resp;
+      } catch (error: any){
+        set({isSequencerErrorModalOpen: true, SequencerErrorMessage: `Error trying to get logic objects ids list: ${error?.detail}`})
+      }
+    },
+    onSelectLogicObject : async (worker_id, logic_object_id) => {
+      // Process Node Properties Panel will use this result to know how to render its fields
+        const isMaster = worker_id === "master_gateway";
+        try{
+          const resp = await (
+            isMaster
+              ? NodeAPI.master_get_inout_schemas(logic_object_id)
+              : NodeAPI.proxy_get_inout_schemas(worker_id, logic_object_id)
+          )
+          console.log(resp)
+          return resp;
+        } catch (error: any){
+          set({isSequencerErrorModalOpen: true, SequencerErrorMessage: `Error trying to get logic objects ids list: ${error?.detail}`})
+        }
+    },
+    appendCompilerLog: (msg) => {
+      set((state) => ({
+        compiler_log_messages: [...state.compiler_log_messages, msg]
+      }))
+    },
+    compileGraph : async () => {
+      set({isEngineRunning: false});
+      set({isCompiling : true});
+      const compiled_success = await SequencerCompiler.compile(get().nodes, get().edges);
+      if (compiled_success){
+        set({isGraphDirty: false});
+        //Create look up map for O(1) performance (this is used for doing the run time highlighting node effect of the Sequencer Graph)
+        for(const node of get().nodes){
+          get().nodes_lookup_map[node.id] = node;
+        }
+      }
+      set({isCompiling : false});
+    },
+    runEngine : () => {
+      if(get().isGraphDirty) {
+        get().appendCompilerLog("Sequencer Graph is dirty, please recompile!")
+        return;
+      }
+      set({isEngineRunning : true})
+      const engine = SequencerEngine.getInstance();
+      engine.startEngine();
+      engine.tick()
+    },
+    stopEngine : () => {
+      set({run_time_token_list: {}})
+      set({isEngineRunning: false})
+      SequencerEngine.getInstance().stopEngine();
+    },
+    cleanUpCompilerLog:() => {
+      set({compiler_log_messages : []});
+    },
+    markGraphDirty: () => set({ isGraphDirty: true }),
+    onNodesChange: (changes) => {
+      set({
+        nodes: applyNodeChanges(changes, get().nodes),
+      });
+      // Nếu có sự thay đổi tọa độ hoặc xóa, đánh dấu dirty
+      if (changes.some(c => c.type === 'position' || c.type === 'remove' || c.type === 'add')) {
+          get().markGraphDirty();
+      }
+    },
+    onEdgesChange: (changes) => {
+      set({
+        edges: applyEdgeChanges(changes, get().edges),
+      });
+      get().markGraphDirty();
+    },
+    onConnect: (connection) => {
+      set({
+        edges: addEdge(connection, get().edges),
+      });
+      get().markGraphDirty();
+    },
+  }));
+
+### FILE: utils/ColorConst.ts ###
+// BỘ MÀU TIÊU CHUẨN
+export const COLOR_PALETTE = [
+    { label: 'Grey', value: '
+    { label: 'Blue', value: '
+    { label: 'Red', value: '
+    { label: 'Green', value: '
+    { label: 'Yellow', value: '
+    { label: 'Purple', value: '
+    { label: 'White', value: '
+    { label: 'Dark', value: '
+    { label: 'Transparent', value: 'transparent' },
+    { label: 'Semi-Blue', value: 'rgba(138, 180, 248, 0.1)' },
+    { label: 'Cyan', value: '
+    { label: 'Magenta', value: '
+    { label: 'Lime (Highlight)', value: '
+    { label: 'Orange (Focus)', value: '
+    { label: 'Fail Area (Semi-Red)', value: 'rgba(242, 139, 130, 0.15)' },
+    { label: 'Pass Area (Semi-Green)', value: 'rgba(129, 201, 149, 0.15)' },
+    { label: 'Focus Area (Semi-Blue)', value: 'rgba(138, 180, 248, 0.15)' },
+    { label: 'Dimming (Semi-Black)', value: 'rgba(0, 0, 0, 0.5)' },
+    { label: 'Pure Black', value: '
+];
+
+### FILE: utils/FlowCompiler.ts ###
+// File: src/utils/FlowCompiler.ts
+import { Node, Edge } from '@xyflow/react';
+import { UniversalNodeData, PinData } from '../components/ProgramMode/ProgrammingNode';
+export const FlowCompiler = {
+  compile: (nodes: Node[], edges: Edge[]) => {
+    const nodeErrors: Record<string, string> = {};
+    const formattedNodes = nodes.map(node => {
+      const data = node.data as unknown as UniversalNodeData;
+      // 1. KIỂM TRA KẾT NỐI BẮT BUỘC
+      data.inputs?.forEach((input: PinData) => {
+        if (input.optional) return;
+        const isConnected = edges.some(e => e.target === node.id && e.targetHandle === input.id);
+        if (!isConnected) nodeErrors[node.id] = `Cổng [${input.label}] yêu cầu kết nối.`;
+      });
+      // 2. KIỂM TRA KHỐI ĐẦU VÀO
+      if (data.className === 'ReceivePayloadNode') {
+        const hasOutgoingConnection = edges.some(e => e.source === node.id);
+        if (!hasOutgoingConnection) {
+          nodeErrors[node.id] = "Khối [Data In] chưa được cắm vào bất kỳ logic xử lý nào.";
+        }
+      }
+      // 3. KIỂM TRA KHỐI ĐẦU RA
+      if (data.className === 'SendResponseNode') {
+        const hasPins = data.inputs && data.inputs.length > 0;
+        if (!hasPins) {
+          nodeErrors[node.id] = "Khối [Data Out] cần ít nhất một cổng đầu vào để định nghĩa dữ liệu trả về.";
+        }
+        const hasIncomingConnection = edges.some(e => e.target === node.id);
+        if (hasPins && !hasIncomingConnection) {
+          nodeErrors[node.id] = "Khối [Data Out] đã định nghĩa cổng nhưng chưa có dữ liệu cắm vào.";
+        }
+      }
+      // FORMAT DỮ LIỆU SẠCH CHO BACKEND
+      return {
+        id: node.id,
+        type: data.nodeType || "1",
+        class: data.className,
+        data: {
+          displayName: data.displayName,
+          inputs: data.inputs || [],
+          outputs: data.outputs || [],
+          inlineInputType: data.inlineInputType,
+          inlineValue: data.inlineValue
+        }
+      };
+    });
+    // BACKEND KHÔNG CẦN EDGE ID, CHỈ CẦN BIẾT AI NỐI VỚI AI
+    const formattedEdges = edges.map(edge => ({
+      source: edge.source,
+      sourceHandle: edge.sourceHandle,
+      target: edge.target,
+      targetHandle: edge.targetHandle
+    }));
+    return {
+      success: Object.keys(nodeErrors).length === 0,
+      nodeErrors,
+      workflow: {
+        nodes: formattedNodes,
+        edges: formattedEdges
+      }
+    };
+  }
+};
+
+### FILE: utils/FlowUtils.ts ###
+// utils/flowUtils.ts
+import { DataType } from "../Stores/FlowStore";
+export const getPinColor = (type: DataType | string): string => {
+  switch (type) {
+    case 'boolean': return '!bg-red-500 !border-red-800'; // Đỏ
+    case 'number': return '!bg-green-500 !border-green-800'; // Xanh lá
+    case 'string': return '!bg-blue-400 !border-blue-700'; // Xanh dương nhạt
+    // Các kiểu liên quan đến Mảng/Tensor
+    case 'numpy_array': return '!bg-blue-600 !border-blue-900'; // Xanh dương đậm
+    case 'list': return '!bg-purple-400 !border-purple-700'; // Tím nhạt
+    case 'tensor': return '!bg-purple-600 !border-purple-900'; // Tím đậm
+    // Các kiểu liên quan đến Cấu trúc/Object
+    case 'dict': return '!bg-orange-400 !border-orange-700'; // Cam nhạt
+    case 'json': return '!bg-orange-600 !border-orange-900'; // Cam đậm
+    case 'object_ref': return '!bg-teal-500 !border-teal-800'; // Xanh mòng két
+    // Các kiểu đặc biệt
+    case 'base64': return '!bg-amber-400 !border-amber-700'; // Vàng hổ phách
+    case 'any': return '!bg-slate-200 !border-slate-500'; // Trắng xám
+    default: return '!bg-slate-400 !border-slate-600'; // Xám mặc định
+  }
+};
+
+### FILE: utils/imageUtils.ts ###
+// src/utils/imageUtils.ts
+export const ImageProcessing = {
+  /**
+   * Đọc file ảnh, ép kích thước (nếu vượt quá maxWidth), nén lại thành chuẩn JPEG/WebP
+   * và trả về một File nhị phân mới sẵn sàng để gửi qua FormData hoặc WebSocket.
+   * * @param file File ảnh gốc do người dùng upload hoặc từ Webcam
+   * @param maxWidth Chiều rộng tối đa (Mặc định 1080 -  HD)
+   * @param quality Chất lượng nén (0.0 đến 1.0, mặc định 0.8)
+   * @param outputType Định dạng đầu ra ('image/jpeg' hoặc 'image/webp')
+   * @returns Promise<File> Đối tượng File nhị phân đã được tối ưu
+   */
+  processImageForUpload: (
+    file: File,
+    maxWidth: number = 1080,
+    quality: number = 0.8,
+    outputType: 'image/jpeg' | 'image/webp' = 'image/jpeg'
+  ): Promise<File> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const img = new Image();
+        img.onload = () => {
+          // 1. Tính toán kích thước mới (giữ nguyên tỷ lệ khung hình)
+          let width = img.width;
+          let height = img.height;
+          if (width > maxWidth) {
+            const ratio = maxWidth / width;
+            width = maxWidth;
+            height = Math.round(height * ratio);
+          }
+          // 2. Đưa lên thớt (Canvas) để xẻ thịt
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          // Xóa nền đen nếu có (quan trọng với ảnh PNG trong suốt ép sang JPEG)
+          if (ctx) {
+            ctx.fillStyle = '
+            ctx.fillRect(0, 0, width, height);
+            // Dùng thuật toán nội suy của trình duyệt để vẽ lại ảnh với size mới
+            ctx.drawImage(img, 0, 0, width, height);
+          }
+          // 3. Ép xuất ra mảng nhị phân (Blob) thay vì Base64
+          canvas.toBlob(
+            (blob) => {
+              if (blob) {
+                // Đóng gói Blob thành đối tượng File y như lúc upload
+                // Tên file được đổi đuôi cho chuẩn
+                const extension = outputType === 'image/jpeg' ? '.jpg' : '.webp';
+                const newFileName = file.name.replace(/\.[^/.]+$/, "") + "_optimized" + extension;
+                const optimizedFile = new File([blob], newFileName, {
+                  type: outputType,
+                  lastModified: Date.now(),
+                });
+                resolve(optimizedFile);
+              } else {
+                reject(new Error("Lỗi khi tạo Blob từ Canvas"));
+              }
+            },
+            outputType,
+            quality
+          );
+        };
+        img.onerror = () => reject(new Error("Không thể load hình ảnh vào thẻ Image"));
+        img.src = event.target?.result as string;
+      };
+      reader.onerror = () => reject(new Error("Lỗi khi đọc file bằng FileReader"));
+      reader.readAsDataURL(file);
+    });
+  }
+};

@@ -1,0 +1,13 @@
+# Môi trường ảo Python
+venv/
+env/
+
+# Biến môi trường
+.env
+
+# Cache của Python
+__pycache__/
+*.pyc
+
+# Thư mục lưu trữ file sinh ra trong quá trình chạy (nếu không cần thiết đồng bộ)
+storage/

@@ -1,0 +1,27 @@
+# --- Backend (Python) ---
+venv/
+__pycache__/
+*.pyc
+.env
+storage/
+
+# --- Frontend (Vite/React) ---
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# --- Tauri 
+**/src-tauri/target/
+**/src-tauri/binaries/
+
+# --- Linh tinh ---
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.DS_Store

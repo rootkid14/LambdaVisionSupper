@@ -1,0 +1,22 @@
+// BỘ MÀU TIÊU CHUẨN
+export const COLOR_PALETTE = [
+    { label: 'Grey', value: '#696969' },
+    { label: 'Blue', value: '#8ab4f8' },
+    { label: 'Red', value: '#f28b82' },
+    { label: 'Green', value: '#81c995' },
+    { label: 'Yellow', value: '#fcd663' },
+    { label: 'Purple', value: '#c58af9' },
+    { label: 'White', value: '#e8eaed' },
+    { label: 'Dark', value: '#171717' },
+    { label: 'Transparent', value: 'transparent' },
+    { label: 'Semi-Blue', value: 'rgba(138, 180, 248, 0.1)' },
+    { label: 'Cyan', value: '#22d3ee' },
+    { label: 'Magenta', value: '#f0abfc' },
+    { label: 'Lime (Highlight)', value: '#a3e635' },
+    { label: 'Orange (Focus)', value: '#fb923c' },
+    { label: 'Fail Area (Semi-Red)', value: 'rgba(242, 139, 130, 0.15)' },
+    { label: 'Pass Area (Semi-Green)', value: 'rgba(129, 201, 149, 0.15)' },
+    { label: 'Focus Area (Semi-Blue)', value: 'rgba(138, 180, 248, 0.15)' },
+    { label: 'Dimming (Semi-Black)', value: 'rgba(0, 0, 0, 0.5)' },
+    { label: 'Pure Black', value: '#000000' },
+];

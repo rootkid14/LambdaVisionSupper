@@ -1,0 +1,2171 @@
+### FILE: main.py ###
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from app.core.config import settings
+from app.api.v1.api import api_router
+from app.api.root_api import root_router
+from app.services.DevicePoolManager import HTTPDevicePoolManager
+from app.services.ConnectionBus import APIManualRoutingBus
+from app.services.LogicPoolManager import LogicPoolManager
+import importlib
+from pathlib import Path
+from contextlib import asynccontextmanager
+import asyncio
+from app.services.DatabaseManager import DatabaseManager
+import sys
+def load_all_nodes():
+    """Scann all .py file in the services/Nodes AND storage/pluggins to activate the @registry_node mechanism"""
+    base_dir = Path(__file__).parent.parent
+    nodes_dir = Path(__file__).parent / "services" / "Nodes"
+    loaded_count = 0
+    print("[BOOT] Bắt đầu nạp Core Nodes...")
+    for file_path in nodes_dir.rglob("*.py"):
+        if file_path.name != "__init__.py":
+            relative_path = file_path.relative_to(base_dir)
+            module_name = str(relative_path).replace("\\", ".").replace("/", ".").rstrip(".py")
+            try:
+                importlib.import_module(module_name)
+                loaded_count += 1
+            except Exception as e:
+                print(f"  [!] Lỗi khi nạp Core module {module_name}: {e}")
+    plugins_dir = base_dir / "storage" / "pluggins"
+    if plugins_dir.exists():
+        print("[BOOT] Bắt đầu nạp Custom Plugins...")
+        for file_path in plugins_dir.rglob("*.py"):
+            if file_path.name != "__init__.py":
+                module_name = f"external_plugins.{file_path.stem}"
+                try:
+                    spec = importlib.util.spec_from_file_location(module_name, str(file_path))
+                    if spec and spec.loader:
+                        module = importlib.util.module_from_spec(spec)
+                        sys.modules[module_name] = module
+                        spec.loader.exec_module(module)
+                        LogicPoolManager()._plugin_mtimes[str(file_path)] = file_path.stat().st_mtime
+                        loaded_count += 1
+                        print(f"  + Đã nạp Plugin: {file_path.name}")
+                except Exception as e:
+                    print(f"  [!] Lỗi khi nạp Plugin {file_path.name}: {e}")
+    print(f"[OK] Hoàn tất nạp tổng cộng {loaded_count} module Logic.\n")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    device_pool = HTTPDevicePoolManager()
+    server_bus = APIManualRoutingBus()
+    logicpoolmanager = LogicPoolManager()
+    task_device = asyncio.create_task(device_pool._heartbeat_monitor())
+    task_server = asyncio.create_task(server_bus._heartbeat_monitor())
+    task_plugins = asyncio.create_task(logicpoolmanager._plugins_heartbeat_monitor())
+    load_all_nodes()
+    yield
+    task_device.cancel()
+    task_server.cancel()
+    task_plugins.cancel()
+app = FastAPI(title=settings.PROJECT_NAME, lifespan=lifespan)
+httpDevicePool = HTTPDevicePoolManager()
+apimanualroutingbus = APIManualRoutingBus()
+logicpoolmanager = LogicPoolManager()
+db_manager = DatabaseManager()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+app.include_router(api_router, prefix=settings.API_V1_STR)
+app.include_router(root_router, tags=["root"])
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8600)
+
+### FILE: mergify_ts.py ###
+import os
+import re
+from pathlib import Path
+def minify_python_for_llm(src_dir, output_file):
+    src_path = Path(src_dir)
+    combined_content = []
+    if not src_path.is_dir():
+        print(f"Lỗi: Không tìm thấy thư mục '{src_dir}'")
+        return
+    for file_path in src_path.rglob('*.py'):
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+                optimized_lines = []
+                for line in lines:
+                    clean_line = line.rstrip()
+                    if clean_line and not clean_line.strip().startswith('
+                        clean_line = re.sub(r'\s*
+                        optimized_lines.append(clean_line)
+                file_content = "\n".join(optimized_lines)
+                file_header = f"
+                combined_content.append(file_header + file_content)
+                print(f"Đã xử lý: {file_path}")
+        except Exception as e:
+            print(f"Lỗi khi đọc file {file_path}: {e}")
+    try:
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write("\n\n".join(combined_content))
+        print(f"\n✅ Xong! File Python tổng hợp đã lưu tại '{output_file}'")
+    except Exception as e:
+        print(f"Lỗi khi ghi file: {e}")
+if __name__ == "__main__":
+    SOURCE_DIRECTORY = '.'
+    OUTPUT_FILENAME = 'py_context_for_llm.txt'
+    minify_python_for_llm(SOURCE_DIRECTORY, OUTPUT_FILENAME)
+
+### FILE: __init__.py ###
+
+
+### FILE: api/root_api.py ###
+from fastapi import APIRouter, Request, HTTPException
+import psutil
+from typing import Any
+from app.services.ConnectionBus import APIManualRoutingBus
+from app.services.DevicePoolManager import HTTPDevicePoolManager
+from app.services.LogicPoolManager import LogicPoolManager
+import aiohttp
+import os
+import json
+import asyncio
+from fastapi.responses import StreamingResponse
+import httpx
+from app.services.utils.ping_measurer import check_server_status
+from app.core.config import settings
+root_router = APIRouter()
+server_bus = APIManualRoutingBus()
+device_pool = HTTPDevicePoolManager()
+logic_pool = LogicPoolManager()
+global_proxy_client = httpx.AsyncClient()
+@root_router.get("/status", status_code=200)
+def check_server_health() -> Any:
+    """
+    Master sẽ gọi API này để kiểm tra xem Worker còn sống không
+    và đang chịu tải (RAM/CPU) như thế nào.
+    """
+    cpu_usage = psutil.cpu_percent(interval=0.1)
+    ram_info = psutil.virtual_memory()
+    raw_devices = device_pool.get_all_active_device()
+    safe_device_list = {}
+    for dev_id, dev_info in raw_devices.items():
+        safe_device_list[dev_id] = {
+            "host": dev_info.get("host"),
+            "alive": dev_info.get("alive"),
+            "ping": dev_info.get("ping")
+        }
+    logic_obj_count = len(logic_pool._logic_pool)
+    return {
+        "role": server_bus.ROLE,
+        "hardware": {
+            "cpu_percent": cpu_usage,
+            "ram_used_mb": round(ram_info.used / (1024 * 1024), 2),
+            "ram_total_mb": round(ram_info.total / (1024 * 1024), 2),
+            "ram_percent": ram_info.percent
+        },
+        "device_list" : safe_device_list,
+        "logic_obj_count": logic_obj_count
+    }
+@root_router.get("/fleetstatus", summary="Check health of worker server that this server is owning")
+async def get_fleet_overview_status():
+    """FE will call this API frequently to update the fleet dashboard, Master server act as the aggregator"""
+    if server_bus.ROLE != "master":
+        return {"error": "Only Master can aggregate fleet status"}
+    master_cpu = psutil.cpu_percent(interval=0.1)
+    master_ram  = psutil.virtual_memory()
+    raw_devices = device_pool.get_all_active_device()
+    safe_device_list = {
+        dev_id: {
+            "host": dev_info.get("host"),
+            "alive": dev_info.get("alive"),
+            "ping": dev_info.get("ping")
+        } for dev_id, dev_info in raw_devices.items()
+    }
+    all_status = [{
+        "server_id": "master_gateway",
+        "host": settings.MASTER_URL,
+        "alive": True,
+        "role": "master",
+        "ping": 0,
+        "hardware": {
+            "cpu_percent": master_cpu,
+            "ram_used_mb": round(master_ram.used / (1024 * 1024), 2),
+            "ram_total_mb": round(master_ram.total / (1024 * 1024), 2),
+            "ram_percent": master_ram.percent
+        },
+        "device_list": safe_device_list
+    }]
+    all_servers_info = server_bus.get_all_active_server()
+    tasks = []
+    server_ids = []
+    for sev_id, sev_info in all_servers_info.items():
+        tasks.append(check_server_status(sev_info["host"], timeout=2.0))
+        server_ids.append(sev_id)
+    responses = await asyncio.gather(*tasks)
+    for i, res in enumerate(responses):
+        sev_id = server_ids[i]
+        sev_info = all_servers_info[sev_id]
+        server_report = {
+            "server_id": sev_id,
+            "host": sev_info["host"],
+            "alive": res.get("alive", False),
+            "role": res.get("role", "worker"),
+            "ping": res.get("ping", 9999),
+            "hardware": res.get("hardware", {}),
+            "device_list": res.get("device_list", {}),
+            "logic_obj_count" : res.get("logic_obj_count", 0)
+        }
+        all_status.append(server_report)
+    return all_status
+@root_router.api_route("/proxy/{server_id}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
+async def gateway_proxy(server_id: str, path: str, request: Request):
+    """USING THE MASTER SERVER AS THE GATEWAY FOR FE TO CONNECT TO EACH WORKER SERVER IN THE FLEET"""
+    if server_id == "master":
+        raise HTTPException(status_code=400, detail="Not allowed to proxy to Master BE server")
+    active_servers = server_bus._active_server
+    if server_id not in active_servers:
+        raise HTTPException(status_code=404, detail=f"Worker Server {server_id} is not in the fleet")
+    target_host = active_servers[server_id]["host"]
+    target_url = f"http://{target_host}/{path}"
+    headers = dict(request.headers)
+    headers.pop("host", None)
+    headers.pop("content-length", None)
+    method = request.method
+    if method in ["POST", "PUT", "PATCH"]:
+        payload_body = request.stream()
+    else:
+        payload_body = None
+    try:
+        req = global_proxy_client.build_request(
+            method=method,
+            url=target_url,
+            headers=headers,
+            content=payload_body,
+            params=request.query_params
+        )
+        response = await global_proxy_client.send(req, stream=True)
+        resp_headers = dict(response.headers)
+        resp_headers.pop("content-encoding", None)
+        resp_headers.pop("content-length", None)
+        return StreamingResponse(
+            response.aiter_raw(),
+            status_code=response.status_code,
+            headers=resp_headers
+        )
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=502, detail=f"Lỗi Gateway: Không thể kết nối tới Worker {server_id} - {str(exc)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi Proxy nội bộ: {str(e)}")
+
+### FILE: api/v1/api.py ###
+from fastapi import APIRouter
+from app.api.v1.endpoints import utils, graph_api, infra_api, db_api
+api_router = APIRouter()
+api_router.include_router(utils.router, prefix="/utils", tags=["utils"])
+api_router.include_router(graph_api.router, prefix="/nodes", tags=["Node-Based Logic"])
+api_router.include_router(infra_api.router, prefix="/infra", tags=["InfraStructure API"])
+api_router.include_router(db_api.router, prefix="/db", tags=["Database Traceability"])
+
+### FILE: api/v1/endpoints/db_api.py ###
+import os
+import shutil
+from pathlib import Path
+from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
+from typing import List, Any
+from app.services.DatabaseManager import DatabaseManager
+from app.core.config import get_base_dir
+IMAGE_STORAGE_DIR = get_base_dir() / "storage" / "images"
+IMAGE_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+router = APIRouter()
+db_manager = DatabaseManager()
+class QueryCondition(BaseModel):
+    column: str
+    operator: str
+    value: Any
+class QueryPayload(BaseModel):
+    table: str
+    select_columns: List[str]
+    conditions: List[QueryCondition]
+@router.get("/tables", summary="Lấy danh sách các bảng trong DB")
+def get_database_tables():
+    try:
+        return db_manager.get_tables()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+@router.get("/schema/{table_name}", summary="Lấy cấu trúc Schema của một bảng")
+def get_table_schema(table_name: str):
+    try:
+        return db_manager.get_schema(table_name)
+    except ValueError as ve:
+        raise HTTPException(status_code=404, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+@router.post("/query", summary="Biên dịch JSON Query thành SQL và thực thi")
+def execute_dynamic_query(payload: QueryPayload):
+    try:
+        result = db_manager.execute_dynamic_query(payload.model_dump())
+        return result
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi truy vấn SQL: {str(e)}")
+@router.post("/seed", summary="Tạo dữ liệu Dummy (Ghi đè DB hiện tại)")
+def seed_database():
+    """Gọi API này để tạo lại toàn bộ bảng và dữ liệu mẫu trong SQLite"""
+    try:
+        return db_manager.force_seed_dummy_data()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+@router.post("/images/upload", summary="Upload ảnh lỗi (Base64 hoặc File)")
+async def upload_image(file: UploadFile = File(...)):
+    """
+    API dùng để các thiết bị Camera hoặc Node ném ảnh vào kho lưu trữ vật lý.
+    """
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Không có tên file")
+    allowed_extensions = {".jpg", ".jpeg", ".png", ".webp"}
+    file_ext = Path(file.filename).suffix.lower()
+    if file_ext not in allowed_extensions:
+        raise HTTPException(status_code=400, detail=f"Không hỗ trợ định dạng {file_ext}. Chỉ nhận JPG, PNG, WEBP.")
+    file_path = IMAGE_STORAGE_DIR / file.filename
+    try:
+        with open(file_path, "wb+") as file_object:
+            shutil.copyfileobj(file.file, file_object)
+        return {
+            "success": True,
+            "message": f"Upload ảnh {file.filename} thành công.",
+            "file_path": file.filename
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi khi lưu ảnh xuống đĩa: {str(e)}")
+@router.get("/images/{filename}/download", summary="Tải/Hiển thị ảnh lỗi")
+async def download_image(filename: str):
+    """
+    API này trả về file ảnh vật lý. Frontend sẽ dùng URL của API này nhét thẳng vào thẻ <img src="...">
+    """
+    file_path = IMAGE_STORAGE_DIR / filename
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail=f"Không tìm thấy ảnh: {filename}")
+    return FileResponse(
+        path=file_path,
+        filename=filename,
+        content_disposition_type="inline"
+    )
+
+### FILE: api/v1/endpoints/graph_api.py ###
+from fastapi import APIRouter, HTTPException, Request
+from app.schemas.graph import DeployRequest, ExecuteRequest, DebugRunRequest
+import uuid
+import json
+from app.services.utils.image_utils import bytes_to_cv2, cv2_to_base64
+import numpy as np
+from app.services.node_registry import NODE_REGISTRY
+from app.services.LogicPoolManager import LogicPoolManager
+from pydantic import BaseModel
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from app.services.LogicObjects import LogicObject
+router = APIRouter()
+logicpoolManager = LogicPoolManager()
+@router.get("/catalog", summary="Lấy danh sách các Node cho Frontend")
+def get_node_catalog():
+    """
+    Quét qua Sổ đăng ký (NODE_REGISTRY) và trả về mảng JSON chứa mô tả của tất cả các Node.
+    Frontend sẽ gọi API này 1 lần duy nhất lúc bật phần mềm để vẽ Menu.
+    """
+    try:
+        catalog = []
+        for node_name, node_class in NODE_REGISTRY.items():
+            node_manifest = node_class.formulate_frontend_description()
+            catalog.append(node_manifest)
+        return catalog
+    except Exception as e:
+        print(e)
+        raise HTTPException(status_code=500, detail=f"Lỗi khi đọc Catalog: {str(e)}")
+class Preflight(BaseModel):
+    graph: dict
+    preflight_payload: dict
+@router.post("/preflight", summary="Create a temporary object base on the DebugPackage sent from FE, try run it once, return data and clear")
+async def preflight_run(preflight_data: Preflight):
+    """
+        Use the attached Graph to try to create temporary object in the LogicPoolManager,
+        Then use the attached input payload to try running the tempory object, then return the output data.
+    """
+    try:
+        resp = await logicpoolManager.preflight_run(preflight_data.graph, preflight_data.preflight_payload)
+        return resp
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
+@router.post("/deploygraph/{graph_file_name}", summary="deploy a loaded graph to system Ram")
+def deploy_graph_to_ram(graph_file_name: str):
+    """Used to load a graph from disk to ram to create a Logic Object in memory"""
+    try:
+        resp = logicpoolManager.deploy_graph_to_ram(graph_file_name)
+        return resp
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
+@router.delete("/undeploygraph/{logic_object_id}", summary="remove a loaded graph from system Ram")
+def undeploy_graph_from_ram(logic_object_id: str):
+    """Use to remove a logic object from ram"""
+    try:
+        resp = logicpoolManager.remove_graph_from_ram(logic_object_id)
+        return resp
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
+@router.post("/executelogic/{logic_object_id}", summary="Execute an in-ram logic object")
+async def execute_logic(logic_object_id: str, payload: dict):
+    """Use to execute the logic object"""
+    try:
+        resp = await logicpoolManager.execute_trigger(logic_object_id, payload)
+        return resp
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
+@router.get("/getinoutschema/{logic_object_id}", summary="Get the in/out schema of a logic objects")
+def get_in_out_schema(logic_object_id: str):
+    try:
+        logic_object_instance : "LogicObject" = logicpoolManager._logic_pool[logic_object_id]["instance"]
+        resp = logic_object_instance.get_in_out_schemas()
+        return resp
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
+@router.get("/getLogicIDs", summary="Get the list of logic ids activated in the system")
+def get_logic_id_list():
+    try:
+        resp = logicpoolManager.get_list_of_logic_objects()
+        return resp
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
+@router.get("/dependencies", summary="Lấy danh sách mapping Graph dependencies của các Logic Objects")
+def get_logic_dependencies():
+    """
+    Trả về Dictionary mapping giữa Logic ID và tên file Graph JSON vật lý.
+    Frontend gọi API này lúc Export Project để ghi vào file JSON tổng.
+    """
+    try:
+        resp = logicpoolManager.get_logic_dependencies()
+        return resp
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error: {str(e)}")
+class SyncDependenciesRequest(BaseModel):
+    logic_objects: dict
+@router.post("/sync-dependencies", summary="Đánh thức/Nạp lại các Logic Object theo yêu cầu của FE")
+def sync_logic_dependencies(payload: SyncDependenciesRequest):
+    """
+    Nhận một danh sách các Logic Object ID và Graph Name.
+    Tiến hành nạp vào RAM. Trả về báo cáo chi tiết cho từng Object.
+    """
+    results = {}
+    has_error = False
+    for logic_id, graph_name in payload.logic_objects.items():
+        res = logicpoolManager.deploy_exact_graph_to_ram(graph_name, logic_id)
+        results[logic_id] = res
+        if not res["success"]:
+            has_error = True
+    return {
+        "success": not has_error,
+        "details": results
+    }
+
+### FILE: api/v1/endpoints/infra_api.py ###
+from fastapi import APIRouter, HTTPException, UploadFile, File
+from typing import Any
+from fastapi.responses import FileResponse
+from app.services.ConnectionBus import APIManualRoutingBus
+from app.services.LogicPoolManager import LogicPoolManager
+from app.services.DevicePoolManager import HTTPDevicePoolManager
+from pydantic import BaseModel
+from app.services.LVSTypes import FileType
+router = APIRouter()
+server_bus = APIManualRoutingBus()
+logic_pool = LogicPoolManager()
+device_bus = HTTPDevicePoolManager()
+@router.get("/servers/{server_id}", summary="Look up for host of a server (for workers server)")
+def get_server_info(server_id: str):
+    context = server_bus.get_server_context(server_id)
+    if not context:
+        raise HTTPException(status_code=404, detail="Server does not exist in Master Server memory")
+    return{
+        "server_id" : server_id,
+        "host" : context["host"]
+    }
+@router.post("/resources/files/{filetype}/upload", summary="Upload Model/File nặng lên Disk")
+async def upload_file(filetype : str ,file: UploadFile = File(...)):
+    """
+        UPLOAD A FILE TO A SERVER'S DISK
+    """
+    try:
+        FileType(filetype)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"File Type {filetype} is not valid")
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Không có tên file")
+    res = await logic_pool.save_heavy_file(file, file.filename, filetype)
+    if not res["success"]:
+        raise HTTPException(status_code=500, detail=res["error_message"])
+    return res
+@router.get("/resources/files/{filetype}/{filename}/download", summary="Download File từ Disk")
+async def download_file(filetype:str, filename: str):
+    """
+        DOWNLOAD A FILE FROM A SERVER'S DISK
+    """
+    try:
+        FileType(filetype)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"File Type {filetype} is not valid")
+    try:
+        file_path = logic_pool.get_file_path(filename, filetype)
+        return FileResponse(
+            path=file_path,
+            filename=filename,
+            media_type="application/octet-stream",
+            content_disposition_type="attachment"
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi hệ thống: {e}")
+@router.get("/resources/status", summary="Get all files and graphs status on the local storage of this server")
+def get_resource_status():
+    try:
+        res = logic_pool.get_resource_status()
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Something failed during fetching of resource status {e}")
+@router.delete("/resources/delete/{file_type}/{file_name}", summary="Delete a file")
+def delete_file( file_type: str, file_name : str):
+    try:
+        if file_type == "file":
+            resp = logic_pool.delete_file_from_disk(file_name, file_type="file")
+        elif file_type == "graph":
+            resp = logic_pool.delete_file_from_disk(file_name, file_type="graph")
+        elif file_type == "plugin":
+            resp = logic_pool.delete_file_from_disk(file_name, file_type="plugins")
+        else:
+            raise HTTPException(status_code=400, detail=f"UNKNOWN FILE TYPE {e}")
+        return resp
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Something failed during deletion of file {e}")
+@router.get("/servers", summary="Fetch the list of connected servers in the Bus")
+def get_all_local_servers():
+    active_servers = server_bus.get_all_active_server()
+    result = []
+    for sev_id, sev_info in active_servers.items():
+        result.append({
+            "id" : sev_id,
+            "host" : sev_info["host"],
+            "status" : "online" if not sev_info["session"].closed else "offline",
+            "ping" : sev_info["ping"]
+        })
+    return result
+class ServerInfo(BaseModel):
+    server_id : str
+    host : str
+@router.post("/servers/add", summary="Add a server in to Bus Cache")
+async def add_local_server(info : ServerInfo):
+    res = await server_bus.add_new_server({"server_id" : info.server_id, "host" : info.host})
+    if not res["success"]:
+        raise HTTPException(status_code=400, detail=res["message"])
+    return res
+@router.delete("/servers/delete/{server_id}", summary="Remove a server from the Bus")
+async def remove_local_server(server_id : str):
+    try:
+        res = await server_bus.remove_server(server_id)
+        return res
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Server không tồn tại trong Cache")
+@router.get("/devices", summary="Fetch the list of connected IOT devices in the device bus")
+async def get_all_local_devices():
+    active_devices = device_bus.get_all_active_device()
+    result = []
+    for dev_id, dev_info in active_devices.items():
+        result.append({
+            "id" : dev_id,
+            "host" : dev_info["host"],
+            "status" : "online" if not dev_info["session"].closed else "offline",
+            "ping" : dev_info["ping"]
+        })
+    return result
+class DeviceInfo(BaseModel):
+    device_id : str
+    host : str
+@router.post("/devices/add", summary="Add a device in to Bus Cache")
+async def add_local_device(info : DeviceInfo):
+    res = await device_bus.add_new_device({"device_id" : info.device_id, "host" : info.host})
+    if not res["success"]:
+        raise HTTPException(status_code=400, detail=res["message"])
+    return res
+@router.delete("/devices/delete/{device_id}", summary="Remove a device from the Bus")
+async def remove_local_device(device_id : str):
+    try:
+        res = await device_bus.remove_device(device_id)
+        return res
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Server không tồn tại trong Cache")
+@router.post("/servers/heartbeat/{new_interval}", summary="Changing the frequency in which server bus heartbeat is monitored")
+def change_server_bus_heartbeat(new_interal : float):
+    try:
+        server_bus._change_heartbeat_interval(new_interal)
+        return({"success": True})
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"{e}")
+@router.post("/devices/heartbeat/{new_interval}", summary="Changing the frequency in which device bus heartbeat is monitored")
+def change_server_bus_heartbeat(new_interal : float):
+    try:
+        device_bus._change_heartbeat_interval(new_interal)
+        return({"success": True})
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"{e}")
+@router.post("/resources/files/load-to-ram/{filename}", summary="Load a heavy file from Disk to RAM")
+async def load_file_to_memory(filename: str):
+    """
+    API dùng để nạp một file từ Ổ cứng (Disk) lên Bộ nhớ (RAM)
+    thông qua LogicPoolManager để các Node sử dụng.
+    """
+    try:
+        res = await logic_pool.load_file_to_ram(filename)
+        if not res["success"]:
+            raise HTTPException(status_code=400, detail=res.get("error_message") or res.get("message"))
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi khi load file lên RAM: {str(e)}")
+@router.post("/resources/files/unload-from-ram/{filename}", summary="Unload a heavy file from RAM")
+def unload_file_from_memory(filename: str):
+    """API dùng để giải phóng RAM cho một file"""
+    try:
+        res = logic_pool.unload_file_from_ram(filename)
+        if not res["success"]:
+            raise HTTPException(status_code=400, detail=res.get("error_message"))
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi khi giải phóng file: {str(e)}")
+
+### FILE: api/v1/endpoints/utils.py ###
+from fastapi import APIRouter
+from typing import Any
+router = APIRouter()
+@router.get("/health-check", status_code=200)
+def perform_health_check() -> Any:
+    """
+    Kiểm tra trạng thái hoạt động của API.
+    Trả về 200 nếu hệ thống sẵn sàng xử lý yêu cầu.
+    """
+    return {
+        "status": "ok",
+        "message": "Hệ thống LambdaVisionSupper đang hoạt động ổn định!"
+    }
+
+### FILE: core/config.py ###
+from pydantic_settings import BaseSettings, SettingsConfigDict
+import sys
+from pathlib import Path
+def get_base_dir() -> Path:
+    """Xác định đường dẫn gốc an toàn kể cả khi chạy bằng Python thuần hay đã build thành EXE"""
+    if getattr(sys, 'frozen', False):
+        return Path(sys.executable).parent
+    else:
+        return Path(__file__).parent.parent.parent
+class Settings(BaseSettings):
+    PROJECT_NAME: str = "LambdaVisionSupper"
+    API_V1_STR: str = "/api/v1"
+    MASTER_URL: str = "http://192.168.1.11:8600"
+    MASTER_API: str = "/api/v1"
+    NODE_ROLE: str = "worker"
+    model_config = SettingsConfigDict(env_file=".env")
+settings = Settings()
+
+### FILE: schemas/graph.py ###
+from pydantic import BaseModel, Field
+from typing import Dict, Any
+class DeployRequest(BaseModel):
+    logic_id: str = Field(..., description="Asssign an ID to an Logic Object to deploy")
+    workflow_json: Dict[str, Any] = Field(..., description="Nội dung file JSON Đồ thị từ React Flow")
+class ExecuteRequest(BaseModel):
+    logic_id: str
+    payload: Dict[str, Any] = Field(..., description="Dữ liệu động bơm vào Graph (VD: {'raw_image': 'base64...'})")
+class DebugRunRequest(BaseModel):
+    workflow_json: Dict[str, Any] = Field(..., description="Bản vẽ JSON hiện tại trên Canvas")
+    payload: Dict[str, Any] = Field(..., description="Dữ liệu bơm vào (VD: Ảnh Base64, số, chữ...)")
+
+### FILE: services/ConnectionBus.py ###
+import aiohttp
+import asyncio
+from typing import Dict, Any, List
+import os
+from app.services.utils.ping_measurer import check_server_status
+from app.core.config import settings
+class APIManualRoutingBus:
+    _instance = None
+    _active_server: Dict[str, Dict[str, Any]] = {}
+    MASTER_URL = settings.MASTER_URL
+    MASTER_API = settings.MASTER_API
+    ROLE = settings.NODE_ROLE.lower()
+    _heartbeat_interval = 5
+    def __new__(cls):
+        """Only 1 Instance is allowed on 1 server"""
+        if cls._instance is None:
+            cls._instance = super(APIManualRoutingBus, cls).__new__(cls)
+        return cls._instance
+    async def _heartbeat_monitor(self):
+        """Function used for measurement the connection status with other worker severs..."""
+        while True:
+            try:
+                for sev_id, sev_info in self._active_server.items():
+                    res = await check_server_status(sev_info["host"], timeout= 3.0)
+                    if res.get("alive"):
+                        self._active_server[sev_id].update(res)
+                    else:
+                        self._active_server[sev_id]["alive"] = False
+                        self._active_server[sev_id]["ping"] = 999999
+                        self._active_server[sev_id]["hardware"] = {"cpu_percent": 0, "ram_percent": 0, "ram_used_mb": 0, "ram_total_mb": 0}
+                await asyncio.sleep(self._heartbeat_interval)
+            except Exception:
+                await asyncio.sleep(self._heartbeat_interval)
+    def _change_heartbeat_interval(self, new_interval):
+        """FOR API CALL : CHANGE THE FREQUENCY IN WHICH THE SERVICE MEASURE PING TO ITS CONNECTED WORKERS SERVERS"""
+        self._heartbeat_interval = int(new_interval)
+    async def _create_http_session(self) -> aiohttp.ClientSession:
+        """Create a TCP Connector instance with a server for better performance"""
+        connector = aiohttp.TCPConnector(force_close=False, keepalive_timeout=300)
+        return aiohttp.ClientSession(connector=connector)
+    async def add_new_server(self, server_info: Dict[str, str]):
+        """API function: use when FE need to add a new Server to the server pool"""
+        sev_id = server_info["server_id"]
+        host = server_info["host"]
+        if sev_id in self._active_server:
+            response = {"success": False, "message": f"{sev_id} with host {host} already exists in the system"}
+            return response
+        try:
+            session = await self._create_http_session()
+            self._active_server[sev_id] = {
+            "session": session,
+            "host": host,
+            "alive": True,
+            "ping": 0
+            }
+            res = await check_server_status(host, timeout= 3.0)
+            if res["alive"]:
+                self._active_server[sev_id]["ping"] = res["ping"]
+                response = {"success": True, "message": f"{sev_id} with host {host} connected sucessfully"}
+                return response
+            else:
+                await session.close()
+                self._active_server.pop(sev_id, None)
+                raise ConnectionError(f"{sev_id} response with code {res['status_code']}")
+        except Exception as e:
+            response = {"success": False, "message": f"Cannot Connect to {sev_id} with host {host} : {e}"}
+            return response
+    async def remove_server(self, server_id: str):
+        """API Function: use when FE need to remove a server from the server pool"""
+        sev_info = self._active_server[server_id]
+        session : aiohttp.ClientSession = sev_info["session"]
+        if not session.closed:
+            await session.close()
+        self._active_server.pop(server_id, None)
+        response = {"success": True, "message": f"server {server_id} has been removed from the pool"}
+        return response
+    async def get_server_context(self, server_id: str) -> Dict[str, Any]:
+        """Return Session + HostName for the Node to use, If does not have yet. Ask it from the Master and Cache it"""
+        if server_id in self._active_server:
+            return self._active_server[server_id]
+        if self.ROLE == "master":
+            print(f"[Master] Lỗi: Server {server_id} chưa được đăng ký vào hệ thống!")
+            return None
+        async with aiohttp.ClientSession() as temp_session:
+            try:
+                master_api = f"{self.MASTER_URL}/{self.MASTER_API}/infra/servers/{server_id}"
+                async with temp_session.get(master_api, timeout=5.0) as resp:
+                    if resp.status != 200:
+                        raise ValueError(f"Master Failed to Retrieve the Server {server_id}")
+                    data = await resp.json()
+                    target_host = data.get("host")
+            except Exception as e:
+                print(f"Error: Fail to search for Server ID from Master Server: {e}")
+                return None
+        await self.add_new_server({
+            "server_id" : server_id,
+            "host" : target_host
+        })
+        return self._active_server.get(server_id)
+    async def reconect_server(self, server_id: str) -> aiohttp.ClientSession:
+        """Lazy Reconnect"""
+        if server_id not in self._active_server:
+            raise ValueError(f"Error: {server_id} is not yet registered in the pool")
+        old_context = self._active_server[server_id]
+        if not old_context["session"].closed:
+            await old_context["session"].close()
+        new_session = await self._create_http_session()
+        try:
+            host = old_context["host"]
+            async with new_session.get(f"http://{host}/status", timeout=3.0) as resp:
+                if resp.status != 200:
+                    raise ConnectionError(f"http://{host}/status returned code: {resp.status}")
+        except Exception as e:
+            await new_session.close()
+            raise ConnectionError(f"{str(e)}")
+        self._active_server[server_id]["session"] = new_session
+        return new_session
+    def get_all_active_server(self):
+        """RETURN THE LIST OF CURRENTLY ACTIVE SERVER, MAYBE USEFUL FOR FRONT END"""
+        return self._active_server
+
+### FILE: services/DatabaseManager.py ###
+import os
+from sqlalchemy import create_engine, MetaData, Table, select, text
+from pathlib import Path
+from app.core.config import get_base_dir
+class DatabaseManager:
+    _instance = None
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(DatabaseManager, cls).__new__(cls)
+            cls._instance._init_db()
+        return cls._instance
+    def _init_db(self):
+        db_dir = get_base_dir() / "storage"
+        db_dir.mkdir(parents=True, exist_ok=True)
+        db_path = db_dir / "lambdainspection.db"
+        self.engine = create_engine(f"sqlite:///{db_path}", echo=False)
+        self.metadata = MetaData()
+        self.metadata.reflect(bind=self.engine)
+        if not self.metadata.tables:
+            self.force_seed_dummy_data()
+    def get_tables(self) -> list:
+        self.metadata.reflect(bind=self.engine)
+        return list(self.metadata.tables.keys())
+    def get_schema(self, table_name: str) -> dict:
+        self.metadata.reflect(bind=self.engine)
+        if table_name not in self.metadata.tables:
+            raise ValueError(f"Bảng {table_name} không tồn tại")
+        table = self.metadata.tables[table_name]
+        schema_config = {}
+        for col in table.columns:
+            col_type = str(col.type).upper()
+            dataType = 'text'
+            if 'INT' in col_type or 'FLOAT' in col_type or 'NUMERIC' in col_type:
+                dataType = 'number'
+            elif 'DATETIME' in col_type or 'TIMESTAMP' in col_type or 'DATE' in col_type:
+                dataType = 'datetime'
+            elif 'BOOL' in col_type or 'BOOLEAN' in col_type:
+                dataType = 'boolean'
+            is_image = 'image' in col.name.lower() or 'path' in col.name.lower()
+            schema_config[col.name] = {
+                "originalName": col.name,
+                "displayName": col.name.replace("_", " ").upper(),
+                "isVisible": True,
+                "isImage": is_image if dataType == 'text' else False,
+                "dataType": dataType
+            }
+        return schema_config
+    def execute_dynamic_query(self, payload: dict) -> list:
+        table_name = payload.get("table")
+        select_cols = payload.get("select_columns", [])
+        conditions = payload.get("conditions", [])
+        self.metadata.reflect(bind=self.engine)
+        if table_name not in self.metadata.tables:
+            raise ValueError(f"Bảng {table_name} không tồn tại")
+        table = self.metadata.tables[table_name]
+        cols_to_select = [table.c[col] for col in select_cols if col in table.c]
+        if not cols_to_select:
+            cols_to_select = [table]
+        stmt = select(*cols_to_select)
+        for cond in conditions:
+            col_name = cond.get("column")
+            op = cond.get("operator")
+            val = cond.get("value")
+            if col_name in table.c:
+                column = table.c[col_name]
+                if op == "==":
+                    stmt = stmt.where(column == val)
+                elif op == "!=":
+                    stmt = stmt.where(column != val)
+                elif op == ">":
+                    stmt = stmt.where(column > val)
+                elif op == "<":
+                    stmt = stmt.where(column < val)
+                elif op == "CONTAINS":
+                    stmt = stmt.where(column.like(f"%{val}%"))
+                elif op == "BETWEEN":
+                    if isinstance(val, list) and len(val) == 2:
+                        if val[0] and val[1]:
+                            stmt = stmt.where(column.between(val[0], val[1]))
+                        elif val[0]:
+                            stmt = stmt.where(column >= val[0])
+                        elif val[1]:
+                            stmt = stmt.where(column <= val[1])
+        stmt = stmt.limit(100)
+        with self.engine.connect() as conn:
+            result = conn.execute(stmt)
+            return [dict(row._mapping) for row in result]
+    def force_seed_dummy_data(self):
+        """Xóa trắng DB hiện tại và tạo lại các bảng Dummy để Test"""
+        with self.engine.connect() as conn:
+            conn.execute(text("DROP TABLE IF EXISTS inspection_logs"))
+            conn.execute(text("DROP TABLE IF EXISTS system_events"))
+            conn.execute(text("DROP TABLE IF EXISTS production_stats"))
+            conn.execute(text("""
+                CREATE TABLE inspection_logs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    defect_type TEXT,
+                    confidence FLOAT,
+                    crop_image_path TEXT
+                )
+            """))
+            conn.execute(text("""
+                INSERT INTO inspection_logs (defect_type, confidence, crop_image_path)
+                VALUES
+                ('Scratch', 0.95, 'mock_scratch.jpg'),
+                ('Dent', 0.88, 'mock_dent.jpg'),
+                ('Missing Part', 0.99, 'mock_missing.jpg'),
+                ('OK', 1.0, 'mock_ok.jpg')
+            """))
+            conn.execute(text("""
+                CREATE TABLE system_events (
+                    event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    severity TEXT,
+                    message TEXT
+                )
+            """))
+            conn.execute(text("""
+                INSERT INTO system_events (severity, message)
+                VALUES
+                ('INFO', 'System started successfully'),
+                ('WARNING', 'Camera temperature high: 45C'),
+                ('ERROR', 'Conveyor belt motor stalled'),
+                ('INFO', 'User admin logged in')
+            """))
+            conn.execute(text("""
+                CREATE TABLE production_stats (
+                    shift_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    shift_date DATE DEFAULT CURRENT_DATE,
+                    total_scanned INTEGER,
+                    total_passed INTEGER,
+                    total_failed INTEGER
+                )
+            """))
+            conn.execute(text("""
+                INSERT INTO production_stats (total_scanned, total_passed, total_failed)
+                VALUES
+                (1500, 1450, 50),
+                (2000, 1980, 20)
+            """))
+            conn.commit()
+            self.metadata.clear()
+            self.metadata.reflect(bind=self.engine)
+            return {"success": True, "message": "Đã tạo thành công 3 bảng mẫu: inspection_logs, system_events, production_stats"}
+
+### FILE: services/DevicePoolManager.py ###
+import aiohttp
+import asyncio
+from typing import Dict, Any, List
+from app.services.utils.ping_measurer import check_server_status
+class HTTPDevicePoolManager:
+    _instance = None
+    _active_devices: Dict[str, Dict[str, Any]] = {}
+    _heartbeat_interval = 5
+    def __new__(cls):
+        """Only 1 Instance is allowed on 1 server"""
+        if cls._instance is None:
+            cls._instance = super(HTTPDevicePoolManager, cls).__new__(cls)
+        return cls._instance
+    def _change_heartbeat_interval(self, new_interval):
+        """FOR API CALL : CHANGE THE FREQUENCY IN WHICH THE SERVICE MEASURE PING TO ITS CONNECTED WORKERS SERVERS"""
+        self._heartbeat_interval = int(new_interval)
+    async def _heartbeat_monitor(self):
+        """Function used for measurement the connection status with other worker severs..."""
+        while True:
+            try:
+                for dev_id, dev_info in self._active_devices.items():
+                    res = await check_server_status(dev_info["host"], timeout= 3.0)
+                    if res["alive"]:
+                        self._active_devices[dev_id]["alive"] = True
+                        self._active_devices[dev_id]["ping"] = res["ping"]
+                    else:
+                        self._active_devices[dev_id]["alive"] = False
+                        self._active_devices[dev_id]["ping"] = 999999
+                await asyncio.sleep(self._heartbeat_interval)
+            except Exception:
+                await asyncio.sleep(self._heartbeat_interval)
+    async def _create_http_session(self) -> aiohttp.ClientSession:
+        """Create a TCP Connector instance with a device"""
+        connector = aiohttp.TCPConnector(force_close=False, keepalive_timeout=300)
+        return aiohttp.ClientSession(connector=connector)
+    async def add_new_device(self, device_info : Dict[str, str]):
+        """API Function for adding new device into the pool"""
+        device_id = device_info["device_id"]
+        device_host = device_info["host"]
+        if device_id in self._active_devices:
+            response = {"success": False, "message": f"{device_id} with host {device_host} already exists in the system"}
+            return response
+        try:
+            session = await self._create_http_session()
+            self._active_devices[device_id] = {
+            "session": session,
+            "host": device_host,
+            "alive": True,
+            "ping": 0
+            }
+            res = await check_server_status(device_host, timeout= 3.0)
+            if res["alive"]:
+                self._active_devices[device_id]["ping"] = res["ping"]
+                response = {"success": True, "message": f"{device_id} with host {device_host} connected sucessfully"}
+                return response
+            else:
+                await session.close()
+                self._active_devices.pop(device_id, None)
+                raise ConnectionError(f"{device_id} response with code {res['status_code']}")
+        except Exception as e:
+            response = {"success": False, "message": f"Cannot Connect to {device_id} with host {device_host} : {str(e)}"}
+            return response
+    async def remove_device(self, device_id: str):
+        """API Function: use when FE need to remove a device from the device pool"""
+        dev_info = self._active_devices[device_id]
+        session : aiohttp.ClientSession = dev_info["session"]
+        if not session.closed:
+            await session.close()
+        self._active_devices.pop(device_id, None)
+        response = {"success": True, "message": f"server {device_id} has been removed from the pool"}
+        return response
+    def get_device_context(self, device_id: str) -> Dict[str, Any]:
+        """Return Session + HostName for the Device Node to use"""
+        if device_id not in self._active_devices:
+            print(f"Error: {device_id} is not yet registered in the pool")
+            return None
+        return self._active_devices[device_id]
+    async def reconnect_device(self, device_id: str) -> aiohttp.ClientSession:
+        """Lazy Reconnect"""
+        if device_id not in self._active_devices:
+            raise ValueError(f"Error: {device_id} is not yet registered in the pool")
+        old_context = self._active_devices[device_id]
+        if not old_context["session"].closed:
+            await old_context["session"].close()
+        new_session = await self._create_http_session()
+        try:
+            host = old_context["host"]
+            async with new_session.get(f"http://{host}/status", timeout=3.0) as resp:
+                if resp.status != 200:
+                    raise ConnectionError(f"http://{host}/status returned code: {resp.status}")
+        except Exception as e:
+            await new_session.close()
+            raise ConnectionError(f"{str(e)}")
+        self._active_devices[device_id]["session"] = new_session
+        return new_session
+    def get_all_active_device(self):
+        """RETURN THE LIST OF CURRENTLY ACTIVE Devices, MAYBE USEFUL FOR FRONT END"""
+        return self._active_devices
+
+### FILE: services/LogicObjects.py ###
+from typing import Dict, Any, TYPE_CHECKING
+from app.services.LVSTypes import NodeType
+from app.services.node_registry import BaseNode, NODE_REGISTRY
+from collections import deque
+if TYPE_CHECKING:
+    from app.services.LogicPoolManager import LogicPoolManager
+class LogicObject():
+    def __init__(self, workflow_json: Dict[str, Any], logicPoolManagerInst: "LogicPoolManager"):
+        self.nodes_list: Dict[str, "BaseNode"] = {}
+        self.nodes_mapping: Dict[str, Dict[str, Dict[str, str]]] = {}
+        self.logicPoolManagerInst = logicPoolManagerInst
+        self.sequence: list = []
+        self.initialize_logic_object(workflow_json)
+    def build_execution_sequence(self, workflow_json: Dict[str, Any]):
+        """Kahn's Topological Sort Algorithm for translating the graph to a linear list"""
+        nodes = workflow_json.get("nodes", [])
+        for node in nodes:
+            node_id = node.get("id")
+            node_data = node.get("data", {})
+            node_class_name = node_data.get("class")
+            node_class = NODE_REGISTRY.get(node_class_name)
+            if not node_class:
+                raise ValueError(f"Không tìm thấy node class {node_class_name} trong registry")
+            new_node = node_class(node_id, self, node_data)
+            self.nodes_list[node_id] = new_node
+        in_degree = {node_id : 0 for node_id in self.nodes_list}
+        graph = {node_id : [] for node_id in self.nodes_list}
+        unique_dependencies = set()
+        for target_node_id, pins in self.nodes_mapping.items():
+            for target_pin, source_info in pins.items():
+                source_node_id = source_info["source_node"]
+                unique_dependencies.add((source_node_id, target_node_id))
+        for source_id, target_id in unique_dependencies:
+            if source_id in self.nodes_list and target_id in self.nodes_list:
+                graph[source_id].append(target_id)
+                in_degree[target_id] += 1
+        queue = deque([node_id for node_id, deg in in_degree.items() if deg == 0])
+        sorted_node_ids = []
+        while (queue):
+            current_id = queue.popleft()
+            sorted_node_ids.append(current_id)
+            for neighbor_id in graph[current_id]:
+                in_degree[neighbor_id] -= 1
+                if in_degree[neighbor_id] == 0:
+                    queue.append(neighbor_id)
+        self.sequence = sorted_node_ids
+    def initialize_logic_object(self, workflow_json: Dict[str, Any]):
+        """Quét JSON để tạo danh sách node và nối dây (nodes_mapping)"""
+        edges = workflow_json.get("edges", [])
+        for edge in edges:
+            source_node = edge.get("source")
+            source_pin = edge.get("sourceHandle")
+            receive_node = edge.get("target")
+            input_pin = edge.get("targetHandle")
+            if receive_node not in self.nodes_mapping:
+                self.nodes_mapping[receive_node] = {}
+            self.nodes_mapping[receive_node][input_pin] = {
+                "source_node": source_node,
+                "source_pin": source_pin
+            }
+        self.build_execution_sequence(workflow_json)
+    def inject_payload(self, payload: dict):
+        """Inject the AXIOS payload in to the ReceipientNode"""
+        for node in self.nodes_list.values():
+            if node.__class__.__name__ == "ReceivePayloadNode":
+                if not node.OUTPUT_SCHEMA:
+                    return
+                try:
+                    node.local_output = node.OUTPUT_SCHEMA(**payload)
+                except Exception as e:
+                    raise ValueError(f"Dữ liệu API Axios không khớp với thiết kế của ReceivePayloadNode: {e}")
+                return
+    def get_final_output(self):
+        """Take Out Final Data from SendResponseNode"""
+        for node in self.nodes_list.values():
+            if node.__class__.__name__ == "SendResponseNode":
+                return node.local_output
+        return {"error": "Không tìm thấy SendResponseNode trong Graph"}
+    async def run_nodes_loop(self, payload:dict = None):
+        if payload is None:
+            payload = {}
+        self.reset_graph_state()
+        try:
+            self.inject_payload(payload)
+        except Exception as e:
+            recipient_node = next((n for n in self.nodes_list.values() if n.__class__.__name__ == "ReceivePayloadNode"), None)
+            fail_id = recipient_node.node_id if recipient_node else "System_Entry"
+            return {
+                "success" : False,
+                "failed_node_id": fail_id,
+                "error_message" : f"Dữ liệu Payload không hợp lệ: {e}"
+            }
+        for node_id in self.sequence:
+            try:
+                node = self.nodes_list[node_id]
+                await node.resolve_and_execute()
+            except Exception as e:
+                return {
+                    "success" : False,
+                    "failed_node_id": node_id,
+                    "error_message" : str(e)
+                }
+        return {"success": True}
+    def reset_graph_state(self):
+        """Reset All Nodes memory"""
+        for node in self.nodes_list.values():
+            node.reset()
+    async def _safe_load_file(self, file_name : str) -> Any:
+        """This function will be used by node so that it safely loads a resource,
+            if the required resource is not in ram, then the LogicPoolManager will safely loadit to ram first then give it to
+            the node
+        """
+        if file_name not in self.logicPoolManagerInst._storage_pool:
+            await self.logicPoolManagerInst.load_file_to_ram(file_name)
+        try:
+            loaded_object = self.logicPoolManagerInst._storage_pool[file_name]
+            return loaded_object
+        except Exception as e:
+            raise MemoryError(f"Something Failed when trying to load the resource : {e}")
+    def _safe_load_LogicObject(self, graph_file_name : str) -> "LogicObject":
+        """This function will be Used by nodes so that it safely loads another object in case needed (nested functions concept),
+            if the required resource is not in ram, then the LogicPoolManager will safely loadit to ram first then give it to
+            the node
+        """
+        for logic_id, value in self.logicPoolManagerInst._logic_pool.items():
+            if graph_file_name == value.get("graph_json_name"):
+                return value["instance"]
+        result = self.logicPoolManagerInst.deploy_graph_to_ram(graph_file_name)
+        if result["success"] == True:
+            logic_id = result["message"]
+            return self.logicPoolManagerInst._logic_pool[logic_id]["instance"]
+        else:
+            raise MemoryError(f"Something fail when trying to load the logic object id from _logic_pool")
+    def get_in_out_schemas(self) -> dict:
+        """API function returning the in/out schema as a flat list so that FE Sequencer can know how do deal with"""
+        schemas = {}
+        for node in self.nodes_list.values():
+            if node.__class__.__name__ == "ReceivePayloadNode":
+                schemas["input_schema"] = node.get_schema()
+            elif node.__class__.__name__ == "SendResponseNode":
+                schemas["output_schema"] = node.get_schema()
+        return schemas
+
+### FILE: services/LogicPoolManager.py ###
+import asyncio
+import time
+from typing import Dict, Any
+from app.services.LogicObjects import LogicObject
+from pathlib import Path
+import json
+import uuid
+import os
+from app.services.utils.files_loader import load_ai_models, load_image
+from fastapi import UploadFile
+import shutil
+from app.core.config import get_base_dir
+import importlib.util
+import sys
+from app.services.LVSTypes import FileType
+class LogicPoolManager:
+    _instance = None
+    _logic_pool: Dict[str, Dict[str, Any]] = {}
+    _storage_pool: Dict[str, Any] = {}
+    _plugin_mtimes = {}
+    BASE_STORAGE_DIR = get_base_dir() / "storage"
+    GRAPH_DIR = BASE_STORAGE_DIR / "graph_storage"
+    FILE_DIR = BASE_STORAGE_DIR / "file_storage"
+    PLUGIN_DIR = BASE_STORAGE_DIR / "pluggins"
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(LogicPoolManager, cls).__new__(cls)
+            cls._instance._init_storage()
+        return cls._instance
+    def _init_storage(self):
+        """Initialize the storage for files and graphs"""
+        self.GRAPH_DIR.mkdir(parents=True, exist_ok=True)
+        self.FILE_DIR.mkdir(parents=True, exist_ok=True)
+        self.PLUGIN_DIR.mkdir(parents=True, exist_ok=True)
+    def deploy_graph_to_ram(self, graph_file_name : str) -> dict:
+        """Load a logic object file (graph_json) in to ram and give it a unique ID in RAM"""
+        try:
+            file_path = self.GRAPH_DIR / f"{graph_file_name}.json"
+            if not file_path.exists():
+                raise FileNotFoundError(f"Graph '{graph_file_name}' không tồn tại trên disk, hãy upload file graph.json lên disk trước")
+            with open(file_path, 'r', encoding='utf-8') as f:
+                workflow_json = json.load(f)
+            logic_obj = LogicObject(workflow_json, self)
+            logic_id = f"{graph_file_name}{uuid.uuid4()}"
+            self._logic_pool[logic_id] = {
+                "instance": logic_obj,
+                "lock": asyncio.Lock(),
+                "last_used": time.time(),
+                "graph_json_name" : graph_file_name
+            }
+            return {"success": True, "data": {'name': logic_id, 'graph_file': graph_file_name}}
+        except Exception as e:
+            return {"success": False, "error_message": f"Load LogicObject to Ram failed: {e}"}
+    async def preflight_run(self, graph_json, input_payload) -> dict:
+        """For API call: Use to try / test a new graph"""
+        try:
+            temp_logic_obj = LogicObject(graph_json, self)
+            status = await temp_logic_obj.run_nodes_loop(input_payload)
+            if not status["success"]:
+                return {
+                    "success": False,
+                    "failed_node_id": status["failed_node_id"],
+                    "error_message": status["error_message"],
+                    "data": {}
+                }
+            final_data = temp_logic_obj.get_final_output()
+            if "error" in final_data:
+                return {
+                    "success": False,
+                    "failed_node_id": "api.send_response",
+                    "error_message": final_data["error"],
+                    "data": {}
+                }
+            return {
+                "success": True,
+                "failed_node_id": None,
+                "error_message": None,
+                "data": final_data
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "failed_node_id": None,
+                "error_message": str(e),
+                "data": {}
+            }
+    def remove_graph_from_ram(self, logic_id: str):
+        """API Function: Giải phóng RAM"""
+        if logic_id in self._logic_pool:
+            del self._logic_pool[logic_id]
+            return {"success": True}
+        return {"success": False, "error_message": "Không tìm thấy trên RAM"}
+    async def execute_trigger(self, logic_id: str, payload: dict):
+        """Trigger một LogicObject bất kỳ bằng ID"""
+        logic_data = self._logic_pool.get(logic_id)
+        if not logic_data:
+            return {"success": False, "error_message": f"LogicObject {logic_id} không tồn tại hoặc đã bị xóa khỏi RAM."}
+        logic_data["last_used"] = time.time()
+        logic_obj : LogicObject = logic_data["instance"]
+        lock = logic_data["lock"]
+        async with lock:
+            status = await logic_obj.run_nodes_loop(payload)
+            if not status["success"]:
+                return {
+                    "success": False,
+                    "logic_object_id": logic_id,
+                    "failed_node_id": status["failed_node_id"],
+                    "error_message": status["error_message"],
+                    "data": {}
+                }
+            final_data = logic_obj.get_final_output()
+            if "error" in final_data:
+                return {
+                    "success": False,
+                    "logic_object_id": logic_id,
+                    "failed_node_id": "SendResponseNode",
+                    "error_message": final_data["error"],
+                    "data": {}
+                }
+            return {
+                "success": True,
+                "logic_object_id": logic_id,
+                "failed_node_id": None,
+                "error_message": None,
+                "data": final_data
+            }
+    def delete_file_from_disk(self, file_name: str, file_type: str = "file") -> dict:
+        """DELETE A FILE FROM THE PERSISTEN STORAGE OF THIS SERVER
+            filetype: "file", "graph", "plugins"
+        """
+        if file_type == "file":
+            file_path = self.FILE_DIR / f"{file_name}"
+        elif file_type == "graph":
+            file_path = self.GRAPH_DIR / f"{file_name}"
+        else:
+            file_path = self.PLUGIN_DIR / f"{file_name}"
+        if file_path.exists():
+            file_path.unlink()
+            return {"success": True}
+        return {"success": False, "error_message": "File không tồn tại"}
+    def get_resource_status(self) -> dict:
+        """Hàm này gộp cả dữ liệu Disk và RAM trả về cho Tab Resource của FE"""
+        files_data : Dict[str, dict] = {}
+        inRam_files = list(self._storage_pool.keys())
+        files_name_list = [f.name for f in self.FILE_DIR.iterdir() if f.is_file()]
+        for file_name in files_name_list:
+            size = os.path.getsize(f"{self.FILE_DIR}/{file_name}")
+            inRam = False
+            if(file_name in inRam_files):
+                inRam = True
+            files_data[file_name] = {"size": size, "inram": inRam}
+        graphs_data = [{"name" : f.name, "size": f.stat().st_size}
+                       for f in self.GRAPH_DIR.iterdir() if f.is_file() and f.suffix == ".json"]
+        plugins_data = [{"name": f.name, "size": f.stat().st_size}
+                   for f in self.PLUGIN_DIR.iterdir() if f.is_file() and f.suffix == ".py"]
+        active_logics_data = [{"name": logic_id, "graph_file": value.get("graph_json_name")} for logic_id, value in self._logic_pool.items()]
+        return {
+            "files": files_data,
+            "graphs": graphs_data,
+            "plugins": plugins_data,
+            "active_logics": active_logics_data
+        }
+    async def load_file_to_ram(self, filename: str) -> dict:
+        """Load Disk files to Ram so that Logic Objects can access and use as resource"""
+        if filename in self._storage_pool:
+            return {"success" : True, "message" : "File is already loaded to ram"}
+        file_path = self.FILE_DIR / filename
+        if not file_path.exists():
+            return {"success" : False, "message" : "File does not exist on disk"}
+        try:
+            ext = file_path.suffix.lower()
+            if ext in ['.pt', '.onnx']:
+                await asyncio.to_thread(load_ai_models, self._storage_pool, filename)
+            elif ext == '.json':
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    self._storage_pool[filename] = json.load(f)
+            elif ext in ['.png', '.jpeg', '.jpg']:
+                await asyncio.to_thread(load_image, self._storage_pool, filename)
+            else:
+                return {"success": False, "error_message": f"Un-Supported file type"}
+            return {"success": True, "message": f"Đã nạp {filename} vào RAM"}
+        except Exception as e:
+            return {"success": False, "error_message": f"Lỗi khi load file: {e}"}
+    def unload_file_from_ram(self, filename: str) -> dict:
+        if filename in self._storage_pool:
+            del self._storage_pool[filename]
+            return {"success": True, "message": f"Đã giải phóng {filename} khỏi RAM"}
+        return {"success": False, "error_message": "File không nằm trong RAM"}
+    async def save_heavy_file(self, file: UploadFile, filename: str, filetype: str = FileType.FILE.value) -> dict:
+        """Save heavy files safely by taking small chunks from httpx stream than save chunks by chunks to disk
+            using thread so that the system is not blocked
+        """
+        if filetype == FileType.FILE.value:
+            file_path = self.FILE_DIR/ filename
+        elif filetype == FileType.GRAPH.value:
+            file_path = self.GRAPH_DIR / filename
+        elif filetype == FileType.PLUGIN.value:
+            file_path = self.PLUGIN_DIR / filename
+        else:
+            return {"success": False, "message": f"UKNOWN FILE TYPE {filetype}"}
+        try:
+            def _write_disk():
+                with open(file_path, "wb+") as file_object:
+                    shutil.copyfileobj(file.file, file_object)
+            await asyncio.to_thread(_write_disk)
+            return {"success": True, "message": f"Đã lưu {filename} thành công ({file_path.stat().st_size / 1024 / 1024:.2f} MB)"}
+        except Exception as e:
+            return {"success": False, "message": f"Lỗi ghi đĩa: {e}"}
+    def get_file_path(self, filename: str, filetype: str) -> Path:
+        """Trả về đường dẫn vật lý để API tự xử lý Streaming Download"""
+        if filetype == FileType.FILE.value:
+            file_path = self.FILE_DIR / filename
+        elif filetype == FileType.GRAPH.value:
+            file_path = self.GRAPH_DIR / filename
+        elif filetype == FileType.PLUGIN.value:
+            file_path = self.PLUGIN_DIR / filename
+        else:
+            raise TypeError(f"UNKOWN FILE TYPE: {filetype}")
+        if not file_path.exists():
+            raise FileNotFoundError(f"File {filename} không tồn tại trên hệ thống")
+        return file_path
+    async def _plugins_heartbeat_monitor(self, interval: float = 5.0):
+        """A watch dog loop that scan and reload the pluggins dirrectory every 5 secconds"""
+        while True:
+            try:
+                if self.PLUGIN_DIR.exists():
+                    for file_path in self.PLUGIN_DIR.rglob("*.py"):
+                        if file_path.name == "__init__.py":
+                            continue
+                        current_mtime = file_path.stat().st_mtime
+                        last_mtime = self._plugin_mtimes.get(str(file_path))
+                        if last_mtime is None or current_mtime > last_mtime:
+                            module_name = f"external_plugins.{file_path.stem}"
+                            try:
+                                spec = importlib.util.spec_from_file_location(module_name, str(file_path))
+                                if spec and spec.loader:
+                                    module = importlib.util.module_from_spec(spec)
+                                    sys.modules[module_name] = module
+                                    spec.loader.exec_module(module)
+                                    self._plugin_mtimes[str(file_path)] = current_mtime
+                            except Exception as e:
+                                self._plugin_mtimes[str(file_path)] = current_mtime
+            except Exception as e:
+                print(f"Lỗi vòng lặp Plugin Watchdog: {e}")
+            await asyncio.sleep(interval)
+    def get_list_of_logic_objects(self) -> list:
+        """API function : Return a list of logic objects ids in system"""
+        response = list(self._logic_pool.keys())
+        return response
+    def get_logic_dependencies(self) -> dict:
+        """API function: Trả về mapping { logic_object_id : graph_file_name }"""
+        dependencies = {}
+        for logic_id, data in self._logic_pool.items():
+            graph_name = data.get("graph_json_name")
+            if graph_name:
+                dependencies[logic_id] = graph_name
+        return dependencies
+    def deploy_exact_graph_to_ram(self, graph_file_name: str, exact_logic_id: str) -> dict:
+        """Nạp Graph vào RAM nhưng gán cứng một ID do Frontend chỉ định"""
+        if exact_logic_id in self._logic_pool:
+            return {"success": True, "message": f"Logic Object {exact_logic_id} đã sẵn sàng trên RAM.", "status": "exist"}
+        try:
+            file_path = self.GRAPH_DIR / f"{graph_file_name}.json"
+            if not file_path.exists():
+                return {"success": False, "error_message": f"Không tìm thấy file thiết kế '{graph_file_name}.json' trên hệ thống của Worker này."}
+            with open(file_path, 'r', encoding='utf-8') as f:
+                workflow_json = json.load(f)
+            logic_obj = LogicObject(workflow_json, self)
+            self._logic_pool[exact_logic_id] = {
+                "instance": logic_obj,
+                "lock": asyncio.Lock(),
+                "last_used": time.time(),
+                "graph_json_name": graph_file_name
+            }
+            return {"success": True, "message": f"Đã nạp thành công {graph_file_name} vào RAM.", "status": "loaded"}
+        except Exception as e:
+            return {"success": False, "error_message": f"Lỗi nạp Graph {graph_file_name}: {e}"}
+
+### FILE: services/LVSTypes.py ###
+from enum import Enum
+from pydantic import create_model, BaseModel, Field
+from typing import Any, Dict, Optional, List
+import numpy as np
+class UIDataType(str, Enum):
+    """Định nghĩa chuẩn xác các kiểu dữ liệu mà Frontend có thể hiểu"""
+    NUMPY_ARRAY = "numpy_array"
+    TENSOR = "tensor"
+    NUMBER = 'number'
+    STRING = "string"
+    BOOLEAN = "boolean"
+    IMAGE = "image"
+    ANY = "any"
+    OBJECT_REF = "object_ref"
+    JSON = "json"
+class FileType(str, Enum):
+    """Define the file type the system can use"""
+    FILE = "file"
+    GRAPH = "graph"
+    PLUGIN = "plugin"
+class NodeType(Enum):
+    PROGRAM = 1
+    IN_LINE = 2
+    OBJECT = 3
+    FUNCTION = 4
+    API = 5
+def map_fe_type_to_python(fe_type: str) -> Any:
+    """Translate data type from FrontEnd Json to Python Type for pydantic"""
+    mapping = {
+        "boolean" : bool,
+        "number" : float,
+        "string" : str,
+        "numpy_array" : np.ndarray,
+        "tensor" : Any,
+        "any": Any,
+        "object_ref" : Any,
+        "json" : Dict[str, Any]
+    }
+    return mapping.get(fe_type, Any)
+class UIConfigType(str, Enum):
+    """Danh sách các loại UI Control được phép render trên Frontend"""
+    TEXT = "text"
+    NUMBER = "number"
+    CHECKBOX = "checkbox"
+    SELECT = "select"
+    SERVER_POOL_DROPDOWN = "server_pool_dropdown"
+    DEVICE_POOL_DROPDOWN = "device_pool_dropdown"
+    ACTIVE_LOGIC_DROPDOWN = "active_logic_dropdown"
+class UIConfigField(BaseModel):
+    """Schema giúp IDE gợi ý khi viết UI_CONFIG_FIELDS cho các Node"""
+    id: str = Field(..., description="ID của trường dữ liệu (sẽ lưu vào node_data)")
+    label: str = Field(..., description="Tên hiển thị trên giao diện")
+    type: UIConfigType = Field(..., description="Loại điều khiển UI")
+    default: Optional[Any] = None
+    options: Optional[List[str]] = Field(default=None, description="Chỉ dùng khi type là SELECT")
+
+### FILE: services/node_registry.py ###
+from abc import ABC, abstractmethod
+from typing import Dict, Any, List, Type, Generic, TypeVar, TYPE_CHECKING
+from pydantic import BaseModel, Field, ValidationError, create_model, ConfigDict
+from app.services.LVSTypes import NodeType, UIDataType, map_fe_type_to_python, UIConfigField
+if TYPE_CHECKING:
+    from LogicObjects import LogicObject
+NODE_REGISTRY: Dict[str, Type["BaseNode"]] = {}
+def registry_node(cls: Type["BaseNode"]):
+    """DECORATOR USED FOR REGISTRATION OF NEW LOGIC CLASS"""
+    class_name = cls.__name__
+    if class_name in NODE_REGISTRY:
+        print(f"Node {class_name} already exist, overwriting")
+    NODE_REGISTRY[class_name] = cls
+    return cls
+TInput = TypeVar("TInput", bound=BaseModel)
+TOutput = TypeVar("TOutput", bound=BaseModel)
+class BaseNode(ABC, Generic[TInput, TOutput]):
+    INPUT_SCHEMA: Type[TInput] = None
+    OUTPUT_SCHEMA: Type[TOutput] = None
+    NODE_TYPE = None
+    METHOD_NODE_LIST : List[str] = None
+    CONFIG_FIELDS : List[UIConfigField] = None
+    INLINE_TYPE = None
+    UI_DESCRIPTION : str = "No Description"
+    UI_COLOR: str = "bg-gray-500"
+    UI_LABEL: str = "Base Node"
+    def __init__(self, node_id: str, parent: "LogicObject", node_data: dict = None):
+        self.node_id = node_id
+        self.parent = parent
+        self.node_data = node_data or {}
+        self.inline_val = self.node_data.get("inlineValue")
+        self.local_input: TInput = None
+        self.local_output: TOutput = None
+    async def resolve_and_execute(self):
+        """1. Gom dữ liệu -> 2. Kiểm duyệt Input -> 3. Chạy & tạo output """
+        raw_kwargs = {}
+        self.local_mapping = self.parent.nodes_mapping.get(self.node_id, {})
+        for input_param_name, data in self.local_mapping.items():
+            src_node_id = data["source_node"]
+            src_pin = data["source_pin"]
+            src_node = self.parent.nodes_list.get(src_node_id)
+            if not src_node or src_node.local_output is None :
+                raise ValueError(f"Node '{src_node_id}' chưa chạy hoặc thất bại, không có dữ liệu cho pin '{src_pin}'")
+            try:
+                raw_kwargs[input_param_name] = getattr(src_node.local_output, src_pin)
+            except Exception as e:
+                raise ValueError(f"Không thể trích xuất {src_pin} từ {src_node.node_id}")
+        if self.INPUT_SCHEMA:
+            try:
+                self.local_input = self.INPUT_SCHEMA(**raw_kwargs)
+            except ValidationError as e:
+                raise ValueError(f"Dữ liệu đầu vào của Node {self.node_id} bị sai định dạng:\n{e}")
+        else:
+            pass
+        try:
+            await self.execute()
+        except Exception as e:
+            raise ValueError(f"{self.node_id} đã xảy ra lỗi trong quá trình thực thi logic:\n{e}")
+    @abstractmethod
+    async def execute(self) -> None:
+        """This class use the self.local_inputs as paramters
+            And use the self.local_outputs = OUTPUT_SCHEMA(dict) to return the outputs
+        """
+        pass
+    @classmethod
+    def formulate_frontend_description(cls):
+        """This is a class method, used for sending the FE the description of how to draw this as a node on the FE UI"""
+        manifest = {
+            "type" : str(cls.NODE_TYPE.value),
+            "class": cls.__name__,
+            "label" : cls.UI_LABEL,
+            "description": cls.UI_DESCRIPTION,
+            "color": cls.UI_COLOR,
+            "inputs": [],
+            "outputs": [],
+            "config_fields": [field.model_dump(exclude_none=True) for field in cls.CONFIG_FIELDS] if cls.CONFIG_FIELDS else []
+        }
+        if cls.INPUT_SCHEMA:
+            for fieldname, fieldInfor in cls.INPUT_SCHEMA.model_fields.items():
+                manifest["inputs"].append({
+                    "id": fieldname,
+                    "label": fieldInfor.title or fieldname,
+                    "dataType": fieldInfor.description or "unknown"
+                })
+        if cls.OUTPUT_SCHEMA:
+            for fieldname, fieldInfor in cls.OUTPUT_SCHEMA.model_fields.items():
+                manifest["outputs"].append({
+                    "id" : fieldname,
+                    "label": fieldInfor.title or fieldname,
+                    "dataType": fieldInfor.description or "unknown"
+                })
+        if cls.NODE_TYPE == NodeType.IN_LINE:
+            manifest.update({"inlineInputType" : cls.INLINE_TYPE})
+        if cls.NODE_TYPE == NodeType.OBJECT:
+            manifest.update({"functions" : cls.METHOD_NODE_LIST})
+        return manifest
+    def reset(self):
+        self.local_input = None
+        self.local_output = None
+@registry_node
+class SendResponseNode(BaseNode):
+    """This Node act as the final node in the LogicHandling Graph, it is the user way to define what data they want to get back"""
+    OUTPUT_SCHEMA = None
+    NODE_TYPE = NodeType.PROGRAM
+    UI_LABEL = "Data Out"
+    UI_DESCRIPTION = "Define Output Data and Send back to API"
+    UI_COLOR = "bg-rose-600"
+    def __init__(self, node_id, parent, node_data = None):
+        super().__init__(node_id, parent, node_data)
+        dynamic_inputs = node_data.get("inputs", [])
+        fields = {}
+        for pin in dynamic_inputs:
+            pin_id = pin["id"]
+            py_type = map_fe_type_to_python(pin.get("dataType"))
+            fields[pin_id] = (py_type, Field(title=pin.get("label", pin_id)))
+        if fields:
+            self.INPUT_SCHEMA = create_model(f'DynamicInput_{self.node_id}',__config__=ConfigDict(arbitrary_types_allowed=True), **fields)
+        else:
+            self.INPUT_SCHEMA = None
+    async def execute(self):
+        """
+            Thanks to Pydantic, the self.local_input is now sanitized.
+            The data is directly flow to local_output so that the ResponseFormation class can take the result out and send back to FE.
+        """
+        if self.local_input:
+            final_data = self.local_input.model_dump()
+        else:
+            final_data = {}
+        self.local_output = final_data
+    def get_schema(self) -> Dict[str, str]:
+        """Return a schema directly from the node_data to avoid Pydantic annotation parsing issues"""
+        dynamic_inputs = self.node_data.get("inputs", [])
+        if not dynamic_inputs:
+            return {}
+        path = {}
+        for pin in dynamic_inputs:
+            pin_id = pin.get("id")
+            data_type = pin.get("dataType", "any")
+            if pin_id:
+                path[f".{pin_id}"] = data_type
+        return path
+@registry_node
+class ReceivePayloadNode(BaseNode):
+    OUTPUT_SCHEMA = None
+    NODE_TYPE = NodeType.PROGRAM
+    UI_LABEL = "Data In"
+    UI_DESCRIPTION = "Define what data need to receive from FE"
+    UI_COLOR = "bg-purple-600"
+    def __init__(self, node_id, parent, node_data = None):
+        super().__init__(node_id, parent, node_data)
+        dynamic_outputs = node_data.get("outputs", [])
+        fields = {}
+        for pin in dynamic_outputs:
+            pin_id = pin["id"]
+            py_type = map_fe_type_to_python(pin.get("dataType"))
+            fields[pin_id] = (py_type, Field(title=pin.get("label", pin_id)))
+        if fields:
+            self.OUTPUT_SCHEMA = create_model(f'DynamicOutput_{self.node_id}', __config__=ConfigDict(arbitrary_types_allowed=True), **fields)
+        else:
+            self.OUTPUT_SCHEMA = None
+    async def execute(self) -> None:
+        """Left Empty because we will inject data from LogicObject to this special EntryNode"""
+        pass
+    def get_schema(self) -> Dict[str, str]:
+        """Return a schema directly from the node_data to avoid Pydantic annotation parsing issues"""
+        dynamic_outputs = self.node_data.get("outputs", [])
+        if not dynamic_outputs:
+            return {}
+        path = {}
+        for pin in dynamic_outputs:
+            pin_id = pin.get("id")
+            data_type = pin.get("dataType", "any")
+            if pin_id:
+                path[f".{pin_id}"] = data_type
+        return path
+@registry_node
+class ObjectNode(BaseNode[TInput, TOutput]):
+    NODE_TYPE = NodeType.OBJECT
+    """A Node that act as an individual Object with its own methods and persistent state"""
+    def __init__(self, node_id, parent, node_data = None):
+        super().__init__(node_id, parent, node_data)
+        self.internal_memory: Dict[str, Any] = {}
+    @abstractmethod
+    def intialize_object(self):
+        """This function run once when deploy the graph"""
+        pass
+    def reset_object_memory(self):
+        """This clear up object internal memory"""
+        self.internal_memory = None
+
+### FILE: services/Nodes/CallAPINode.py ###
+from typing import Any, Dict
+from pydantic import Field, BaseModel
+import aiohttp
+import json
+import asyncio
+from app.services.ConnectionBus import APIManualRoutingBus
+from app.services.node_registry import BaseNode, registry_node
+from app.services.LVSTypes import NodeType, UIDataType, UIConfigField, UIConfigType
+class APIInput(BaseModel):
+    payload: Dict[str, Any] = Field(default_factory=dict, title="RequestBody", description=UIDataType.JSON)
+class APIOutput(BaseModel):
+    response: Dict[str, Any] = Field(..., title="Response Data", description=UIDataType.JSON)
+    status_code: int = Field(..., title="Status Code", description=UIDataType.NUMBER)
+@registry_node
+class APINode(BaseNode[APIInput, APIOutput]):
+    INPUT_SCHEMA = APIInput
+    OUTPUT_SCHEMA = APIOutput
+    NODE_TYPE = NodeType.API
+    UI_LABEL = "Send API Request"
+    UI_DESCRIPTION = "Gọi API thông qua HTTP"
+    UI_COLOR = "bg-blue-600"
+    CONFIG_FIELDS = [
+        UIConfigField(
+            id="serverId",
+            label="Choose Host",
+            type=UIConfigType.SERVER_POOL_DROPDOWN
+        ),
+        UIConfigField(
+            id="endpoint",
+            label="Endpoint (/api/...)",
+            type=UIConfigType.TEXT,
+            default="/"
+        ),
+        UIConfigField(
+            id="method",
+            label="HTTP Method",
+            type=UIConfigType.SELECT,
+            options=["POST", "GET", "PUT", "DELETE"],
+            default="POST"
+        )
+    ]
+    def __init__(self, node_id, parent, node_data = None):
+        super().__init__(node_id, parent, node_data)
+        self.server_id = self.node_data.get("serverId")
+        self.endpoint = self.node_data.get("endpoint", "/")
+        self.method = self.node_data.get("method", "POST").upper()
+    async def execute(self) -> None:
+        """Call an API"""
+        if not self.server_id:
+            raise ValueError(f"Khối {self.node_id}: Chưa chọn Server ID!")
+        bus = APIManualRoutingBus()
+        request_body = self.local_input.payload if self.local_input else {}
+        context = bus.get_server_context(self.server_id)
+        if not context:
+            raise ValueError(f"Không thể tìm thấy Server '{self.server_id}'")
+        session: aiohttp.ClientSession = context["session"]
+        host: str = context["host"]
+        endpoint = self.endpoint if self.endpoint.startswith('/') else f"/{self.endpoint}"
+        url = f"http://{host}{endpoint}"
+        try:
+            resp_data, status = await self._make_request(session, url, request_body)
+        except (aiohttp.ClientError, ConnectionResetError, asyncio.TimeoutError) as e:
+            print(f"[{self.server_id}] Rớt TCP ({e}). Đang kích hoạt Lazy Reconnect...")
+            session = await bus.reconect_server(self.server_id)
+            try:
+                resp_data, status = await self._make_request(session, url, request_body)
+            except Exception as final_err:
+                raise RuntimeError(f"API call {url} failed: {final_err}")
+        self.local_output = self.OUTPUT_SCHEMA(
+            response=resp_data,
+            status_code=status
+        )
+    async def _make_request(self, session: aiohttp.ClientSession, url: str, payload: dict):
+        """Hàm thực thi HTTP thuần túy"""
+        if self.method == "POST":
+            async with session.post(url, json=payload, timeout=10.0) as resp:
+                text_data = await resp.text()
+                try:
+                    json_data = json.loads(text_data)
+                except json.JSONDecodeError:
+                    json_data = {"raw_text": text_data}
+                return json_data, resp.status
+        elif self.method == "GET":
+            async with session.get(url, timeout=10.0) as resp:
+                text_data = await resp.text()
+                try:
+                    json_data = json.loads(text_data)
+                except json.JSONDecodeError:
+                    json_data = {"raw_text": text_data}
+                return json_data, resp.status
+        else:
+            raise ValueError(f"Method {self.method} chưa được hỗ trợ")
+class callLogicObjectInput(BaseModel):
+    """This pin only for the purpose of connecting with the graph so that kahn's algorithm work, it has no use"""
+    Trigger: str = Field(title="Trigger", description=UIDataType.ANY)
+@registry_node
+class CallLogicObjectNode(BaseNode[callLogicObjectInput, APIOutput]):
+    INPUT_SCHEMA = callLogicObjectInput
+    OUTPUT_SCHEMA = APIOutput
+    NODE_TYPE = NodeType.API
+    UI_LABEL = "Call Sub-Graph"
+    UI_DESCRIPTION = "Kích hoạt một Logic Graph khác trên các máy chủ nội bộ"
+    UI_COLOR = "bg-emerald-600"
+    CONFIG_FIELDS = [
+        UIConfigField(
+            id="serverId",
+            label="Select Server",
+            type=UIConfigType.SELECT,
+            options=["sev1", "sev2"],
+            default=""
+        ),
+        UIConfigField(
+            id="logicId",
+            label="Logic Object ID",
+            type=UIConfigType.TEXT,
+            default=""
+        )
+    ]
+    def __init__(self, node_id, parent, node_data=None):
+        super().__init__(node_id, parent, node_data)
+        self.target_server_id = self.node_data.get("serverId")
+        self.target_logic_id = self.node_data.get("logicId")
+    async def execute(self) -> None:
+        if not self.target_server_id or not self.target_logic_id:
+            raise ValueError("Chưa cấu hình Server ID hoặc Logic ID!")
+        bus = APIManualRoutingBus()
+        context = bus.get_server_context(self.target_server_id)
+        session : aiohttp.ClientSession = context["session"]
+        host = context["host"]
+        url = f"http://{host}/api/v1/logic/{self.target_logic_id}/trigger"
+        payload = self.local_input.payload
+        try:
+            async with session.post(url, json=payload, timeout=30.0) as resp:
+                result : dict = await resp.json()
+                if not result.get("success"):
+                    raise RuntimeError(f"Sub-graph thất bại: {result.get('error_message')}")
+                self.local_output = self.OUTPUT_SCHEMA(data=result.get("data"))
+        except Exception as e:
+            raise RuntimeError(f"Lỗi khi gọi {self.target_logic_id} trên {self.target_server_id}: {e}")
+
+### FILE: services/Nodes/createJsonNode.py ###
+from typing import Dict, Any, List
+from pydantic import Field, create_model, BaseModel, ConfigDict
+from app.services.node_registry import BaseNode, registry_node
+from app.services.LVSTypes import NodeType, map_fe_type_to_python, UIConfigField, UIConfigType
+@registry_node
+class CreateJSONNode(BaseNode):
+    NODE_TYPE = NodeType.PROGRAM
+    UI_LABEL = "Create JSON"
+    UI_DESCRIPTION = "Đóng gói các đầu vào thành một đối tượng JSON"
+    UI_COLOR = "bg-amber-500"
+    def __init__(self, node_id, parent, node_data=None):
+        super().__init__(node_id, parent, node_data)
+        dynamic_inputs = node_data.get("inputs", [])
+        input_fields = {}
+        for pin in dynamic_inputs:
+            pin_id = pin["id"]
+            py_type = map_fe_type_to_python(pin.get("dataType"))
+            input_fields[pin_id] = (py_type, Field(title=pin.get("label", pin_id)))
+        if input_fields:
+            self.INPUT_SCHEMA = create_model(
+                f'CreateJSONInput_{self.node_id}',
+                **input_fields,
+                __config__=ConfigDict(arbitrary_types_allowed=True)
+            )
+        self.OUTPUT_SCHEMA = create_model(
+            f'CreateJSONOutput_{self.node_id}',
+            json_data=(Dict[str, Any], Field(title="JSON Output", description="json")),
+            __config__=ConfigDict(arbitrary_types_allowed=True)
+        )
+    async def execute(self) -> None:
+        """
+        Lấy toàn bộ dữ liệu từ các chân Input đã được Pydantic validate
+        và nén chúng vào một dictionary.
+        """
+        if self.local_input:
+            data_dict = self.local_input.model_dump()
+        else:
+            data_dict = {}
+        self.local_output = self.OUTPUT_SCHEMA(json_data=data_dict)
+class ExtractJSONInput(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    json_data: Dict[str, Any] = Field(..., title="JSON Data", description="json")
+@registry_node
+class ExtractJSONNode(BaseNode):
+    INPUT_SCHEMA = ExtractJSONInput
+    NODE_TYPE = NodeType.PROGRAM
+    UI_LABEL = "Extract JSON"
+    UI_DESCRIPTION = "Bóc tách dữ liệu từ JSON thông qua đường dẫn (Path)"
+    UI_COLOR = "bg-fuchsia-600"
+    UI_CONFIG_FIELDS = [
+        UIConfigField(
+            id="on_missing_key",
+            label="Xử lý khi thiếu Key",
+            type=UIConfigType.SELECT,
+            options=["Bỏ qua (Null)", "Báo lỗi (Crash)"],
+            default="Bỏ qua (Null)"
+        )
+    ]
+    def __init__(self, node_id, parent, node_data=None):
+        super().__init__(node_id, parent, node_data)
+        self.on_missing_key = self.node_data.get("on_missing_key", "Bỏ qua (Null)")
+        dynamic_outputs = node_data.get("outputs", [])
+        output_fields = {}
+        self.extraction_paths = {}
+        for pin in dynamic_outputs:
+            pin_id = pin["id"]
+            label = pin.get("label", pin_id)
+            py_type = map_fe_type_to_python(pin.get("dataType"))
+            output_fields[pin_id] = (py_type, Field(default=None, title=label))
+            self.extraction_paths[pin_id] = pin_id
+        if output_fields:
+            self.OUTPUT_SCHEMA = create_model(
+                f'ExtractJSONOutput_{self.node_id}',
+                **output_fields,
+                __config__=ConfigDict(arbitrary_types_allowed=True)
+            )
+        else:
+            self.OUTPUT_SCHEMA = None
+    async def execute(self) -> None:
+        """Thực thi bóc tách dữ liệu"""
+        if not self.local_input or not self.local_input.json_data:
+            raise ValueError(f"Khối {self.node_id} không nhận được dữ liệu JSON đầu vào.")
+        source_json = self.local_input.json_data
+        extracted_data = {}
+        for output_pin_id, path in self.extraction_paths.items():
+            value = self._extract_value_by_path(source_json, path)
+            if value is None and self.on_missing_key == "Báo lỗi (Crash)":
+                raise KeyError(f"Không tìm thấy dữ liệu tại đường dẫn '{path}' trong JSON đầu vào.")
+            extracted_data[output_pin_id] = value
+        if self.OUTPUT_SCHEMA:
+            self.local_output = self.OUTPUT_SCHEMA(**extracted_data)
+    def _extract_value_by_path(self, data: dict, path: str) -> Any:
+        """
+        Hàm ma thuật để lấy dữ liệu sâu:
+        VD: path = 'data.sensor_1.temperature'
+        Sẽ tìm: data['data']['sensor_1']['temperature']
+        """
+        keys = path.split('.')
+        current_val = data
+        for key in keys:
+            if isinstance(current_val, dict) and key in current_val:
+                current_val = current_val[key]
+            elif isinstance(current_val, list) and key.isdigit() and int(key) < len(current_val):
+                current_val = current_val[int(key)]
+            else:
+                return None
+        return current_val
+
+### FILE: services/Nodes/esp32CameraNode.py ###
+import numpy as np
+import cv2
+import asyncio
+import aiohttp
+from pydantic import BaseModel, Field, ConfigDict
+from typing import Optional, Any
+from app.services.node_registry import BaseNode, registry_node
+from app.services.LVSTypes import NodeType, UIDataType, UIConfigField, UIConfigType
+from app.services.DevicePoolManager import HTTPDevicePoolManager
+class ESPCameraOutput(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    image: np.ndarray = Field(..., title="Image Data", description="numpy_array")
+@registry_node
+class ESP32CameraNode(BaseNode[None, ESPCameraOutput]):
+    INPUT_SCHEMA = None
+    OUTPUT_SCHEMA = ESPCameraOutput
+    NODE_TYPE = NodeType.OBJECT
+    METHOD_NODE_LIST = ['MakeNumberNode']
+    UI_LABEL = "ESP32-S3 Camera"
+    UI_DESCRIPTION = "Chụp ảnh từ ESP32 qua HTTP Pool"
+    UI_COLOR = "bg-teal-600"
+    CONFIG_FIELDS = [
+        UIConfigField(
+            id="deviceID",
+            label="Select a Device",
+            options=["Options1", "options2"],
+            default="Options1",
+            type=UIConfigType.SELECT
+        )
+    ]
+    def __init__(self, node_id, parent, node_data=None):
+        super().__init__(node_id, parent, node_data)
+        self.device_id = node_data.get("deviceID")
+    async def execute(self) -> None:
+        if not self.device_id:
+            raise ValueError(f"Khối {self.node_id}: Chưa chọn thiết bị ESP32 trong cấu hình!")
+        pool = HTTPDevicePoolManager()
+        context = pool.get_device_context(self.device_id)
+        if not context:
+            raise ValueError(f"Khối {self.node_id}: Thiết bị '{self.device_id}' chưa đi qua Pre-flight check.")
+        session: aiohttp.ClientSession = context["session"]
+        host: str = context["host"]
+        try:
+            img_array = await self._fetch_image(session, host)
+        except (aiohttp.ClientError, ConnectionResetError, asyncio.TimeoutError) as e:
+            print(f"[{self.device_id}] Rớt TCP ({e}). Đang kích hoạt Lazy Reconnect...")
+            session = await pool.reconnect_device(self.device_id)
+            try:
+                img_array = await self._fetch_image(session, host)
+            except Exception as final_err:
+                raise RuntimeError(f"Lỗi kết nối với camera {self.device_id}: {final_err}")
+        self.local_output = self.OUTPUT_SCHEMA(
+            image=img_array
+        )
+    async def _fetch_image(self, session: aiohttp.ClientSession, host: str) -> np.ndarray:
+        """Thực hiện HTTP GET, nhận Byte và giải mã thành Numpy Array"""
+        url = f"http://{host}/capture"
+        async with session.get(url, timeout=5.0) as resp:
+            if resp.status == 423:
+                raise RuntimeError("ESP32 đang bị khóa bởi tiến trình khác (Locked)")
+            if resp.status != 200:
+                raise RuntimeError(f"ESP32 trả về lỗi HTTP {resp.status}")
+            image_bytes = await resp.read()
+            img_array = await asyncio.to_thread(self._decode_jpg, image_bytes)
+            if img_array is None:
+                raise ValueError("Dữ liệu trả về bị hỏng, không thể giải mã JPEG")
+            return img_array
+    def _decode_jpg(self, image_bytes: bytes) -> np.ndarray:
+        """Chạy bởi asyncio.to_thread để tránh nghẽn CPU"""
+        np_arr = np.frombuffer(image_bytes, np.uint8)
+        return cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+
+### FILE: services/Nodes/primitive_nodes.py ###
+from pydantic import BaseModel, Field
+from app.services.node_registry import BaseNode, registry_node
+from app.services.LVSTypes import NodeType, UIDataType
+class MakeStringOutput(BaseModel):
+    value: str = Field(title="String", description=UIDataType.STRING.value)
+@registry_node
+class MakeStringNode(BaseNode[None, MakeStringOutput]):
+    INPUT_SCHEMA = None
+    OUTPUT_SCHEMA = MakeStringOutput
+    NODE_TYPE = NodeType.IN_LINE
+    INLINE_TYPE = "text"
+    UI_LABEL = "Make String"
+    UI_DESCRIPTION = "Khởi tạo một hằng số chuỗi (Text)"
+    UI_COLOR = "bg-yellow-600"
+    async def execute(self) -> None:
+        val = str(self.inline_val) if self.inline_val is not None else ""
+        self.local_output = self.OUTPUT_SCHEMA(value=val)
+class MakeNumberOutput(BaseModel):
+    value: float = Field(title="Number", description=UIDataType.NUMBER.value)
+@registry_node
+class MakeNumberNode(BaseNode[None, MakeNumberOutput]):
+    INPUT_SCHEMA = None
+    OUTPUT_SCHEMA = MakeNumberOutput
+    NODE_TYPE = NodeType.IN_LINE
+    INLINE_TYPE = "number"
+    UI_LABEL = "Make Number"
+    UI_DESCRIPTION = "Khởi tạo một hằng số học (Int/Float)"
+    UI_COLOR = "bg-emerald-600"
+    async def execute(self) -> None:
+        try:
+            val = float(self.inline_val) if self.inline_val is not None else 0.0
+        except ValueError:
+            raise ValueError(f"Giá trị '{self.inline_val}' không phải là một số hợp lệ.")
+        self.local_output = self.OUTPUT_SCHEMA(value=val)
+class MakeBooleanOutput(BaseModel):
+    value: bool = Field(title="Boolean", description=UIDataType.BOOLEAN.value)
+@registry_node
+class MakeBooleanNode(BaseNode[None, MakeBooleanOutput]):
+    INPUT_SCHEMA = None
+    OUTPUT_SCHEMA = MakeBooleanOutput
+    NODE_TYPE = NodeType.IN_LINE
+    INLINE_TYPE = "checkbox"
+    UI_LABEL = "Make Boolean"
+    UI_DESCRIPTION = "Khởi tạo giá trị Đúng/Sai (True/False)"
+    UI_COLOR = "bg-red-600"
+    async def execute(self) -> None:
+        if isinstance(self.inline_val, str):
+            val = self.inline_val.lower() == 'true'
+        else:
+            val = bool(self.inline_val)
+        self.local_output = self.OUTPUT_SCHEMA(value=val)
+
+### FILE: services/utils/files_loader.py ###
+def load_ai_models(destination_storage, ai_model_name):
+    """TODO: THIS FUNCTION IS A PLACE HOLDER. LATER NEED TO MODIFY IT SO IT LOAD THE AI MODEL CORRECTLY BASE ON THE EXTENTION"""
+    destination_storage[ai_model_name] = f"<LOADED AI MODEL : {ai_model_name}>"
+    pass
+def load_image(destination_storage, image_file_name):
+    """TODO: THIS FUNCTION IS A PLACE HOLDER. LATER NEED TO MODIFY IT SO IT LOAD THE IMAGE CORRECTLY BASE ON THE EXTENTION"""
+    destination_storage[image_file_name] = f"<LOADED Image : {image_file_name}>"
+    pass
+
+### FILE: services/utils/image_utils.py ###
+import cv2
+import numpy as np
+import base64
+def bytes_to_cv2(image_bytes: bytes) -> np.ndarray:
+    """
+    Dịch mảng byte nhị phân thô (đã được nén bằng JPEG/PNG/WebP)
+    thành ma trận ảnh OpenCV (Numpy Array - hệ màu BGR).
+    """
+    np_arr = np.frombuffer(image_bytes, np.uint8)
+    img_cv2 = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+    if img_cv2 is None:
+        raise ValueError(
+            "Lỗi định dạng nhị phân! Ảnh bị hỏng hoặc Camera đang gửi "
+            "Raw Sensor Data (YUV/RGB) thay vì chuẩn nén JPEG/PNG/WebP."
+        )
+    return img_cv2
+def cv2_to_base64(img: np.ndarray) -> str:
+    success, buffer = cv2.imencode('.jpg', img, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+    if not success:
+        return ""
+    base64_str = base64.b64encode(buffer).decode('utf-8')
+    return f"data:image/jpeg;base64,{base64_str}"
+
+### FILE: services/utils/ping_measurer.py ###
+import asyncio
+import aiohttp
+import time
+from typing import Dict, Optional
+async def check_server_status(hostname: str, timeout: float = 3.0) -> Dict:
+    """
+    Ping đến endpoint /status để kiểm tra kết nối và đo độ trễ.
+    """
+    url = f"http://{hostname}/status"
+    start_time = time.perf_counter()
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=timeout) as response:
+                latency_ms = (time.perf_counter() - start_time) * 1000
+                status_code = response.status
+                is_alive = (status_code == 200)
+                res = {
+                    "alive": is_alive,
+                    "ping": round(latency_ms, 2),
+                    "status_code": status_code
+                }
+                data = None
+                if is_alive:
+                    data = await response.json()
+                if data:
+                    res.update(data)
+                return res
+    except asyncio.TimeoutError:
+        return {"hostname": hostname, "alive": False, "latency": None, "error": "Timeout"}
+    except Exception as e:
+        return {"hostname": hostname, "alive": False, "latency": None, "error": str(e)}
