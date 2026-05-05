@@ -2759,7 +2759,6 @@ export const InspectionPage = () => {
             <div className={`absolute top-0 right-0 h-full w-[450px] z-40 transition-transform duration-300 ease-out shadow-[-10px_0_30px_rgba(0,0,0,0.5)] ${isTagsOpen ? 'translate-x-0' : 'translate-x-full'}`}>
                 <TagManagerTable onClose={() => useTagDb.setState({ isGlobalTagsTableOpen: false })} />
             </div>
-            {isTagsOpen && <div className="absolute inset-0 z-[35] transition-all" onClick={() => useTagDb.setState({ isGlobalTagsTableOpen: false })}></div>}
         </div>
     );
 };
@@ -5081,12 +5080,16 @@ export const ActionMenu = () => {
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[
+                    <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-slate-700 text-cyan-400" onClick={() => { addComponent('dynamic_bboxes', actionMenu.target_id, (actionMenu as any).local_x || 0, (actionMenu as any).local_y || 0); closeActionMenu(); }}
+        >
+            <Layout size={14} /> Add Dynamic BBoxes
+        </button>
                     <div className="h-px bg-[
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[
                 </>
             )}
-            {['bounding_box', 'bounding_circle', 'text', 'line', 'soft_button'].includes(actionMenu.target_type) && (
+            {['bounding_box', 'bounding_circle', 'text', 'line', 'soft_button', 'dynamic_bboxes'].includes(actionMenu.target_type) && (
                 <>
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[
@@ -5131,6 +5134,9 @@ export const UIPropertiesPanel = () => {
                 fields.push({ path: 'style.fillColor', label: 'Normal Color', type: 'color' });
                 fields.push({ path: 'style.activeColor', label: 'Active Color', type: 'color' }); // <--- BỔ SUNG DÒNG NÀY
                 fields.push({ path: 'style.cornerRadius', label: 'Round Corner', type: 'number' });
+            }
+            if (node.type === 'dynamic_bboxes') {
+                fields.push({ path: 'data', label: 'BBox Array Tag', type: 'tag_selector' });
             }
         }
         return fields; // <--- CỰC KỲ QUAN TRỌNG: Không có dòng này là sập màn hình!
@@ -5936,18 +5942,7 @@ export const SceneNodeRenderer = ({ id }: { id: string }) => {
     const isVisibleBound = useDataBinding(node?.bindings || [], 'isVisible', node?.isVisible ?? true);
     // Ngăn chặn render nếu node không tồn tại hoặc bị ẩn
     if (!node || !isVisibleBound) return null;
-    // PHÂN LUỒNG: Giao việc cho đúng thợ chuyên môn
-    switch (node.type) {
-        case 'frame':
-        case 'bounding_box':
-        case 'bounding_circle':
-        case 'text':
-        case 'soft_button':
-            // Các node này xài chung logic Transformer (viền chọn) nên ta gom vào StandardNodeWrapper
-            return <StandardNodeWrapper id={id} node={node} />;
-        default:
-            return null;
-    }
+    return <StandardNodeWrapper id={id} node={node} />;
 };
 // ---------------------------------------------------------
 // THỢ CHUYÊN MÔN: SOFT BUTTON INNER
@@ -6062,6 +6057,9 @@ const StandardNodeWrapper = ({ id, node }: { id: string, node: any }) => {
     else if (node.type === 'soft_button') {
         InnerShape = <SoftButtonInner node={node} commonProps={commonProps} isEngineRunning={isEngineRunning} shapeRef={shapeRef} />;
     }
+    else if (node.type === 'dynamic_bboxes') {
+        InnerShape = <DynamicBBoxGroup node={node} commonProps={commonProps} isEngineRunning={isEngineRunning} shapeRef={shapeRef} />;
+    }
     return (
         <React.Fragment>
             {InnerShape}
@@ -6084,6 +6082,36 @@ const StandardNodeWrapper = ({ id, node }: { id: string, node: any }) => {
                 }}
             />}
         </React.Fragment>
+    );
+};
+const DynamicBBoxGroup = ({ node, commonProps, isEngineRunning, shapeRef }: any) => {
+    // PHÉP THUẬT NẰM Ở ĐÂY:
+    // Gọi useDataBinding. Nếu chưa có Tag, nó sẽ lấy node.data (mảng mẫu bạn vừa tạo)
+    // Nếu có Tag rồi, nó sẽ tự đè dữ liệu của Tag lên!
+    const bboxesArray = useDataBinding(node.bindings, 'data', node.data);
+    const safeArray = Array.isArray(bboxesArray) ? bboxesArray : [];
+    return (
+        <Group ref={shapeRef} {...commonProps}>
+            {safeArray.map((box: any, idx: number) => (
+                <Group key={box.id || idx} x={box.x} y={box.y}>
+                    <Rect
+                        width={box.w} height={box.h}
+                        stroke={box.color || '
+                        strokeWidth={2}
+                        // Hiệu ứng UX: Nếu chưa chạy Engine, nét đứt để báo đây là đồ giả
+                        dash={!isEngineRunning ? [5, 5] : undefined}
+                    />
+                    {box.label && (
+                        <Text
+                            text={box.label} y={-14} fill={box.color || '
+                            fontSize={!isEngineRunning ? 11 : 14}
+                            fontStyle="bold" shadowColor="black"
+                            shadowBlur={2} shadowOffsetX={1} shadowOffsetY={1}
+                        />
+                    )}
+                </Group>
+            ))}
+        </Group>
     );
 };
 

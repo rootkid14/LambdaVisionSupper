@@ -152,12 +152,16 @@ export const ActionMenu = () => {
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[#8ab4f8] hover:text-[#202124]" onClick={() => { addComponent('bounding_circle', actionMenu.target_id, (actionMenu as any).local_x||0, (actionMenu as any).local_y||0); closeActionMenu(); }}><Circle size={14} /> Add Circle</button>
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[#8ab4f8] hover:text-[#202124]" onClick={() => { addComponent('text', actionMenu.target_id, (actionMenu as any).local_x||0, (actionMenu as any).local_y||0); closeActionMenu(); }}><Type size={14} /> Add Text</button>
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[#8ab4f8] hover:text-[#202124]" onClick={() => { openCreateButtonModal(actionMenu.target_id, (actionMenu as any).local_x || 0, (actionMenu as any).local_y || 0); closeActionMenu()}}><MousePointer2 size={14} /> Add Button</button>
+                    <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-slate-700 text-cyan-400" onClick={() => { addComponent('dynamic_bboxes', actionMenu.target_id, (actionMenu as any).local_x || 0, (actionMenu as any).local_y || 0); closeActionMenu(); }}
+        >
+            <Layout size={14} /> Add Dynamic BBoxes
+        </button>
                     <div className="h-px bg-[#3c4043] my-1"></div>
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[#8ab4f8] hover:text-[#202124]" onClick={() => openPropertiesPanel(actionMenu.target_id)}><Settings size={14} /> Properties</button>
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[#f28b82] hover:text-[#202124] text-[#f28b82]" onClick={() => deleteComponents([actionMenu.target_id])}><Trash2 size={14} /> Delete</button>
                 </>
             )}
-            {['bounding_box', 'bounding_circle', 'text', 'line', 'soft_button'].includes(actionMenu.target_type) && (
+            {['bounding_box', 'bounding_circle', 'text', 'line', 'soft_button', 'dynamic_bboxes'].includes(actionMenu.target_type) && (
                 <>
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[#8ab4f8] hover:text-[#202124]" onClick={() => openPropertiesPanel(actionMenu.target_id)}><Settings size={14} /> Properties</button>
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[#f28b82] hover:text-[#202124] text-[#f28b82]" onClick={() => deleteComponents([actionMenu.target_id])}><Trash2 size={14} /> Delete</button>
@@ -209,6 +213,10 @@ export const UIPropertiesPanel = () => {
                 fields.push({ path: 'style.activeColor', label: 'Active Color', type: 'color' }); // <--- BỔ SUNG DÒNG NÀY
                 fields.push({ path: 'style.cornerRadius', label: 'Round Corner', type: 'number' });
             }
+        }
+
+        if (node.type === 'dynamic_bboxes') {
+            fields.push({ path: 'data', label: 'BBox Array Tag', type: 'tag_selector' });
         }
         
         return fields; // <--- CỰC KỲ QUAN TRỌNG: Không có dòng này là sập màn hình!
@@ -331,6 +339,7 @@ export const UIPropertiesPanel = () => {
                                                                 <input type="file" accept="image/*" onChange={handleImageUpload} className="w-full text-[9px] file:mr-2 file:py-0.5 file:px-1 file:rounded file:border-0 file:text-[9px] file:bg-[#3c4043] file:text-[#e8eaed] cursor-pointer" />
                                                             </div>
                                                         )}
+                                                        
                                                     </>
                                                 )}
                                             </td>

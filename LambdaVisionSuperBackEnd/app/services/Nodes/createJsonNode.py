@@ -146,5 +146,5 @@ class ExtractJSONNode(BaseNode):
                 current_val = current_val[int(key)]
             else:
                 return None # Không tìm thấy
-                
+    
         return current_val

@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { useTagDb } from './GlobalTagsStore';
 import { COLOR_PALETTE } from "../../utils/ColorConst";
 
-export type DrawType = 'screen' | 'thumbnail' | 'frame' | 'bounding_box' | 'text' | 'line' | 'bounding_circle' | 'soft_button';
+export type DrawType = 'screen' | 'thumbnail' | 'frame' | 'bounding_box' | 'text' | 'line' | 'bounding_circle' | 'soft_button' | 'dynamic_bboxes';
 
 export interface DataBinding {
     propName: string;
@@ -173,12 +173,24 @@ export interface SoftButtonNode extends BaseUINode {
     isVisible: boolean;
 }
 
+
 export interface createButtonModal {
     isOpen: boolean;
     parent_id: string;
     x: number;
     y: number;
 };
+
+export interface DynamicBBoxNode extends BaseUINode {
+    id: string;
+    type: 'dynamic_bboxes';
+    parent_id: string;
+    data: any[]; // <--- Tạo biến data ở đây
+    x: number;
+    y: number;
+    bindings: DataBinding[];
+    isVisible: boolean;
+}
 
 export interface UIEngineStore {
     components_map: Record<string, any>;
@@ -250,11 +262,11 @@ export const useUIEngine = create<UIEngineStore>((set, get) => ({
             name: 'Welcome Frame',
             parent_id: 'screen_1',
             // KHAI BÁO ID CỦA TEXT CON ĐỂ FRAME RENDER NÓ
-            children_id: ['text_intro'], 
+            children_id: ['text_intro', 'text_intro2', 'text_intro3'], 
             x: 100, // Cách mép trái màn hình 100px
             y: 100, // Cách mép trên màn hình 100px
-            size_x: 600,
-            size_y: 400,
+            size_x: 1200,
+            size_y: 600,
             rotation: 0,
             style: { 
                 strokeColor: '#8ab4f8', 
@@ -271,11 +283,51 @@ export const useUIEngine = create<UIEngineStore>((set, get) => ({
             type: 'text',
             name: 'Guide Text',
             parent_id: 'frame_intro',
-            content: "WELCOME TO LAMBDAVISION SUPER\n\n[ Hướng dẫn sử dụng nhanh ]\n\n1. Chuột phải vào nền trống để thêm Frame.\n2. Chuột phải vào Frame để thêm các UI (Box, Circle, Text).\n3. Mở Action Menu > Properties để thiết lập Data Bindings.\n4. Ấn nút Settings ở thanh Toolbar để cài phím tắt.\n5. Cuộn chuột để Zoom, kéo nền để Pan, chuột phải > Full Viewport.\n\nChúc bạn có một trải nghiệm hệ thống tuyệt vời!",
+            content: "WELCOME TO LAMBDAVISION SUPER\n\n[ Hướng dẫn sử dụng nhanh ]\n\n1. Chuột phải vào nền trống để thêm Frame.\n2. Chuột phải vào Frame để thêm các UI (Box, Circle, Text).\n3. Mở Action Menu > Properties để thiết lập Data Bindings.\n4. Ấn nút Settings ở thanh Toolbar để cài phím tắt.\n5. Cuộn chuột để Zoom, kéo nền để Pan, chuột phải > Full Viewport.  ]",
             x: 40, 
             y: 40, 
             size_x: 520,
-            size_y: 320,
+            size_y: 300,
+            rotation: 0,
+            style: { 
+                fontSize: 18, 
+                fontColor: '#e8eaed', 
+                fontFamily: 'monospace' 
+            },
+            bindings: [],
+            isVisible: true
+        },
+
+        'text_intro2': {
+            id: 'text_intro2',
+            type: 'text',
+            name: 'Guide Text 2',
+            parent_id: 'frame_intro',
+            content: "Dynamic BBox là đối tượng đặc biệt, nó tự động vẽ ra nhiều bounding boxes theo dữ liệu nạp vào, bạn phải liên kết nó với một tag kiểu Array, dữ liệu bên trong trông giống thế này: \n   [\n{ 'id': 'sample_1', 'x': 10, 'y': 10, 'w': 120, 'h': 80, label: 'somelabel', 'color': '#00ffff' },\n{ 'id': 'someid', 'x': 60, 'y': 50, 'w': 90, 'h': 60, label: 'hello', color: '#202020' }\n   ] \n LƯU Ý: PHẢI CÓ DẤU '' CHO KEY",
+            x: 600, 
+            y: 40, 
+            size_x: 520,
+            size_y: 300,
+            rotation: 0,
+            style: { 
+                fontSize: 18, 
+                fontColor: '#e8eaed', 
+                fontFamily: 'monospace' 
+            },
+            bindings: [],
+            isVisible: true
+        },
+
+        'text_intro3': {
+            id: 'text_intro3',
+            type: 'text',
+            name: 'Guide Text 3',
+            parent_id: 'frame_intro',
+            content: "Việc vẽ các bounding là dựa theo tọa độ và kích thước tương đối với Frame chủ của nó. chứ không phải theo tọa độ thật của ảnh gốc. \n vì vậy, nếu bạn cần vẽ bounding box động qua data, hãy đảm bảo chia để lấy tỉ lệ với kích thước ảnh thật, \n rồi mới đem dùng để vẽ bounding boxes",
+            x: 600, 
+            y: 400, 
+            size_x: 520,
+            size_y: 300,
             rotation: 0,
             style: { 
                 fontSize: 18, 
@@ -414,6 +466,17 @@ export const useUIEngine = create<UIEngineStore>((set, get) => ({
                 }
             };
         }
+
+        if (type === 'dynamic_bboxes') {
+            newNode.size_x = 100;
+            newNode.size_y = 100;
+            // Khởi tạo một bộ BBox mẫu tuyệt đẹp để minh họa
+            newNode.data = [
+                { id: "sample_1", x: 10, y: 10, w: 120, h: 80, label: "JSON: {x,y,w,h}", color: "#00ffff" },
+                { id: "sample_2", x: 60, y: 50, w: 90, h: 60, label: "Example", color: "#ff9900" }
+            ];
+        }
+
 
         // 4. CẬP NHẬT STATE: Lưu vào map và đăng ký ID vào con của thằng cha
         const updatedComponents = { ...state.components_map, [newId]: newNode };

@@ -46,18 +46,7 @@ export const SceneNodeRenderer = ({ id }: { id: string }) => {
     // Ngăn chặn render nếu node không tồn tại hoặc bị ẩn
     if (!node || !isVisibleBound) return null;
 
-    // PHÂN LUỒNG: Giao việc cho đúng thợ chuyên môn
-    switch (node.type) {
-        case 'frame':
-        case 'bounding_box':
-        case 'bounding_circle':
-        case 'text':
-        case 'soft_button':
-            // Các node này xài chung logic Transformer (viền chọn) nên ta gom vào StandardNodeWrapper
-            return <StandardNodeWrapper id={id} node={node} />;
-        default:
-            return null;
-    }
+    return <StandardNodeWrapper id={id} node={node} />;
 };
 
 // ---------------------------------------------------------
@@ -186,6 +175,10 @@ const StandardNodeWrapper = ({ id, node }: { id: string, node: any }) => {
         InnerShape = <SoftButtonInner node={node} commonProps={commonProps} isEngineRunning={isEngineRunning} shapeRef={shapeRef} />;
     }
 
+    else if (node.type === 'dynamic_bboxes') {
+        InnerShape = <DynamicBBoxGroup node={node} commonProps={commonProps} isEngineRunning={isEngineRunning} shapeRef={shapeRef} />;
+    }
+
     return (
         <React.Fragment>
             {InnerShape}
@@ -208,5 +201,38 @@ const StandardNodeWrapper = ({ id, node }: { id: string, node: any }) => {
                 }}
             />}
         </React.Fragment>
+    );
+};
+
+
+const DynamicBBoxGroup = ({ node, commonProps, isEngineRunning, shapeRef }: any) => {
+    // PHÉP THUẬT NẰM Ở ĐÂY:
+    // Gọi useDataBinding. Nếu chưa có Tag, nó sẽ lấy node.data (mảng mẫu bạn vừa tạo)
+    // Nếu có Tag rồi, nó sẽ tự đè dữ liệu của Tag lên!
+    const bboxesArray = useDataBinding(node.bindings, 'data', node.data);
+    const safeArray = Array.isArray(bboxesArray) ? bboxesArray : [];
+
+    return (
+        <Group ref={shapeRef} {...commonProps}>
+            {safeArray.map((box: any, idx: number) => (
+                <Group key={box.id || idx} x={box.x} y={box.y}>
+                    <Rect
+                        width={box.w} height={box.h}
+                        stroke={box.color || '#ff0000'}
+                        strokeWidth={2}
+                        // Hiệu ứng UX: Nếu chưa chạy Engine, nét đứt để báo đây là đồ giả
+                        dash={!isEngineRunning ? [5, 5] : undefined}
+                    />
+                    {box.label && (
+                        <Text
+                            text={box.label} y={-14} fill={box.color || '#ff0000'}
+                            fontSize={!isEngineRunning ? 11 : 14} 
+                            fontStyle="bold" shadowColor="black"
+                            shadowBlur={2} shadowOffsetX={1} shadowOffsetY={1}
+                        />
+                    )}
+                </Group>
+            ))}
+        </Group>
     );
 };

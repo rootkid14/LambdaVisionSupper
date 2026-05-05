@@ -272,7 +272,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import List, Any
+from typing import List, Any, Dict
 from app.services.DatabaseManager import DatabaseManager
 from app.core.config import get_base_dir
 IMAGE_STORAGE_DIR = get_base_dir() / "storage" / "images"
@@ -352,6 +352,39 @@ async def download_image(filename: str):
         filename=filename,
         content_disposition_type="inline"
     )
+class ColumnDefinition(BaseModel):
+    name: str
+    type: str
+class CreateTablePayload(BaseModel):
+    table_name: str
+    columns: List[ColumnDefinition]
+class InsertPayload(BaseModel):
+    table: str
+    data: Dict[str, Any]
+@router.post("/tables/create", summary="Tạo bảng mới")
+def create_new_table(payload: CreateTablePayload):
+    try:
+        db_manager.create_dynamic_table(payload.table_name, payload.model_dump()["columns"])
+        return {"success": True, "message": f"Đã tạo bảng {payload.table_name}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+@router.post("/insert", summary="Ghi dữ liệu vào bảng")
+def insert_data(payload: InsertPayload):
+    try:
+        inserted_id = db_manager.insert_dynamic_data(payload.table, payload.data)
+        return {"success": True, "inserted_id": inserted_id}
+    except Exception as e:
+        print(e)
+        raise HTTPException(status_code=500, detail=str(e))
+class DropTablePayload(BaseModel):
+    table_name: str
+@router.post("/tables/drop", summary="Xóa toàn bộ bảng và dữ liệu")
+def drop_table(payload: DropTablePayload):
+    try:
+        db_manager.drop_dynamic_table(payload.table_name)
+        return {"success": True, "message": f"Đã xóa vĩnh viễn bảng {payload.table_name}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 ### FILE: api/v1/endpoints/graph_api.py ###
 from fastapi import APIRouter, HTTPException, Request
@@ -814,6 +847,7 @@ import os
 from sqlalchemy import create_engine, MetaData, Table, select, text
 from pathlib import Path
 from app.core.config import get_base_dir
+from datetime import datetime
 class DatabaseManager:
     _instance = None
     def __new__(cls):
@@ -955,6 +989,55 @@ class DatabaseManager:
             self.metadata.clear()
             self.metadata.reflect(bind=self.engine)
             return {"success": True, "message": "Đã tạo thành công 3 bảng mẫu: inspection_logs, system_events, production_stats"}
+    def create_dynamic_table(self, table_name: str, columns: list):
+        from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime
+        self.metadata.reflect(bind=self.engine)
+        if table_name in self.metadata.tables:
+            raise ValueError(f"Bảng {table_name} đã tồn tại!")
+        table_columns = [Column('id', Integer, primary_key=True, autoincrement=True)]
+        for col in columns:
+            name = col.get("name")
+            col_type = col.get("type").upper()
+            sql_type = String
+            if col_type == "INTEGER": sql_type = Integer
+            elif col_type == "REAL": sql_type = Float
+            elif col_type == "BOOLEAN": sql_type = Boolean
+            elif col_type == "DATETIME": sql_type = DateTime
+            table_columns.append(Column(name, sql_type))
+        new_table = Table(table_name, self.metadata, *table_columns)
+        new_table.create(self.engine)
+        self.metadata.clear()
+        self.metadata.reflect(bind=self.engine)
+        return True
+    def insert_dynamic_data(self, table_name: str, data: dict):
+        self.metadata.reflect(bind=self.engine)
+        if table_name not in self.metadata.tables:
+            raise ValueError(f"Bảng {table_name} không tồn tại!")
+        table = self.metadata.tables[table_name]
+        valid_data = {}
+        for k, v in data.items():
+            if k in table.c:
+                col = table.c[k]
+                if str(col.type).upper() in ['DATETIME', 'DATE', 'TIMESTAMP']:
+                    if isinstance(v, str):
+                        try:
+                            clean_time_str = v.replace('Z', '+00:00')
+                            valid_data[k] = datetime.fromisoformat(clean_time_str)
+                        except Exception as e:
+                            print(f"Lỗi parse thời gian cho cột {k}: {e}")
+                            valid_data[k] = v
+                    else:
+                        valid_data[k] = v
+                else:
+                    valid_data[k] = v
+        if not valid_data:
+             raise ValueError("Không có dữ liệu hợp lệ nào để Insert.")
+        with self.engine.connect() as conn:
+            from sqlalchemy import insert
+            stmt = insert(table).values(**valid_data)
+            result = conn.execute(stmt)
+            conn.commit()
+            return result.inserted_primary_key[0] if result.inserted_primary_key else None
 
 ### FILE: services/DevicePoolManager.py ###
 import aiohttp
@@ -1424,25 +1507,47 @@ class LogicPoolManager:
         return file_path
     async def _plugins_heartbeat_monitor(self, interval: float = 5.0):
         """A watch dog loop that scan and reload the pluggins dirrectory every 5 secconds"""
+        from app.services.node_registry import NODE_REGISTRY, unregister_node
         while True:
             try:
                 if self.PLUGIN_DIR.exists():
+                    current_files = set()
                     for file_path in self.PLUGIN_DIR.rglob("*.py"):
                         if file_path.name == "__init__.py":
                             continue
+                        file_path_str = str(file_path)
+                        current_files.add(file_path_str)
                         current_mtime = file_path.stat().st_mtime
-                        last_mtime = self._plugin_mtimes.get(str(file_path))
+                        last_mtime = self._plugin_mtimes.get(file_path_str)
                         if last_mtime is None or current_mtime > last_mtime:
                             module_name = f"external_plugins.{file_path.stem}"
                             try:
-                                spec = importlib.util.spec_from_file_location(module_name, str(file_path))
+                                spec = importlib.util.spec_from_file_location(module_name, file_path_str)
                                 if spec and spec.loader:
                                     module = importlib.util.module_from_spec(spec)
                                     sys.modules[module_name] = module
                                     spec.loader.exec_module(module)
-                                    self._plugin_mtimes[str(file_path)] = current_mtime
+                                    self._plugin_mtimes[file_path_str] = current_mtime
+                                    print(f"Đã nạp/cập nhật Plugin: {file_path.name}")
                             except Exception as e:
-                                self._plugin_mtimes[str(file_path)] = current_mtime
+                                print(f"Lỗi khi nạp Plugin {file_path.name}: {e}")
+                                self._plugin_mtimes[file_path_str] = current_mtime
+                    tracked_files = list(self._plugin_mtimes.keys())
+                    for tracked_file in tracked_files:
+                        if tracked_file not in current_files:
+                            deleted_path = Path(tracked_file)
+                            module_name = f"external_plugins.{deleted_path.stem}"
+                            print(f"Phát hiện Plugin bị xóa: {deleted_path.name}. Đang tiến hành dọn dẹp...")
+                            if module_name in sys.modules:
+                                deleted_module = sys.modules[module_name]
+                                classes_to_remove = []
+                                for name, obj in vars(deleted_module).items():
+                                    if isinstance(obj, type) and name in NODE_REGISTRY and NODE_REGISTRY[name] == obj:
+                                        classes_to_remove.append(name)
+                                for cls_name in classes_to_remove:
+                                    unregister_node(cls_name)
+                                del sys.modules[module_name]
+                            del self._plugin_mtimes[tracked_file]
             except Exception as e:
                 print(f"Lỗi vòng lặp Plugin Watchdog: {e}")
             await asyncio.sleep(interval)
@@ -1485,16 +1590,24 @@ from pydantic import create_model, BaseModel, Field
 from typing import Any, Dict, Optional, List
 import numpy as np
 class UIDataType(str, Enum):
-    """Định nghĩa chuẩn xác các kiểu dữ liệu mà Frontend có thể hiểu"""
+    """Định nghĩa chuẩn xác các kiểu dữ liệu mà Frontend có thể hiểu
+    Lưu ý : các kiểu ở đây sẽ xuất hiện toàn bộ trong môi trường tạo Graph lập trình của logic object
+    nhưng với UIEngine, sẽ chỉ có một số kiểu mà UIEngine có thể hứng, vì thế nên nếu dự định trả
+    kiểu nào về cho phía FE nhận thì phải kiểm tra ở UIEngine xem bảng GlobalTagsTable có kiểu đó không
+    Nếu không có trong bảng GlobalTagsTable thì Sequencer của UIEngine sẽ không nhận được (thiết kế này
+    là vì mục đích an toàn, nao kia có xem lại cũng đừng cố sửa nó nữa, Đám types này của chúng ta đã hoàn hảo rồi)
+    """
     NUMPY_ARRAY = "numpy_array"
     TENSOR = "tensor"
     NUMBER = 'number'
     STRING = "string"
     BOOLEAN = "boolean"
-    IMAGE = "image"
     ANY = "any"
     OBJECT_REF = "object_ref"
     JSON = "json"
+    DICT = "dict"
+    LIST = "list"
+    BASE64 = "base64"
 class FileType(str, Enum):
     """Define the file type the system can use"""
     FILE = "file"
@@ -1516,7 +1629,10 @@ def map_fe_type_to_python(fe_type: str) -> Any:
         "tensor" : Any,
         "any": Any,
         "object_ref" : Any,
-        "json" : Dict[str, Any]
+        "json" : Dict[str, Any],
+        "dict": Dict[str, Any],
+        "list": List[Any],
+        "base64": str,
     }
     return mapping.get(fe_type, Any)
 class UIConfigType(str, Enum):
@@ -1544,6 +1660,11 @@ from app.services.LVSTypes import NodeType, UIDataType, map_fe_type_to_python, U
 if TYPE_CHECKING:
     from LogicObjects import LogicObject
 NODE_REGISTRY: Dict[str, Type["BaseNode"]] = {}
+def unregister_node(class_name: str):
+    """Xóa một Node khỏi Registry (Dùng khi người dùng xóa file Plugin)"""
+    if class_name in NODE_REGISTRY:
+        del NODE_REGISTRY[class_name]
+        print(f"Đã gỡ bỏ Node {class_name} khỏi Registry.")
 def registry_node(cls: Type["BaseNode"]):
     """DECORATOR USED FOR REGISTRATION OF NEW LOGIC CLASS"""
     class_name = cls.__name__
@@ -1753,18 +1874,18 @@ class APINode(BaseNode[APIInput, APIOutput]):
         UIConfigField(
             id="serverId",
             label="Choose Host",
-            type=UIConfigType.SERVER_POOL_DROPDOWN
+            type=UIConfigType.SERVER_POOL_DROPDOWN.value
         ),
         UIConfigField(
             id="endpoint",
             label="Endpoint (/api/...)",
-            type=UIConfigType.TEXT,
+            type=UIConfigType.TEXT.value,
             default="/"
         ),
         UIConfigField(
             id="method",
             label="HTTP Method",
-            type=UIConfigType.SELECT,
+            type=UIConfigType.SELECT.value,
             options=["POST", "GET", "PUT", "DELETE"],
             default="POST"
         )
@@ -2103,15 +2224,209 @@ class MakeBooleanNode(BaseNode[None, MakeBooleanOutput]):
             val = bool(self.inline_val)
         self.local_output = self.OUTPUT_SCHEMA(value=val)
 
+### FILE: services/Nodes/InterplexNodes/InterplexNodes.py ###
+from ultralytics import YOLO
+import cv2
+import numpy as np
+import random
+import os
+import math
+import time
+from pydantic import BaseModel, Field, ConfigDict
+from app.services.node_registry import BaseNode, registry_node
+from app.services.LVSTypes import NodeType, UIDataType
+from app.services.utils.image_utils import cv2_to_base64, base64_to_cv2
+class FindUpperPemLocationInput(BaseModel):
+    image_path: str = Field(title="Image Path", description=UIDataType.STRING.value)
+    ai_file_name: str = Field(title="AI Model Name", description=UIDataType.STRING.value)
+    min_Confidence: float = Field(default=0.4, title="Min Confidence", description=UIDataType.NUMBER.value)
+class FindUpperPemLocationOutput(BaseModel):
+    result_xyxy: list = Field(default_factory=list, title="Result Coordinates", description=UIDataType.LIST.value)
+    result_count: int = Field(title="Found QTY", description=UIDataType.NUMBER.value)
+    result_image: str = Field(None, title="Annotated Image", description=UIDataType.BASE64.value)
+    original_image: str = Field(None, title="Original Image", description=UIDataType.BASE64.value)
+@registry_node
+class FindUpperPemLocation(BaseNode[FindUpperPemLocationInput, FindUpperPemLocationOutput]):
+    INPUT_SCHEMA = FindUpperPemLocationInput
+    OUTPUT_SCHEMA = FindUpperPemLocationOutput
+    NODE_TYPE = NodeType.PROGRAM
+    UI_LABEL = "YOLO PEM Detector"
+    UI_DESCRIPTION = "Use OD model to get bounding boxes of the Pems"
+    UI_COLOR = "bg-purple-700"
+    async def execute(self) -> None:
+        img_path = self.local_input.image_path
+        ai_model_name = self.local_input.ai_file_name
+        conf_threshold = self.local_input.min_Confidence
+        img = cv2.imread(img_path)
+        if img is None:
+            raise FileNotFoundError(f"Không tìm thấy ảnh tại: {img_path}")
+        model : YOLO = await self.parent._safe_load_file(ai_model_name)
+        results = model.predict(img, conf=conf_threshold, iou=0.5, verbose=False)[0]
+        coords_list = []
+        annotated_img = img.copy()
+        ma_mau = {0: (0, 255, 0), 1: (0, 0, 255)}
+        for box in results.boxes:
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
+            conf = float(box.conf[0])
+            cls_id = int(box.cls[0])
+            coords_list.append([x1, y1, x2, y2])
+            color = ma_mau.get(cls_id, (0, 255, 255))
+            cv2.rectangle(annotated_img, (x1, y1), (x2, y2), color, 2)
+            ui_preview_annotated = cv2.resize(annotated_img, (800, 600))
+            base_64_img = cv2_to_base64(ui_preview_annotated)
+            bas64_original_img = cv2_to_base64(img)
+        self.local_output = self.OUTPUT_SCHEMA(
+            result_xyxy=coords_list,
+            result_count=len(coords_list),
+            result_image=base_64_img,
+            original_image = bas64_original_img
+        )
+class ExtractRoiInput(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    image : str = Field(title="Input Image", description=UIDataType.BASE64.value)
+    xyxy_list: list = Field(default_factory=list, title="XY List", description=UIDataType.LIST)
+    offset_percentage: int = Field(default=10, title="Offset Percent", description=UIDataType.NUMBER)
+    target_folder_path: str = Field(default="storage/rois", title="Save to", description=UIDataType.STRING)
+class ExtractRoiOutput(BaseModel):
+    output_images: str = Field(default="", title="Concat Roi Image", description=UIDataType.BASE64)
+@registry_node
+class Extract_Roi_W_Offset(BaseNode[ExtractRoiInput, ExtractRoiOutput]):
+    INPUT_SCHEMA = ExtractRoiInput
+    OUTPUT_SCHEMA = ExtractRoiOutput
+    NODE_TYPE = NodeType.PROGRAM
+    UI_LABEL = "Extract ROI (Offset Random)"
+    UI_COLOR = "bg-orange-600"
+    async def execute(self) -> None:
+        img = self.local_input.image
+        xyxy_list = self.local_input.xyxy_list
+        offset_pct = self.local_input.offset_percentage
+        raw_folder_path = self.local_input.target_folder_path
+        img = base64_to_cv2(img)
+        if not xyxy_list:
+            self.local_output = self.OUTPUT_SCHEMA(output_images="")
+            return
+        save_folder = raw_folder_path.strip().strip("'").strip('"')
+        if save_folder.startswith('r'):
+            save_folder = save_folder[1:].strip("'").strip('"')
+        os.makedirs(save_folder, exist_ok=True)
+        img_h, img_w = img.shape[:2]
+        cropped_rois = []
+        session_id = str(int(time.time()))
+        for idx, box in enumerate(xyxy_list):
+            x1, y1, x2, y2 = map(int, box)
+            w, h = x2 - x1, y2 - y1
+            if w <= 0 or h <= 0:
+                continue
+            max_ox = int(w * (offset_pct / 100.0))
+            max_oy = int(h * (offset_pct / 100.0))
+            direction = random.choice(['N', 'S', 'E', 'W'])
+            dx, dy = 0, 0
+            if direction == 'N':
+                dy = -random.randint(0, max_oy)
+            elif direction == 'S':
+                dy = random.randint(0, max_oy)
+            elif direction == 'E':
+                dx = random.randint(0, max_ox)
+            elif direction == 'W':
+                dx = -random.randint(0, max_ox)
+            nx1, ny1 = x1 + dx, y1 + dy
+            nx2, ny2 = x2 + dx, y2 + dy
+            nx1 = max(0, min(nx1, img_w - 1))
+            ny1 = max(0, min(ny1, img_h - 1))
+            nx2 = max(0, min(nx2, img_w))
+            ny2 = max(0, min(ny2, img_h))
+            if nx2 <= nx1 or ny2 <= ny1:
+                continue
+            roi_img = img[ny1:ny2, nx1:nx2]
+            file_name = f"roi_{session_id}_{idx}_{direction}.jpg"
+            cv2.imwrite(os.path.join(save_folder, file_name), roi_img)
+            roi_resized = cv2.resize(roi_img, (128, 128))
+            cropped_rois.append(roi_resized)
+        if not cropped_rois:
+            self.local_output = self.OUTPUT_SCHEMA(output_images="")
+            return
+        cols = 8
+        rows = math.ceil(len(cropped_rois) / cols)
+        total_cells = cols * rows
+        blank_img = np.zeros((128, 128, 3), dtype=np.uint8)
+        while len(cropped_rois) < total_cells:
+            cropped_rois.append(blank_img)
+        row_images = []
+        for r in range(rows):
+            row_slice = cropped_rois[r * cols : (r + 1) * cols]
+            row_concat = cv2.hconcat(row_slice)
+            row_images.append(row_concat)
+        final_grid = cv2.vconcat(row_images)
+        base64_grid = cv2_to_base64(final_grid)
+        self.local_output = self.OUTPUT_SCHEMA(output_images=base64_grid)
+class FolderImageScannerInput(BaseModel):
+    folder_path: str = Field(default="storage/dataset", title="Target Folder", description=UIDataType.STRING.value)
+class FolderImageScannerOutput(BaseModel):
+    image_list: list = Field(default_factory=list, title="Image List", description=UIDataType.LIST.value)
+@registry_node
+class FolderImageScanner(BaseNode[FolderImageScannerInput, FolderImageScannerOutput]):
+    INPUT_SCHEMA = FolderImageScannerInput
+    OUTPUT_SCHEMA = FolderImageScannerOutput
+    NODE_TYPE = NodeType.PROGRAM
+    UI_LABEL = "Folder Image Scanner"
+    UI_COLOR = "bg-purple-500"
+    async def execute(self) -> None:
+        folder_path = self.local_input.folder_path
+        folder_path = folder_path.strip().strip("'").strip('"')
+        if folder_path.startswith('r'):
+            folder_path = folder_path[1:].strip("'").strip('"')
+        if not os.path.exists(folder_path):
+            raise FileNotFoundError(f"Thư mục không tồn tại: {folder_path}")
+        valid_exts = ('.jpg', '.jpeg', '.png', '.bmp', '.webp')
+        full_list = [
+            os.path.join(folder_path, f)
+            for f in os.listdir(folder_path)
+            if f.lower().endswith(valid_exts)
+        ]
+        self.local_output = self.OUTPUT_SCHEMA(
+            image_list=full_list
+        )
+
 ### FILE: services/utils/files_loader.py ###
+import cv2
+import os
+from pathlib import Path
+from ultralytics import YOLO
+from app.core.config import get_base_dir
 def load_ai_models(destination_storage, ai_model_name):
-    """TODO: THIS FUNCTION IS A PLACE HOLDER. LATER NEED TO MODIFY IT SO IT LOAD THE AI MODEL CORRECTLY BASE ON THE EXTENTION"""
-    destination_storage[ai_model_name] = f"<LOADED AI MODEL : {ai_model_name}>"
-    pass
+    """
+    Tải model AI dựa trên phần mở rộng (PT, ONNX, Engine) và lưu vào bộ nhớ đệm.
+    """
+    base_path = get_base_dir() / "storage" / "file_storage"
+    model_full_path = base_path / ai_model_name
+    if not model_full_path.exists():
+        raise FileNotFoundError(f"Không tìm thấy file model tại: {model_full_path}")
+    ext = model_full_path.suffix.lower()
+    try:
+        if ext in ['.pt', '.yaml']:
+            model = YOLO(str(model_full_path))
+            destination_storage[ai_model_name] = model
+        elif ext in ['.onnx', '.engine', '.openvino']:
+            model = YOLO(str(model_full_path), task='detect')
+            destination_storage[ai_model_name] = model
+        else:
+            raise ValueError(f"Định dạng {ext} hiện chưa được LambdaVision hỗ trợ.")
+    except Exception as e:
+        print(f"[ERROR] Thất bại khi nạp model {ai_model_name}: {e}")
+        raise e
 def load_image(destination_storage, image_file_name):
-    """TODO: THIS FUNCTION IS A PLACE HOLDER. LATER NEED TO MODIFY IT SO IT LOAD THE IMAGE CORRECTLY BASE ON THE EXTENTION"""
-    destination_storage[image_file_name] = f"<LOADED Image : {image_file_name}>"
-    pass
+    """
+    Tải ảnh từ ổ cứng bằng OpenCV và lưu vào bộ nhớ đệm dưới dạng ma trận Numpy.
+    """
+    image_path = get_base_dir() / "storage" / "file_storage" / image_file_name
+    try:
+        img = cv2.imread(str(image_path))
+        if img is None:
+            raise ValueError(f"Tệp tin không phải là ảnh hợp lệ hoặc bị hỏng: {image_path}")
+        destination_storage[image_file_name] = img
+    except Exception as e:
+        print(f"[ERROR] Không thể nạp ảnh {image_file_name}: {e}")
+        raise e
 
 ### FILE: services/utils/image_utils.py ###
 import cv2
@@ -2136,6 +2451,18 @@ def cv2_to_base64(img: np.ndarray) -> str:
         return ""
     base64_str = base64.b64encode(buffer).decode('utf-8')
     return f"data:image/jpeg;base64,{base64_str}"
+def base64_to_cv2(base64_string: str) -> np.ndarray:
+    """
+    Chuyển đổi chuỗi Base64 (có hoặc không có tiền tố data:image/...)
+    thành ma trận ảnh OpenCV (Numpy Array).
+    """
+    try:
+        if "," in base64_string:
+            base64_string = base64_string.split(",")[1]
+        image_bytes = base64.b64decode(base64_string)
+        return bytes_to_cv2(image_bytes)
+    except Exception as e:
+        raise ValueError(f"Dữ liệu Base64 không hợp lệ hoặc bị lỗi: {str(e)}")
 
 ### FILE: services/utils/ping_measurer.py ###
 import asyncio

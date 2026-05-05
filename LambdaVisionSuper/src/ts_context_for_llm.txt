@@ -1497,7 +1497,7 @@ export const useTagDb = create<TagDBStore>((set, get) => ({
 import { create } from "zustand";
 import { useTagDb } from './GlobalTagsStore';
 import { COLOR_PALETTE } from "../../utils/ColorConst";
-export type DrawType = 'screen' | 'thumbnail' | 'frame' | 'bounding_box' | 'text' | 'line' | 'bounding_circle' | 'soft_button';
+export type DrawType = 'screen' | 'thumbnail' | 'frame' | 'bounding_box' | 'text' | 'line' | 'bounding_circle' | 'soft_button' | 'dynamic_bboxes';
 export interface DataBinding {
     propName: string;
     globalTagKey: string;
@@ -1659,6 +1659,16 @@ export interface createButtonModal {
     x: number;
     y: number;
 };
+export interface DynamicBBoxNode extends BaseUINode {
+    id: string;
+    type: 'dynamic_bboxes';
+    parent_id: string;
+    data: any[]; // <--- Tạo biến data ở đây
+    x: number;
+    y: number;
+    bindings: DataBinding[];
+    isVisible: boolean;
+}
 export interface UIEngineStore {
     components_map: Record<string, any>;
     selectedNodeIds: string[];
@@ -1738,7 +1748,7 @@ export const useUIEngine = create<UIEngineStore>((set, get) => ({
             type: 'text',
             name: 'Guide Text',
             parent_id: 'frame_intro',
-            content: "WELCOME TO LAMBDAVISION SUPER\n\n[ Hướng dẫn sử dụng nhanh ]\n\n1. Chuột phải vào nền trống để thêm Frame.\n2. Chuột phải vào Frame để thêm các UI (Box, Circle, Text).\n3. Mở Action Menu > Properties để thiết lập Data Bindings.\n4. Ấn nút Settings ở thanh Toolbar để cài phím tắt.\n5. Cuộn chuột để Zoom, kéo nền để Pan, chuột phải > Full Viewport.\n\nChúc bạn có một trải nghiệm hệ thống tuyệt vời!",
+            content: "WELCOME TO LAMBDAVISION SUPER\n\n[ Hướng dẫn sử dụng nhanh ]\n\n1. Chuột phải vào nền trống để thêm Frame.\n2. Chuột phải vào Frame để thêm các UI (Box, Circle, Text).\n3. Mở Action Menu > Properties để thiết lập Data Bindings.\n4. Ấn nút Settings ở thanh Toolbar để cài phím tắt.\n5. Cuộn chuột để Zoom, kéo nền để Pan, chuột phải > Full Viewport.\n\n 6. Dynamic BBox là đối tượng đặc biệt, nó tự động sinh bounding box\n\n để dùng, bạn hãy chuyển định dạng {}",
             x: 40,
             y: 40,
             size_x: 520,
@@ -1865,6 +1875,15 @@ export const useUIEngine = create<UIEngineStore>((set, get) => ({
                     cornerRadius: 6
                 }
             };
+        }
+        if (type === 'dynamic_bboxes') {
+            newNode.size_x = 100;
+            newNode.size_y = 100;
+            // Khởi tạo một bộ BBox mẫu tuyệt đẹp để minh họa
+            newNode.data = [
+                { id: "sample_1", x: 10, y: 10, w: 120, h: 80, label: "JSON: {x,y,w,h}", color: "
+                { id: "sample_2", x: 60, y: 50, w: 90, h: 60, label: "Example", color: "
+            ];
         }
         // 4. CẬP NHẬT STATE: Lưu vào map và đăng ký ID vào con của thằng cha
         const updatedComponents = { ...state.components_map, [newId]: newNode };
