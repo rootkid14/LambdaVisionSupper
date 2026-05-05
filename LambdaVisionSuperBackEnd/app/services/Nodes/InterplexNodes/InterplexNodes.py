@@ -72,7 +72,6 @@ class FindUpperPemLocation(BaseNode[FindUpperPemLocationInput, FindUpperPemLocat
             
             base_64_img = cv2_to_base64(ui_preview_annotated)
             bas64_original_img = cv2_to_base64(img)
-            cv2.imshow("test", ui_preview_annotated)
 
         # 6. Đóng gói kết quả trả về cho Frontend
         self.local_output = self.OUTPUT_SCHEMA(
@@ -214,8 +213,8 @@ class FolderImageScannerInput(BaseModel):
     folder_path: str = Field(default="storage/dataset", title="Target Folder", description=UIDataType.STRING.value)
 
 class FolderImageScannerOutput(BaseModel):
-    is_end: bool = Field(default=False, title="End", description=UIDataType.BOOLEAN.value)
-    image_path: str = Field(default="", title="Image Path", description=UIDataType.STRING.value)
+    # Trả về nguyên 1 List đường dẫn ảnh
+    image_list: list = Field(default_factory=list, title="Image List", description=UIDataType.LIST.value)
 
 @registry_node
 class FolderImageScanner(BaseNode[FolderImageScannerInput, FolderImageScannerOutput]):
@@ -225,47 +224,26 @@ class FolderImageScanner(BaseNode[FolderImageScannerInput, FolderImageScannerOut
     UI_LABEL = "Folder Image Scanner"
     UI_COLOR = "bg-purple-500" 
 
-    # 1. KHAI BÁO BIẾN CLASS Ở ĐÂY (Nằm ngoài mọi hàm)
-    _image_queue = []
-    _is_loaded = False
-
     async def execute(self) -> None:
         folder_path = self.local_input.folder_path
         
+        # 1. Làm sạch đường dẫn
         folder_path = folder_path.strip().strip("'").strip('"')
         if folder_path.startswith('r'):
             folder_path = folder_path[1:].strip("'").strip('"')
 
-        # 2. GỌI BIẾN BẰNG TÊN CLASS THAY VÌ 'self'
-        if not FolderImageScanner._is_loaded:
-            if os.path.exists(folder_path):
-                valid_exts = ('.jpg', '.jpeg', '.png', '.bmp', '.webp')
-                FolderImageScanner._image_queue = [
-                    os.path.join(folder_path, f) 
-                    for f in os.listdir(folder_path) 
-                    if f.lower().endswith(valid_exts)
-                ]
-            else:
-                raise FileNotFoundError(f"Thư mục không tồn tại: {folder_path}")
+        if not os.path.exists(folder_path):
+            raise FileNotFoundError(f"Thư mục không tồn tại: {folder_path}")
             
-            FolderImageScanner._is_loaded = True
-
-        # 3. THUẬT TOÁN POP (Rút thẻ)
-        is_end = False
-        current_image = ""
-
-        if len(FolderImageScanner._image_queue) > 0:
-            # Lấy và xóa phần tử đầu tiên
-            current_image = FolderImageScanner._image_queue.pop(0)
-        else:
-            is_end = True
+        valid_exts = ('.jpg', '.jpeg', '.png', '.bmp', '.webp')
+        
+        # 2. Quét và trả về toàn bộ mảng (Không lưu state)
+        full_list = [
+            os.path.join(folder_path, f) 
+            for f in os.listdir(folder_path) 
+            if f.lower().endswith(valid_exts)
+        ]
 
         self.local_output = self.OUTPUT_SCHEMA(
-            is_end=is_end,
-            image_path=current_image
+            image_list=full_list
         )
-
-    # 4. HÀM RESET CŨNG PHẢI GỌI VÀO TÊN CLASS
-    def reset(self):
-        FolderImageScanner._image_queue = []
-        FolderImageScanner._is_loaded = False

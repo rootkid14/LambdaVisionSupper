@@ -258,10 +258,16 @@ export const TagManagerTable = ({ onClose, mode = 'edit' }: { onClose?: () => vo
                               </div>
                           )}
 
-                          {/* Nút Xóa giờ luôn hiện mờ mờ ở mọi màn hình (kể cả View hay Edit) */}
-                          <button onClick={() => deleteTag(key)} className="text-[#9aa0a6] hover:text-[#f28b82] hover:bg-[#f28b82]/10 p-1.5 rounded transition-all opacity-50 group-hover:opacity-100 shrink-0">
-                              <Trash2 size={14} />
-                          </button>
+                          {!key.startsWith('SYS_') ? (
+                              <button onClick={() => deleteTag(key)} className="text-[#f28b82] p-1.5 hover:bg-white/10 rounded transition-colors" title="Delete Tag">
+                                  <Trash2 size={14} />
+                              </button>
+                          ) : (
+                              <div className="p-1.5 cursor-not-allowed" title="System Tag - Protected">
+                                  {/* Hiện chữ SYS mờ mờ thay vì nút Xóa */}
+                                  <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">SYS</span>
+                              </div>
+                          )}
                       </div>
                   </td>
                 </tr>

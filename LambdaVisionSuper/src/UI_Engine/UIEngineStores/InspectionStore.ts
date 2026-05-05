@@ -2,8 +2,7 @@ import { create } from "zustand";
 import { useTagDb } from './GlobalTagsStore';
 import { COLOR_PALETTE } from "../../utils/ColorConst";
 
-export type DrawType = 'screen' | 'thumbnail' | 'frame' | 'bounding_box' | 'text' | 'line' | 'bounding_circle';
-
+export type DrawType = 'screen' | 'thumbnail' | 'frame' | 'bounding_box' | 'text' | 'line' | 'bounding_circle' | 'soft_button';
 
 export interface DataBinding {
     propName: string;
@@ -152,6 +151,35 @@ export interface NameLabelConfig {
 }
 
 
+export interface SoftButtonNode extends BaseUINode {
+    id: string;
+    type: 'soft_button';
+    parent_id: string;
+    x: number;
+    y: number;
+    size_x: number;
+    size_y: number;
+    content: string; // Chữ hiển thị trên nút
+    targetTag: string; // Tag sẽ điều khiển
+    actionType: 'toggle' | 'setToTrue' | 'setToFalse' | 'pulse';
+    style: {
+        fillColor: string;
+        activeColor?: string;
+        fontColor: string;
+        fontSize: number;
+        cornerRadius: number;
+    };
+    bindings: DataBinding[];
+    isVisible: boolean;
+}
+
+export interface createButtonModal {
+    isOpen: boolean;
+    parent_id: string;
+    x: number;
+    y: number;
+};
+
 export interface UIEngineStore {
     components_map: Record<string, any>;
     selectedNodeIds: string[];
@@ -159,6 +187,8 @@ export interface UIEngineStore {
     nameLabelConfig: NameLabelConfig;
     showTerminalLog: boolean;
     activeScreenId: string | null;
+
+    createButtonModal : createButtonModal;
 
     importFileContext: File | null;
     setImportFile: (file: File | null) => void;
@@ -168,6 +198,10 @@ export interface UIEngineStore {
     actionMenu: ActionMenuContext;
     propertyPanel: PropertiesPanelContext;
     renameModal: { isOpen: boolean; target_id: string; currentName: string };
+
+
+    openCreateButtonModal: (parent_id: string, x: number, y: number) => void;
+    closeCreateButtonModal: () => void;
 
     // Actions
     updateComponentProps: (id: string, new_props: any) => void;
@@ -266,6 +300,8 @@ export const useUIEngine = create<UIEngineStore>((set, get) => ({
     viewportMode: 'normal',
     importFileContext: null,
 
+    createButtonModal: { isOpen: false, parent_id: '', x: 0, y: 0 },
+
     updateComponentProps: (id, new_props) => set((state) => {
         const node = state.components_map[id];
         if (!node) return state;
@@ -300,33 +336,101 @@ export const useUIEngine = create<UIEngineStore>((set, get) => ({
         };
     }),
 
-    addComponent: (type, parent_id, initial_x, initial_y) => set((state) => {
+    addComponent: (type, parent_id, initial_x, initial_y, customConfig?: any) => set((state) => {
         const newId = `${type}_${Date.now()}`;
         const parent = state.components_map[parent_id];
-        if(!parent) return state;
+        if (!parent) return state;
 
-        // Thuật toán: Thêm vào Frame -> Auto Center & Resize an toàn
-        let finalX = initial_x; let finalY = initial_y;
-        let finalW = 100; let finalH = 100; let finalR = 50;
+        // 1. Thuật toán tính toán kích thước an toàn
+        let finalX = initial_x; 
+        let finalY = initial_y;
+        let finalW = 100; 
+        let finalH = 100; 
+        let finalR = 50;
 
         if (parent.type === 'frame' && type !== 'frame') {
-            finalW = Math.min(100, parent.size_x * 0.8); // Không được to quá 80% Frame
+            finalW = Math.min(100, parent.size_x * 0.8);
             finalH = Math.min(100, parent.size_y * 0.8);
             finalR = Math.min(50, parent.size_x * 0.4, parent.size_y * 0.4);
             
-            // Căn chính giữa Frame
             finalX = type === 'bounding_circle' ? parent.size_x / 2 : (parent.size_x - finalW) / 2;
             finalY = type === 'bounding_circle' ? parent.size_y / 2 : (parent.size_y - finalH) / 2;
         }
 
-        const newNode: any = { id: newId, type, name: `${type} ${Math.floor(Math.random() * 100)}`, parent_id, x: finalX, y: finalY, rotation: 0, bindings: [], isVisible: true };
+        // 2. SỬA LỖI: Đổi const thành let để có thể ghi đè ở dưới
+        let newNode: any = { 
+            id: newId, 
+            type, 
+            name: `${type} ${Math.floor(Math.random() * 100)}`, 
+            parent_id, 
+            x: finalX, 
+            y: finalY, 
+            rotation: 0, 
+            bindings: [], 
+            isVisible: true 
+        };
 
-        if (type === 'frame') { newNode.size_x = 400; newNode.size_y = 300; newNode.children_id = []; newNode.style = { strokeColor: '#8ab4f8', border_thickness: 2, fillColor: 'rgba(138, 180, 248, 0.1)' }; }
-        if (type === 'bounding_box') { newNode.size_x = finalW; newNode.size_y = finalH; newNode.style = { strokeColor: '#f28b82', border_thickness: 2 }; }
-        if (type === 'bounding_circle') { newNode.radius = finalR; newNode.style = { strokeColor: '#fcd663', border_thickness: 2 }; }
-        if (type === 'text') { newNode.size_x = 100; newNode.size_y = 30; newNode.content = 'Double click to edit'; newNode.style = { fontSize: 16, fontColor: '#e8eaed', fontFamily: 'Arial' }; }
+        // 3. Phân loại thuộc tính theo Type
+        if (type === 'frame') { 
+            newNode.size_x = 400; 
+            newNode.size_y = 300; 
+            newNode.children_id = []; 
+            newNode.style = { strokeColor: '#8ab4f8', border_thickness: 2, fillColor: 'rgba(138, 180, 248, 0.1)' }; 
+        }
+        
+        if (type === 'bounding_box') { 
+            newNode.size_x = finalW; 
+            newNode.size_y = finalH; 
+            newNode.style = { strokeColor: '#f28b82', border_thickness: 2 }; 
+        }
+        
+        if (type === 'bounding_circle') { 
+            newNode.radius = finalR; 
+            newNode.style = { strokeColor: '#fcd663', border_thickness: 2 }; 
+        }
+        
+        if (type === 'text') { 
+            newNode.size_x = 100; 
+            newNode.size_y = 30; 
+            newNode.content = 'Double click to edit'; 
+            newNode.style = { fontSize: 16, fontColor: '#e8eaed', fontFamily: 'Arial' }; 
+        }
 
-        return { components_map: { ...state.components_map, [newId]: newNode, [parent_id]: { ...parent, children_id: [...(parent.children_id || []), newId] } } };
+        // Xử lý Soft Button từ Modal gửi xuống
+        if (type === 'soft_button' && customConfig) {
+            newNode = {
+                ...newNode,
+                size_x: 120,
+                size_y: 45,
+                content: customConfig.label || "BUTTON",
+                targetTag: customConfig.targetTag || "",
+                actionType: customConfig.actionType || "toggle",
+                style: {
+                    fillColor: customConfig.color || "#3c4043",
+                    activeColor: "#81c995", // <--- THÊM MÀU MẶC ĐỊNH KHI NHẤN (Xanh lá)
+                    fontColor: "#ffffff",
+                    fontSize: 14,
+                    cornerRadius: 6
+                }
+            };
+        }
+
+        // 4. CẬP NHẬT STATE: Lưu vào map và đăng ký ID vào con của thằng cha
+        const updatedComponents = { ...state.components_map, [newId]: newNode };
+        
+        // Cập nhật danh sách con cho thằng cha (Frame hoặc Screen)
+        if (parent.children_id) {
+            updatedComponents[parent_id] = {
+                ...parent,
+                children_id: [...parent.children_id, newId]
+            };
+        }
+
+        return {
+            ...state,
+            components_map: updatedComponents,
+            selectedNodeIds: [newId] // Tự động chọn node mới tạo để hiện bảng Properties luôn
+        };
     }),
 
     deleteComponents: (ids) => set((state) => {
@@ -380,6 +484,13 @@ export const useUIEngine = create<UIEngineStore>((set, get) => ({
     }),
 
     setImportFile: (file) => set({ importFileContext: file }),
+
+    openCreateButtonModal: (parent_id, x, y) => set({ 
+        createButtonModal: { isOpen: true, parent_id, x, y } 
+    }),
+    closeCreateButtonModal: () => set(state => ({ 
+        createButtonModal: { ...state.createButtonModal, isOpen: false } 
+    })),
 }));
 
 export const useDataBinding = (bindings: DataBinding[] = [], propName: string, localValue: any) => {

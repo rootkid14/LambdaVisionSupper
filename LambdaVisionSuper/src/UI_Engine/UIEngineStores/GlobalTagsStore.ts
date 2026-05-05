@@ -43,31 +43,27 @@ interface TagDBStore {
     deleteTag: (key: string) => void;
 }
 
-export const useTagDb = create<TagDBStore>()(
-    persist(
-        (set, get) => ({
-            tags: {},
-            isGlobalTagsTableOpen: false,
+export const useTagDb = create<TagDBStore>((set, get) => ({
+        tags: {
+            'SYS_ACTIVE_SCREEN': 'Main Screen' 
+        },
+        isGlobalTagsTableOpen: false,
 
-            writeTag: (key, value) => set((state) => ({
-                tags: { ...state.tags, [key]: value }
-            })),
+        writeTag: (key, value) => set((state) => ({
+            tags: { ...state.tags, [key]: value }
+        })),
 
-            writeTagsBatch: (tagsToUpdate) => set((state) => ({
-                tags: { ...state.tags, ...tagsToUpdate }
-            })),
+        writeTagsBatch: (tagsToUpdate) => set((state) => ({
+            tags: { ...state.tags, ...tagsToUpdate }
+        })),
 
-            readTag: (key) => get().tags[key],
-            getAllTags: () => get().tags,
-            deleteTag: (key) => set((state) => {
-                const newTags = { ...state.tags };
-                delete newTags[key];
-                return { tags: newTags };
-            })
-        }),
-        {
-            name: "tag-db-storage",
-            storage: createJSONStorage(() => idbStorage),
-        }
-    )
+        readTag: (key) => get().tags[key],
+        getAllTags: () => get().tags,
+        deleteTag: (key) => set((state) => {
+            const newTags = { ...state.tags };
+            delete newTags[key];
+            return { tags: newTags };
+        })
+    })
+
 );

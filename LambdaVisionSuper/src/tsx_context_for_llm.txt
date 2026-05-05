@@ -1500,7 +1500,7 @@ export const DynamicTerminalNode = ({ id, data, selected }: NodeProps<any>) => {
             <option value="number">Number</option>
             <option value="string">String</option>
             <option value="boolean">Boolean</option>
-            <option value="numpy_array">Numpy Array (Image)</option>
+            <option value="numpy_array">Numpy Array</option>
             <option value="tensor">Tensor</option>
             <option value="dict">Dictionary</option>
             <option value="list">List</option>
@@ -1929,8 +1929,10 @@ export const PinRow = ({ id, label, dataType, type, optional, onRemove, extraLab
 
 ### FILE: components/ProgramMode/ProgrammingNode.tsx ###
 import React from 'react';
-import { Handle, Position, NodeProps, useReactFlow } from '@xyflow/react';
+import { NodeProps, useReactFlow } from '@xyflow/react';
 import { SmartDropdown } from './SmartDropdown';
+import { BaseNodeShell } from './BaseNodeShell';
+import { PinRow } from './PinRow'; // BƯỚC 1: IMPORT PINROW CHUẨN
 export type DataType = 'boolean' | 'number' | 'string' | 'numpy_array' | 'tensor' | 'any' | "object_ref" | "json" | "dict" | "list" | "base64";
 export interface PinData {
   id: string;
@@ -1947,7 +1949,7 @@ export interface ConfigField {
 }
 export interface UniversalNodeData {
   className: string;
-  nodeType: string;    // "1" cho PROGRAM, "2" cho IN_LINE
+  nodeType: string;
   displayName: string;
   inputs: PinData[];
   outputs: PinData[];
@@ -1957,21 +1959,7 @@ export interface UniversalNodeData {
   config_fields?: ConfigField[];
   [key: string]: any;
 }
-export const getPinColor = (type: DataType): string => {
-  switch (type) {
-    case 'boolean': return '!bg-red-500 !border-red-800';
-    case 'number': return '!bg-green-500 !border-green-800';
-    case 'numpy_array': return '!bg-blue-500 !border-blue-800';
-    case 'tensor': return '!bg-purple-500 !border-purple-800';
-    case 'string': return '!bg-yellow-500 !border-yellow-800';
-    case 'object_ref': return '!bg-teal-500 !border-teal-800';
-    case 'json' : return '!bg-orange-500 !border-orange-800';
-    case 'dict': return '!bg-orange-600 !border-orange-900';
-    case 'list': return '!bg-indigo-500 !border-indigo-800';
-    case 'base64': return '!bg-blue-300 !border-indigo-800';
-    default: return '!bg-slate-400 !border-slate-600';
-  }
-};
+// BƯỚC 2: ĐÃ XÓA BỎ HOÀN TOÀN HÀM getPinColor CŨ GÂY XUNG ĐỘT Ở ĐÂY!
 export const UniversalNode = ({ id, data, selected }: NodeProps<any>) => {
   const isError = !!data.errorMessage;
   const { updateNodeData } = useReactFlow();
@@ -1982,95 +1970,79 @@ export const UniversalNode = ({ id, data, selected }: NodeProps<any>) => {
     updateNodeData(id, { inlineValue: val });
   };
   const handleConfigChange = (fieldId: string, value: any) => {
-    // Lưu thẳng vào data của Node để Backend lấy ra qua node_data.get(fieldId)
     updateNodeData(id, { [fieldId]: value });
   };
+  const nodeColor = data.color || 'bg-slate-600';
   return (
-    <div className={`
-      flex flex-col min-w-[220px] bg-slate-200 rounded-md font-sans text-slate-900
-      shadow-lg transition-all relative
-      ${isError ? 'border-2 border-red-500 ring-4 ring-red-500/20' : 'border border-slate-400'}
-      ${selected && !isError ? 'ring-2 ring-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.5)]' : ''}
-    `}>
-      {/* ĐÃ SỬA: Gộp lỗi thẳng vào Header, đổi flex-col để chia 2 dòng */}
-      <div className={`${isError ? 'bg-red-600' : 'bg-slate-600'} rounded-t-md px-3 py-2 text-center border-b border-slate-700 transition-colors flex flex-col items-center justify-center`}>
-        <span className="text-white font-bold tracking-wide text-sm leading-tight">{data.displayName}</span>
-        {isError && (
-          <span className="text-[10px] font-bold text-red-100 uppercase mt-1 max-w-[200px] break-words leading-tight">
-            ⚠️ {data.errorMessage}
-          </span>
-        )}
-      </div>
-      <div className="flex flex-col gap-2 p-3">
-        {data.inlineInputType && (
-          <div className="mb-2">
-            {data.inlineInputType === 'checkbox' ? (
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={!!data.inlineValue} onChange={handleInputChange} className="nodrag w-4 h-4" />
-                <span className="text-xs text-slate-600">True</span>
-              </label>
-            ) : (
-              <input
-                type={data.inlineInputType}
-                value={data.inlineValue ?? ''}
-                onChange={handleInputChange}
-                className="nodrag w-full bg-slate-100 text-slate-800 text-sm font-mono px-2 py-1.5 rounded border border-slate-400 focus:outline-none"
-              />
-            )}
-          </div>
-        )}
-        {/* KHU VỰC CONFIG FIELDS */}
-        {data.config_fields && data.config_fields.length > 0 && (
-          <div className="flex flex-col gap-2 p-3 pb-1 border-b border-slate-300/50 bg-slate-200/50">
-            {data.config_fields.map((field: ConfigField) => (
-              <div key={field.id} className="flex flex-col gap-1">
-                <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">{field.label}</label>
-                {/* Render Text */}
-                {field.type === 'text' && (
-                  <input
-                    type="text"
-                    className="nodrag text-xs p-1 rounded border border-slate-400 w-full"
-                    value={data[field.id] || field.default || ''}
-                    onChange={(e) => handleConfigChange(field.id, e.target.value)}
-                  />
-                )}
-                {/* Render Static Select */}
-                {field.type === 'select' && field.options && (
-                  <select
-                    className="nodrag text-xs p-1 rounded border border-slate-400 w-full"
-                    value={data[field.id] || field.default || ''}
-                    onChange={(e) => handleConfigChange(field.id, e.target.value)}
-                  >
-                    {field.options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                  </select>
-                )}
-                {/* Render Smart Dropdown (API) */}
-                {['server_pool_dropdown', 'device_pool_dropdown', 'active_logic_dropdown'].includes(field.type) && (
-                  <SmartDropdown
-                    type={field.type}
-                    id={field.id}
-                    value={data[field.id]}
-                    onChange={(val) => handleConfigChange(field.id, val)}
-                  />
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-        {data.inputs?.map((input: PinData) => (
-          <div key={input.id} className="relative flex items-center justify-start h-6">
-            <Handle type="target" position={Position.Left} id={input.id} className={`!w-4 !h-4 !border-2 !-left-[21px] ${getPinColor(input.dataType)}`} />
-            <span className={`text-sm font-semibold ml-1 ${input.optional ? 'text-slate-500 italic' : 'text-slate-700'}`}>{input.label}</span>
-          </div>
-        ))}
-        {data.outputs?.map((output: PinData) => (
-          <div key={output.id} className="relative flex items-center justify-end h-6">
-            <span className="text-sm font-semibold mr-1 text-slate-700">{output.label}</span>
-            <Handle type="source" position={Position.Right} id={output.id} className={`!w-4 !h-4 !border-2 !-right-[21px] ${getPinColor(output.dataType)}`} />
-          </div>
-        ))}
-      </div>
-    </div>
+    <BaseNodeShell
+      isError={isError}
+      errorMessage={data.errorMessage}
+      selected={selected}
+      title={data.displayName || data.className}
+      headerColorClass={nodeColor}
+      ringColorClass="ring-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.5)]"
+    >
+      {/* Inline Inputs */}
+      {data.inlineInputType && (
+        <div className="mb-2">
+          {data.inlineInputType === 'checkbox' ? (
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={!!data.inlineValue} onChange={handleInputChange} className="nodrag w-4 h-4" />
+              <span className="text-xs text-slate-600">True</span>
+            </label>
+          ) : (
+            <input
+              type={data.inlineInputType}
+              value={data.inlineValue ?? ''}
+              onChange={handleInputChange}
+              className="nodrag w-full bg-slate-100 text-slate-800 text-sm font-mono px-2 py-1.5 rounded border border-slate-400 focus:outline-none"
+            />
+          )}
+        </div>
+      )}
+      {/* Config Fields */}
+      {data.config_fields && data.config_fields.length > 0 && (
+        <div className="flex flex-col gap-2 p-3 pb-1 border-b border-slate-300/50 bg-slate-200/50 -mx-3 mb-2">
+          {data.config_fields.map((field: ConfigField) => (
+            <div key={field.id} className="flex flex-col gap-1">
+              <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">{field.label}</label>
+              {field.type === 'text' && (
+                <input
+                  type="text"
+                  className="nodrag text-xs p-1 rounded border border-slate-400 w-full"
+                  value={data[field.id] || field.default || ''}
+                  onChange={(e) => handleConfigChange(field.id, e.target.value)}
+                />
+              )}
+              {field.type === 'select' && field.options && (
+                <select
+                  className="nodrag text-xs p-1 rounded border border-slate-400 w-full"
+                  value={data[field.id] || field.default || ''}
+                  onChange={(e) => handleConfigChange(field.id, e.target.value)}
+                >
+                  {field.options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                </select>
+              )}
+              {['server_pool_dropdown', 'device_pool_dropdown', 'active_logic_dropdown'].includes(field.type) && (
+                <SmartDropdown
+                  type={field.type}
+                  id={field.id}
+                  value={data[field.id]}
+                  onChange={(val) => handleConfigChange(field.id, val)}
+                />
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {/* BƯỚC 3: SỬ DỤNG COMPONENT PINROW CHUẨN */}
+      {data.inputs?.map((pin: PinData) => (
+         <PinRow key={pin.id} {...pin} type="input" />
+      ))}
+      {data.outputs?.map((pin: PinData) => (
+         <PinRow key={pin.id} {...pin} type="output" />
+      ))}
+    </BaseNodeShell>
   );
 };
 
@@ -2419,7 +2391,7 @@ import { Database, TerminalSquare, Image as ImageIcon, Plus, ArrowLeft, GitMerge
 import { useUIEngine } from '../UI_Engine/UIEngineStores/InspectionStore';
 import { useTagDb } from '../UI_Engine/UIEngineStores/GlobalTagsStore';
 import { InspectionCanvas } from '../UI_Engine/UIEngineComponents/InspectionCanvas';
-import { ActionMenu, UIPropertiesPanel, RenameModal } from '../UI_Engine/UIEngineComponents/FloatingPanels';
+import { ActionMenu, UIPropertiesPanel, RenameModal, CreateButtonModal } from '../UI_Engine/UIEngineComponents/FloatingPanels';
 import { TagManagerTable } from '../UI_Engine/UIEngineComponents/GlobalTagsTable';
 import { TerminalLog } from '../UI_Engine/SequencerComponents/TerminalLog';
 import { useKeyboardTriggerStore } from '../UI_Engine/UIEngineStores/KeyboardTriggerStore';
@@ -2697,20 +2669,22 @@ const ThumbnailSidebar = () => {
 export const InspectionPage = () => {
     const navigate = useNavigate();
     const isTagsOpen = useTagDb(state => state.isGlobalTagsTableOpen);
-    const { showTerminalLog, toggleTerminalLog, closeActionMenu, importFileContext, setImportFile } = useUIEngine();
+    const { showTerminalLog, toggleTerminalLog, closeActionMenu, importFileContext, setImportFile, changeScreen, components_map } = useUIEngine();
     const sequencerStore = useSequencerStore();
     useKeyboardTrigger();
     const toggleSettings = useKeyboardTriggerStore(state => state.toggleSettingsModal);
+    const activeScreenTagValue = useTagDb(state => state.tags['SYS_ACTIVE_SCREEN']);
     useEffect(() => {
-        if (sequencerStore.isEngineRunning) {
-            closeActionMenu();
-            useUIEngine.getState().closePropertiesPanel();
-            useTagDb.setState({ isGlobalTagsTableOpen: false });
-            if (useKeyboardTriggerStore.getState().isSettingsModalOpen) {
-                useKeyboardTriggerStore.getState().toggleSettingsModal();
+        if (sequencerStore.isEngineRunning && activeScreenTagValue && typeof activeScreenTagValue === 'string') {
+            // Tìm màn hình có 'name' khớp với giá trị của Tag
+            const targetScreen = Object.values(components_map).find(
+                (c: any) => c.type === 'screen' && c.name === activeScreenTagValue
+            );
+            if (targetScreen) {
+                changeScreen(targetScreen.id); // Hàm lật màn hình của UI Engine vẫn cần ID để chạy
             }
         }
-    }, [sequencerStore.isEngineRunning]);
+    }, [activeScreenTagValue, sequencerStore.isEngineRunning, changeScreen, components_map]);
     return (
         <div className="h-screen w-screen bg-[
             {/* COMPONENT MODAL IMPORT - CHỈ RENDER KHI CÓ FILE TRONG STORE */}
@@ -2781,6 +2755,7 @@ export const InspectionPage = () => {
             <UIPropertiesPanel />
             <RenameModal />
             <SettingsModal />
+            <CreateButtonModal/>
             <div className={`absolute top-0 right-0 h-full w-[450px] z-40 transition-transform duration-300 ease-out shadow-[-10px_0_30px_rgba(0,0,0,0.5)] ${isTagsOpen ? 'translate-x-0' : 'translate-x-full'}`}>
                 <TagManagerTable onClose={() => useTagDb.setState({ isGlobalTagsTableOpen: false })} />
             </div>
@@ -3003,7 +2978,12 @@ export const ProgrammingTab = () => {
         selectionMode={SelectionMode.Partial} // Quét trúng 1 góc Node là chọn luôn
       >
         {/* THAY ĐỔI: Dùng đường kẻ Line màu
-        <Background variant={BackgroundVariant.Lines} color="
+        <Background
+            variant={BackgroundVariant.Dots}
+            color="rgba(255,255,255,0.15)" // Chỉnh màu chấm bi sáng lên một chút cho dễ nhìn
+            gap={16} // Khoảng cách giữa các chấm (Mặc định là 16)
+            size={1.5} // Kích thước của mỗi chấm
+        />
       </ReactFlow>
       <NodeContextMenu isOpen={menu.isOpen} screenX={menu.screenX} screenY={menu.screenY} onSelectNode={handleAddNode} />
     </div>
@@ -4968,8 +4948,82 @@ export const TokenLayer = () => {
 import React, { useState } from 'react';
 import { useUIEngine } from '../UIEngineStores/InspectionStore';
 import { useTagDb } from '../UIEngineStores/GlobalTagsStore';
-import { Settings, Trash2, Box, Type, Circle, Edit2, Maximize, Layout, Monitor, Unlink } from 'lucide-react';
+import { Settings, Trash2, Box, Type, Circle, Edit2, Maximize, Layout, Monitor, Unlink, KeyIcon, MousePointer2 } from 'lucide-react';
 import { COLOR_PALETTE } from "../../utils/ColorConst";
+export const CreateButtonModal = () => {
+    const { createButtonModal, closeCreateButtonModal, addComponent } = useUIEngine();
+    const globalTags = useTagDb(state => Object.keys(state.tags));
+    // State tạm thời để lưu thông tin trước khi nhấn Create
+    const [config, setConfig] = useState({
+        label: "START",
+        targetTag: "",
+        actionType: "toggle" as any,
+        color: "
+    });
+    if (!createButtonModal.isOpen) return null;
+    const handleCreate = (e: React.FormEvent) => {
+        e.preventDefault();
+        // Gọi addComponent với đầy đủ tham số cấu hình
+        // Lưu ý: Bạn cần cập nhật hàm addComponent trong Store để nhận thêm config object này
+        (addComponent as any)('soft_button', createButtonModal.parent_id, createButtonModal.x, createButtonModal.y, config);
+        closeCreateButtonModal();
+    };
+    return (
+        <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center font-sans">
+            <div className="bg-[
+                <div className="bg-[
+                    <h3 className="text-[
+                    <MousePointer2 size={16} className="text-[
+                </div>
+                <form onSubmit={handleCreate} className="p-5 flex flex-col gap-4 text-xs">
+                    {/* Nhập nhãn nút */}
+                    <div className="flex flex-col gap-1.5">
+                        <label className="text-[
+                        <input autoFocus value={config.label} onChange={e => setConfig({...config, label: e.target.value})}
+                               className="w-full bg-[
+                               placeholder="e.g. RESET, START..." />
+                    </div>
+                    {/* Chọn Tag mục tiêu */}
+                    <div className="flex flex-col gap-1.5">
+                        <label className="text-[
+                        <select value={config.targetTag} onChange={e => setConfig({...config, targetTag: e.target.value})}
+                                className="w-full bg-[
+                            <option value="">-- No Tag --</option>
+                            {globalTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}
+                        </select>
+                    </div>
+                    {/* Chọn kiểu tác động */}
+                    <div className="flex flex-col gap-1.5">
+                        <label className="text-[
+                        <div className="grid grid-cols-2 gap-2">
+                            {['toggle', 'pulse', 'setToTrue', 'setToFalse'].map(type => (
+                                <button key={type} type="button" onClick={() => setConfig({...config, actionType: type as any})}
+                                        className={`py-1.5 rounded border transition-all font-bold ${config.actionType === type ? 'bg-[
+                                    {type}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                    {/* Chọn màu sắc */}
+                    <div className="flex flex-col gap-1.5">
+                        <label className="text-[
+                        <div className="flex gap-2 flex-wrap">
+                            {COLOR_PALETTE.slice(0, 5).map(c => (
+                                <button key={c.value} type="button" onClick={() => setConfig({...config, color: c.value})}
+                                        className={`w-6 h-6 rounded-full border-2 ${config.color === c.value ? 'border-white' : 'border-transparent'}`}
+                                        style={{ backgroundColor: c.value }} />
+                            ))}
+                        </div>
+                    </div>
+                    <div className="flex justify-end gap-2 mt-2">
+                        <button type="button" onClick={closeCreateButtonModal} className="px-4 py-1.5 rounded-lg font-bold text-[
+                        <button type="submit" className="px-6 py-1.5 rounded-lg font-bold bg-[
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+};
 export const RenameModal = () => {
     const { renameModal, closeRenameModal, renameComponent } = useUIEngine();
     const [inputValue, setInputValue] = useState("");
@@ -5001,7 +5055,7 @@ export const RenameModal = () => {
     );
 };
 export const ActionMenu = () => {
-    const { actionMenu, closeActionMenu, addComponent, deleteComponents, openPropertiesPanel, openRenameModal, setViewportMode } = useUIEngine();
+    const { actionMenu, closeActionMenu, addComponent, deleteComponents, openPropertiesPanel, openRenameModal, setViewportMode, openCreateButtonModal } = useUIEngine();
     if (!actionMenu.isOpen) return null;
     return (
         <div className="absolute z-50 bg-[
@@ -5026,12 +5080,13 @@ export const ActionMenu = () => {
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[
+                    <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[
                     <div className="h-px bg-[
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[
                 </>
             )}
-            {['bounding_box', 'bounding_circle', 'text', 'line'].includes(actionMenu.target_type) && (
+            {['bounding_box', 'bounding_circle', 'text', 'line', 'soft_button'].includes(actionMenu.target_type) && (
                 <>
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[
@@ -5050,6 +5105,7 @@ export const UIPropertiesPanel = () => {
     const getAvailableFields = () => {
         const fields = [];
         // Layout & Data
+        if(node.isVisible !== undefined) fields.push({ path: 'isVisible', label: 'Visible', type: 'boolean' });
         if(node.x !== undefined) fields.push({ path: 'x', label: 'X', type: 'number' });
         if(node.y !== undefined) fields.push({ path: 'y', label: 'Y', type: 'number' });
         if(node.size_x !== undefined) fields.push({ path: 'size_x', label: 'Width', type: 'number' });
@@ -5067,6 +5123,14 @@ export const UIPropertiesPanel = () => {
             if(node.type === 'frame') {
                 fields.push({ path: 'style.default_image', label: 'Default Img', type: 'image' });
                 fields.push({ path: 'style.bgImage', label: 'Runtime Img', type: 'image' });
+            }
+            if (node.type === 'soft_button') {
+                fields.push({ path: 'content', label: 'Button Text', type: 'string' });
+                fields.push({ path: 'targetTag', label: 'Target Tag', type: 'tag_selector' });
+                fields.push({ path: 'actionType', label: 'Action Type', type: 'select', options: ['toggle', 'setToTrue', 'setToFalse', 'pulse'] });
+                fields.push({ path: 'style.fillColor', label: 'Normal Color', type: 'color' });
+                fields.push({ path: 'style.activeColor', label: 'Active Color', type: 'color' }); // <--- BỔ SUNG DÒNG NÀY
+                fields.push({ path: 'style.cornerRadius', label: 'Round Corner', type: 'number' });
             }
         }
         return fields; // <--- CỰC KỲ QUAN TRỌNG: Không có dòng này là sập màn hình!
@@ -5450,10 +5514,16 @@ export const TagManagerTable = ({ onClose, mode = 'edit' }: { onClose?: () => vo
                                   )}
                               </div>
                           )}
-                          {/* Nút Xóa giờ luôn hiện mờ mờ ở mọi màn hình (kể cả View hay Edit) */}
-                          <button onClick={() => deleteTag(key)} className="text-[
-                              <Trash2 size={14} />
-                          </button>
+                          {!key.startsWith('SYS_') ? (
+                              <button onClick={() => deleteTag(key)} className="text-[
+                                  <Trash2 size={14} />
+                              </button>
+                          ) : (
+                              <div className="p-1.5 cursor-not-allowed" title="System Tag - Protected">
+                                  {/* Hiện chữ SYS mờ mờ thay vì nút Xóa */}
+                                  <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">SYS</span>
+                              </div>
+                          )}
                       </div>
                   </td>
                 </tr>
@@ -5826,147 +5896,189 @@ import React, { useRef, useEffect, useState } from 'react';
 import { Group, Rect, Text, Circle, Transformer, Image as KonvaImage } from 'react-konva';
 import { useUIEngine, useDataBinding } from '../UIEngineStores/InspectionStore';
 import { useSequencerStore } from '../UIEngineStores/SequencerStores';
+import { useTagDb } from '../UIEngineStores/GlobalTagsStore';
+// ---------------------------------------------------------
+// 1. HOOKS DÙNG CHUNG
+// ---------------------------------------------------------
 const useFrameBgImage = (runtimeSource?: string | Blob | File, defaultSource?: string, isRunning: boolean = false) => {
+    // ... (Giữ nguyên toàn bộ logic useFrameBgImage cũ của bạn[cite: 2])
     const [image, setImage] = useState<HTMLImageElement | undefined>(undefined);
     useEffect(() => {
-        // TÌNH HUỐNG MẤT TÍN HIỆU: Đang chạy mà ảnh Runtime rỗng hoặc báo empty
         if (isRunning && (!runtimeSource || runtimeSource === "data:image/empty")) {
-            // Màn hình đen chữ đỏ cảnh báo No Signal thay vì lui về Default Image
             const noSignalBase64 = "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100%25' height='100%25' viewBox='0 0 100 100'%3E%3Crect width='100%25' height='100%25' fill='%23202124'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-size='10' font-family='monospace' fill='%23f28b82' font-weight='bold'%3E⚠️ NO SIGNAL%3C/text%3E%3C/svg%3E";
             const img = new window.Image();
             img.src = noSignalBase64;
             img.onload = () => setImage(img);
             return;
         }
-        // TÌNH HUỐNG BÌNH THƯỜNG / THIẾT KẾ: Ưu tiên Runtime, Fallback về Default
         const activeSource = runtimeSource || defaultSource;
-        if (!activeSource || activeSource === "data:image/empty") {
-            setImage(undefined);
-            return;
-        }
+        if (!activeSource || activeSource === "data:image/empty") { setImage(undefined); return; }
         const img = new window.Image();
         let objectUrl: string | null = null;
-        // BẮT LỖI LOAD ẢNH
         img.onload = () => setImage(img);
-        img.onerror = () => {
-            console.error("🚨 Lỗi: Konva không thể load ảnh từ nguồn này!");
-            setImage(undefined);
-        };
+        img.onerror = () => setImage(undefined);
         if ((activeSource as any) instanceof Blob || (activeSource as any) instanceof File) {
             objectUrl = URL.createObjectURL((activeSource as any));
             img.src = objectUrl;
         } else if (typeof activeSource === 'string') {
-            if (activeSource.startsWith('http')) {
-                img.crossOrigin = "Anonymous";
-            }
+            if (activeSource.startsWith('http')) img.crossOrigin = "Anonymous";
             img.src = activeSource;
         }
-        return () => {
-            if (objectUrl) URL.revokeObjectURL(objectUrl);
-        };
+        return () => { if (objectUrl) URL.revokeObjectURL(objectUrl); };
     }, [runtimeSource, defaultSource, isRunning]);
     return image;
 };
+// ---------------------------------------------------------
+// 2. DISPATCHER: NGƯỜI ĐIỀU PHỐI CHÍNH (Đã được Refactor)
+// ---------------------------------------------------------
 export const SceneNodeRenderer = ({ id }: { id: string }) => {
     const node = useUIEngine(state => state.components_map[id]);
+    const isVisibleBound = useDataBinding(node?.bindings || [], 'isVisible', node?.isVisible ?? true);
+    // Ngăn chặn render nếu node không tồn tại hoặc bị ẩn
+    if (!node || !isVisibleBound) return null;
+    // PHÂN LUỒNG: Giao việc cho đúng thợ chuyên môn
+    switch (node.type) {
+        case 'frame':
+        case 'bounding_box':
+        case 'bounding_circle':
+        case 'text':
+        case 'soft_button':
+            // Các node này xài chung logic Transformer (viền chọn) nên ta gom vào StandardNodeWrapper
+            return <StandardNodeWrapper id={id} node={node} />;
+        default:
+            return null;
+    }
+};
+// ---------------------------------------------------------
+// THỢ CHUYÊN MÔN: SOFT BUTTON INNER
+// ---------------------------------------------------------
+const SoftButtonInner = ({ node, commonProps, isEngineRunning, shapeRef }: any) => {
+    const writeTag = useTagDb(state => state.writeTag);
+    const readTag = useTagDb(state => state.readTag);
+    const isTagActive = useTagDb(state => state.tags[node.targetTag] === true);
+    // Tự động dùng activeColor khi được nhấn
+    const activeColor = isTagActive ? (node.style.activeColor || '
+    const handleInteractionStart = (e: any) => {
+        if (!isEngineRunning) return;
+        e.cancelBubble = true; // QUAN TRỌNG: Chặn click lan ra màn hình gây lỗi
+        if (!node.targetTag) return;
+        if (node.actionType === 'pulse') writeTag(node.targetTag, true);
+        else if (node.actionType === 'setToTrue') writeTag(node.targetTag, true);
+        else if (node.actionType === 'setToFalse') writeTag(node.targetTag, false);
+        else if (node.actionType === 'toggle') writeTag(node.targetTag, !readTag(node.targetTag));
+    };
+    const handleInteractionEnd = (e: any) => {
+        if (!isEngineRunning) return;
+        e.cancelBubble = true;
+        if (node.targetTag && node.actionType === 'pulse') writeTag(node.targetTag, false);
+    };
+    return (
+        <Group
+            ref={shapeRef} // <--- GẮN REF TRỰC TIẾP VÀO ĐÂY ĐỂ HIỆN TRANSFORMER RESIZE
+            {...commonProps}
+            onMouseDown={handleInteractionStart}
+            onTouchStart={handleInteractionStart}
+            onMouseUp={handleInteractionEnd}
+            onTouchEnd={handleInteractionEnd}
+            onMouseEnter={(e) => { if (isEngineRunning) { const c = e.target.getStage()?.container(); if (c) c.style.cursor = 'pointer'; } }}
+            onMouseLeave={(e) => { const c = e.target.getStage()?.container(); if (c) c.style.cursor = 'default'; }}
+        >
+            <Rect
+                width={node.size_x} height={node.size_y}
+                fill={activeColor} cornerRadius={node.style.cornerRadius || 4}
+                stroke={isTagActive ? '
+                shadowBlur={isTagActive ? 10 : 2} shadowColor={node.style.activeColor || '
+            />
+            <Text
+                width={node.size_x} height={node.size_y}
+                text={node.content} fill={node.style.fontColor || 'white'}
+                fontSize={node.style.fontSize || 14} fontStyle="bold"
+                align="center" verticalAlign="middle" listening={false}
+            />
+        </Group>
+    );
+};
+// ---------------------------------------------------------
+// WRAPPER CHUNG
+// ---------------------------------------------------------
+const StandardNodeWrapper = ({ id, node }: { id: string, node: any }) => {
     const { nameLabelConfig, selectedNodeIds, updateComponentProps, selectComponents, openActionMenu } = useUIEngine();
-    if (!node || !node.isVisible) return null;
-    const x = useDataBinding(node.bindings, 'x', node.x);
-    const y = useDataBinding(node.bindings, 'y', node.y);
-    const width = useDataBinding(node.bindings, 'size_x', node.size_x);
-    const height = useDataBinding(node.bindings, 'size_y', node.size_y);
-    const radius = useDataBinding(node.bindings, 'radius', node.radius);
-    const textContent = useDataBinding(node.bindings, 'content', node.content);
-    const strokeColor = useDataBinding(node.bindings, 'style.strokeColor', node.style?.strokeColor);
-    const fillColor = useDataBinding(node.bindings, 'style.fillColor', node.style?.fillColor);
-    const fontColor = useDataBinding(node.bindings, 'style.fontColor', node.style?.fontColor);
-    const borderThickness = useDataBinding(node.bindings, 'style.border_thickness', node.style?.border_thickness);
-    // Lấy dữ liệu Runtime
-    const rawBgImage = useDataBinding(node.bindings, 'style.bgImage', node.style?.bgImage);
-    // Lấy dữ liệu Default
-    const rawDefaultImage = useDataBinding(node.bindings, 'style.default_image', node.style?.default_image);
-    // THUẬT TOÁN ƯU TIÊN (ĐÚNG NHƯ BẠN THIẾT KẾ):
-    // Nếu Runtime có dữ liệu hợp lệ (không null, không rỗng), dùng Runtime.
-    // Nếu không, Fallback về Default Image.
-    const activeSource = (rawBgImage && rawBgImage !== "") ? rawBgImage : rawDefaultImage;
-    const bgImage = useFrameBgImage(activeSource);
     const isEngineRunning = useSequencerStore(state => state.isEngineRunning);
     const isSelected = !isEngineRunning && selectedNodeIds.includes(id);
     const shapeRef = useRef<any>(null);
     const trRef = useRef<any>(null);
+    const x = useDataBinding(node.bindings, 'x', node.x);
+    const y = useDataBinding(node.bindings, 'y', node.y);
+    const width = useDataBinding(node.bindings, 'size_x', node.size_x);
+    const height = useDataBinding(node.bindings, 'size_y', node.size_y);
+    const strokeColor = useDataBinding(node.bindings, 'style.strokeColor', node.style?.strokeColor);
+    const fillColor = useDataBinding(node.bindings, 'style.fillColor', node.style?.fillColor);
+    const borderThickness = useDataBinding(node.bindings, 'style.border_thickness', node.style?.border_thickness);
     useEffect(() => {
         if (isSelected && trRef.current && shapeRef.current) {
             trRef.current.nodes([shapeRef.current]);
             trRef.current.getLayer().batchDraw();
         }
     }, [isSelected]);
-    const handleContextMenu = (e: any) => {
-        if (isEngineRunning) return;
-        e.evt.preventDefault();
-        e.cancelBubble = true;
-        const pos = e.target.getStage().getRelativePointerPosition();
-        openActionMenu(id, node.type, e.evt.clientX, e.evt.clientY, pos.x, pos.y);
-    };
-    const handleDragEnd = (e: any) => {
-        if (isEngineRunning) return;
-        if (e.target === shapeRef.current) { updateComponentProps(id, { x: e.target.x(), y: e.target.y() }); }
-    };
+    // BỎ 'ref' RA KHỎI COMMON PROPS (Sẽ gắn thủ công vào từng thẻ)
+    // THÊM width, height VÀO ĐỂ TRANSFORMER BAO QUANH ĐƯỢC GROUP
     const commonProps = {
-        ref: shapeRef, x, y, rotation: node.rotation,
-        draggable: !isEngineRunning,
-        onClick: (e: any) => {
+        x, y, width, height, rotation: node.rotation, draggable: !isEngineRunning,
+        onClick: (e: any) => { if (isEngineRunning) return; e.cancelBubble = true; selectComponents([id]); },
+        onContextMenu: (e: any) => {
             if (isEngineRunning) return;
-            e.cancelBubble = true;
-            selectComponents([id]);
+            e.evt.preventDefault(); e.cancelBubble = true;
+            const pos = e.target.getStage().getRelativePointerPosition();
+            openActionMenu(id, node.type, e.evt.clientX, e.evt.clientY, pos.x, pos.y);
         },
-        onContextMenu: handleContextMenu,
-        onDragEnd: handleDragEnd,
+        onDragEnd: (e: any) => { if (!isEngineRunning && e.target === shapeRef.current) updateComponentProps(id, { x: e.target.x(), y: e.target.y() }); }
     };
-    const NameLabel = () => nameLabelConfig.isVisible && node.type !== 'screen' ? (
-        <Text
-            x={node.type === 'bounding_circle' ? x - radius : x}
-            y={(node.type === 'bounding_circle' ? y - radius : y) - (nameLabelConfig.fontSize + 4)}
-            text={node.name}
-            fontSize={nameLabelConfig.fontSize}
-            fontFamily={nameLabelConfig.fontFamily}
-            fill={nameLabelConfig.fontColor}
-            fontStyle="bold"
-            listening={false}
-        />
-    ) : null;
-    let NodeComponent = null;
+    let InnerShape = null;
     if (node.type === 'frame') {
-        NodeComponent = (
-            <Group {...commonProps}>
+        const rawBgImage = useDataBinding(node.bindings, 'style.bgImage', node.style?.bgImage);
+        const rawDefaultImage = useDataBinding(node.bindings, 'style.default_image', node.style?.default_image);
+        const bgImage = useFrameBgImage((rawBgImage && rawBgImage !== "") ? rawBgImage : rawDefaultImage, undefined, isEngineRunning);
+        InnerShape = (
+            <Group ref={shapeRef} {...commonProps}>
                 <Rect width={width} height={height} stroke={strokeColor} strokeWidth={borderThickness} fill={fillColor} />
                 {bgImage && <KonvaImage image={bgImage} width={width} height={height} opacity={0.6} />}
-                {node.children_id.map((childId: string) => <SceneNodeRenderer key={childId} id={childId} />)}
+                {node.children_id?.map((childId: string) => <SceneNodeRenderer key={childId} id={childId} />)}
             </Group>
         );
     }
     else if (node.type === 'bounding_box') {
-        NodeComponent = <Rect {...commonProps} width={width} height={height} stroke={strokeColor} strokeWidth={borderThickness} fill={fillColor} />;
+        InnerShape = <Rect ref={shapeRef} {...commonProps} stroke={strokeColor} strokeWidth={borderThickness} fill={fillColor} />;
     }
     else if (node.type === 'bounding_circle') {
-        NodeComponent = <Circle {...commonProps} radius={radius} stroke={strokeColor} strokeWidth={borderThickness} fill={fillColor} />;
+        const radius = useDataBinding(node.bindings, 'radius', node.radius);
+        InnerShape = <Circle ref={shapeRef} {...commonProps} radius={radius} stroke={strokeColor} strokeWidth={borderThickness} fill={fillColor} />;
     }
     else if (node.type === 'text') {
-        NodeComponent = <Text {...commonProps} text={textContent} fontSize={node.style?.fontSize} fill={fontColor} width={width} height={height} lineHeight={1.5} />;
+        const textContent = useDataBinding(node.bindings, 'content', node.content);
+        const fontColor = useDataBinding(node.bindings, 'style.fontColor', node.style?.fontColor);
+        InnerShape = <Text ref={shapeRef} {...commonProps} text={textContent} fontSize={node.style?.fontSize} fill={fontColor} width={width} height={height} lineHeight={1.5} />;
+    }
+    // TRUYỀN THÊM SHAPEREF XUỐNG CHO NÚT ẤN
+    else if (node.type === 'soft_button') {
+        InnerShape = <SoftButtonInner node={node} commonProps={commonProps} isEngineRunning={isEngineRunning} shapeRef={shapeRef} />;
     }
     return (
         <React.Fragment>
-            {NodeComponent}
-            <NameLabel />
+            {InnerShape}
+            {nameLabelConfig.isVisible && node.type !== 'screen' && (
+                <Text
+                    x={node.type === 'bounding_circle' ? x - node.radius : x}
+                    y={(node.type === 'bounding_circle' ? y - node.radius : y) - (nameLabelConfig.fontSize + 4)}
+                    text={node.name} fontSize={nameLabelConfig.fontSize} fontFamily={nameLabelConfig.fontFamily}
+                    fill={nameLabelConfig.fontColor} fontStyle="bold" listening={false}
+                />
+            )}
             {isSelected && <Transformer ref={trRef} boundBoxFunc={(oldB, newB) => newB.width < 5 || newB.height < 5 ? oldB : newB}
                 onTransformEnd={() => {
                     const n = shapeRef.current;
                     const updates: any = { x: n.x(), y: n.y(), rotation: n.rotation() };
-                    if (node.type === 'bounding_circle') {
-                        updates.radius = radius * Math.max(n.scaleX(), n.scaleY());
-                    } else {
-                        updates.size_x = width * n.scaleX();
-                        updates.size_y = height * n.scaleY();
-                    }
+                    if (node.type === 'bounding_circle') updates.radius = node.radius * Math.max(n.scaleX(), n.scaleY());
+                    else { updates.size_x = width * n.scaleX(); updates.size_y = height * n.scaleY(); }
                     n.scaleX(1); n.scaleY(1);
                     updateComponentProps(id, updates);
                 }}

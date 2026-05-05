@@ -4,7 +4,7 @@ import { Database, TerminalSquare, Image as ImageIcon, Plus, ArrowLeft, GitMerge
 import { useUIEngine } from '../UI_Engine/UIEngineStores/InspectionStore';
 import { useTagDb } from '../UI_Engine/UIEngineStores/GlobalTagsStore';
 import { InspectionCanvas } from '../UI_Engine/UIEngineComponents/InspectionCanvas';
-import { ActionMenu, UIPropertiesPanel, RenameModal } from '../UI_Engine/UIEngineComponents/FloatingPanels';
+import { ActionMenu, UIPropertiesPanel, RenameModal, CreateButtonModal } from '../UI_Engine/UIEngineComponents/FloatingPanels';
 import { TagManagerTable } from '../UI_Engine/UIEngineComponents/GlobalTagsTable';
 import { TerminalLog } from '../UI_Engine/SequencerComponents/TerminalLog';
 import { useKeyboardTriggerStore } from '../UI_Engine/UIEngineStores/KeyboardTriggerStore';
@@ -319,21 +319,25 @@ const ThumbnailSidebar = () => {
 export const InspectionPage = () => {
     const navigate = useNavigate();
     const isTagsOpen = useTagDb(state => state.isGlobalTagsTableOpen);
-    const { showTerminalLog, toggleTerminalLog, closeActionMenu, importFileContext, setImportFile } = useUIEngine();
+    const { showTerminalLog, toggleTerminalLog, closeActionMenu, importFileContext, setImportFile, changeScreen, components_map } = useUIEngine();
     const sequencerStore = useSequencerStore();
     useKeyboardTrigger();
     const toggleSettings = useKeyboardTriggerStore(state => state.toggleSettingsModal);
 
+    const activeScreenTagValue = useTagDb(state => state.tags['SYS_ACTIVE_SCREEN']);
+
     useEffect(() => {
-        if (sequencerStore.isEngineRunning) {
-            closeActionMenu();
-            useUIEngine.getState().closePropertiesPanel();
-            useTagDb.setState({ isGlobalTagsTableOpen: false });
-            if (useKeyboardTriggerStore.getState().isSettingsModalOpen) {
-                useKeyboardTriggerStore.getState().toggleSettingsModal();
+        if (sequencerStore.isEngineRunning && activeScreenTagValue && typeof activeScreenTagValue === 'string') {
+            // Tìm màn hình có 'name' khớp với giá trị của Tag
+            const targetScreen = Object.values(components_map).find(
+                (c: any) => c.type === 'screen' && c.name === activeScreenTagValue
+            );
+            
+            if (targetScreen) {
+                changeScreen(targetScreen.id); // Hàm lật màn hình của UI Engine vẫn cần ID để chạy
             }
         }
-    }, [sequencerStore.isEngineRunning]);
+    }, [activeScreenTagValue, sequencerStore.isEngineRunning, changeScreen, components_map]);
 
     return (
         <div className="h-screen w-screen bg-[#202124] text-[#e8eaed] flex flex-col overflow-hidden font-sans relative select-none">
@@ -414,12 +418,12 @@ export const InspectionPage = () => {
             <UIPropertiesPanel />
             <RenameModal />
             <SettingsModal />
+            <CreateButtonModal/>
             
             <div className={`absolute top-0 right-0 h-full w-[450px] z-40 transition-transform duration-300 ease-out shadow-[-10px_0_30px_rgba(0,0,0,0.5)] ${isTagsOpen ? 'translate-x-0' : 'translate-x-full'}`}>
                 <TagManagerTable onClose={() => useTagDb.setState({ isGlobalTagsTableOpen: false })} />
             </div>
             
-            {isTagsOpen && <div className="absolute inset-0 z-[35] transition-all" onClick={() => useTagDb.setState({ isGlobalTagsTableOpen: false })}></div>}
         </div>
     );
 };

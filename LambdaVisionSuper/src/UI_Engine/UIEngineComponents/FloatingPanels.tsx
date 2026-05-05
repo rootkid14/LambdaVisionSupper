@@ -1,9 +1,93 @@
 import React, { useState } from 'react';
 import { useUIEngine } from '../UIEngineStores/InspectionStore';
 import { useTagDb } from '../UIEngineStores/GlobalTagsStore';
-import { Settings, Trash2, Box, Type, Circle, Edit2, Maximize, Layout, Monitor, Unlink } from 'lucide-react';
+import { Settings, Trash2, Box, Type, Circle, Edit2, Maximize, Layout, Monitor, Unlink, KeyIcon, MousePointer2 } from 'lucide-react';
 import { COLOR_PALETTE } from "../../utils/ColorConst";
 
+
+export const CreateButtonModal = () => {
+    const { createButtonModal, closeCreateButtonModal, addComponent } = useUIEngine();
+    const globalTags = useTagDb(state => Object.keys(state.tags));
+    
+    // State tạm thời để lưu thông tin trước khi nhấn Create
+    const [config, setConfig] = useState({
+        label: "START",
+        targetTag: "",
+        actionType: "toggle" as any,
+        color: "#3c4043"
+    });
+
+    if (!createButtonModal.isOpen) return null;
+
+    const handleCreate = (e: React.FormEvent) => {
+        e.preventDefault();
+        // Gọi addComponent với đầy đủ tham số cấu hình
+        // Lưu ý: Bạn cần cập nhật hàm addComponent trong Store để nhận thêm config object này
+        (addComponent as any)('soft_button', createButtonModal.parent_id, createButtonModal.x, createButtonModal.y, config);
+        closeCreateButtonModal();
+    };
+
+    return (
+        <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center font-sans">
+            <div className="bg-[#28292c] border border-[#3c4043] rounded-xl shadow-2xl w-96 overflow-hidden">
+                <div className="bg-[#303134] px-4 py-3 border-b border-[#3c4043] flex justify-between items-center">
+                    <h3 className="text-[#8ab4f8] font-bold text-sm tracking-wide">Configure New Soft Button</h3>
+                    <MousePointer2 size={16} className="text-[#8ab4f8]" />
+                </div>
+                
+                <form onSubmit={handleCreate} className="p-5 flex flex-col gap-4 text-xs">
+                    {/* Nhập nhãn nút */}
+                    <div className="flex flex-col gap-1.5">
+                        <label className="text-[#9aa0a6] font-bold ml-1">BUTTON LABEL</label>
+                        <input autoFocus value={config.label} onChange={e => setConfig({...config, label: e.target.value})}
+                               className="w-full bg-[#171717] border border-[#3c4043] rounded-lg px-3 py-2 text-[#e8eaed] outline-none focus:border-[#8ab4f8] transition-colors"
+                               placeholder="e.g. RESET, START..." />
+                    </div>
+
+                    {/* Chọn Tag mục tiêu */}
+                    <div className="flex flex-col gap-1.5">
+                        <label className="text-[#9aa0a6] font-bold ml-1">TARGET TAG (CONTROL)</label>
+                        <select value={config.targetTag} onChange={e => setConfig({...config, targetTag: e.target.value})}
+                                className="w-full bg-[#171717] border border-[#3c4043] rounded-lg px-3 py-2 text-[#e8eaed] outline-none cursor-pointer">
+                            <option value="">-- No Tag --</option>
+                            {globalTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}
+                        </select>
+                    </div>
+
+                    {/* Chọn kiểu tác động */}
+                    <div className="flex flex-col gap-1.5">
+                        <label className="text-[#9aa0a6] font-bold ml-1">ACTION TYPE</label>
+                        <div className="grid grid-cols-2 gap-2">
+                            {['toggle', 'pulse', 'setToTrue', 'setToFalse'].map(type => (
+                                <button key={type} type="button" onClick={() => setConfig({...config, actionType: type as any})}
+                                        className={`py-1.5 rounded border transition-all font-bold ${config.actionType === type ? 'bg-[#8ab4f8] text-[#202124] border-[#8ab4f8]' : 'bg-[#171717] text-[#9aa0a6] border-[#3c4043] hover:border-[#5f6368]'}`}>
+                                    {type}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Chọn màu sắc */}
+                    <div className="flex flex-col gap-1.5">
+                        <label className="text-[#9aa0a6] font-bold ml-1">BUTTON COLOR</label>
+                        <div className="flex gap-2 flex-wrap">
+                            {COLOR_PALETTE.slice(0, 5).map(c => (
+                                <button key={c.value} type="button" onClick={() => setConfig({...config, color: c.value})}
+                                        className={`w-6 h-6 rounded-full border-2 ${config.color === c.value ? 'border-white' : 'border-transparent'}`}
+                                        style={{ backgroundColor: c.value }} />
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="flex justify-end gap-2 mt-2">
+                        <button type="button" onClick={closeCreateButtonModal} className="px-4 py-1.5 rounded-lg font-bold text-[#9aa0a6] hover:bg-[#3c4043] transition-colors">CANCEL</button>
+                        <button type="submit" className="px-6 py-1.5 rounded-lg font-bold bg-[#8ab4f8]/20 text-[#8ab4f8] hover:bg-[#8ab4f8]/30 border border-[#8ab4f8]/30 transition-colors">CREATE BUTTON</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+};
 
 export const RenameModal = () => {
     const { renameModal, closeRenameModal, renameComponent } = useUIEngine();
@@ -41,7 +125,7 @@ export const RenameModal = () => {
 };
 
 export const ActionMenu = () => {
-    const { actionMenu, closeActionMenu, addComponent, deleteComponents, openPropertiesPanel, openRenameModal, setViewportMode } = useUIEngine();
+    const { actionMenu, closeActionMenu, addComponent, deleteComponents, openPropertiesPanel, openRenameModal, setViewportMode, openCreateButtonModal } = useUIEngine();
     if (!actionMenu.isOpen) return null;
 
     return (
@@ -67,12 +151,13 @@ export const ActionMenu = () => {
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[#8ab4f8] hover:text-[#202124]" onClick={() => { addComponent('bounding_box', actionMenu.target_id, (actionMenu as any).local_x||0, (actionMenu as any).local_y||0); closeActionMenu(); }}><Box size={14} /> Add Box</button>
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[#8ab4f8] hover:text-[#202124]" onClick={() => { addComponent('bounding_circle', actionMenu.target_id, (actionMenu as any).local_x||0, (actionMenu as any).local_y||0); closeActionMenu(); }}><Circle size={14} /> Add Circle</button>
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[#8ab4f8] hover:text-[#202124]" onClick={() => { addComponent('text', actionMenu.target_id, (actionMenu as any).local_x||0, (actionMenu as any).local_y||0); closeActionMenu(); }}><Type size={14} /> Add Text</button>
+                    <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[#8ab4f8] hover:text-[#202124]" onClick={() => { openCreateButtonModal(actionMenu.target_id, (actionMenu as any).local_x || 0, (actionMenu as any).local_y || 0); closeActionMenu()}}><MousePointer2 size={14} /> Add Button</button>
                     <div className="h-px bg-[#3c4043] my-1"></div>
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[#8ab4f8] hover:text-[#202124]" onClick={() => openPropertiesPanel(actionMenu.target_id)}><Settings size={14} /> Properties</button>
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[#f28b82] hover:text-[#202124] text-[#f28b82]" onClick={() => deleteComponents([actionMenu.target_id])}><Trash2 size={14} /> Delete</button>
                 </>
             )}
-            {['bounding_box', 'bounding_circle', 'text', 'line'].includes(actionMenu.target_type) && (
+            {['bounding_box', 'bounding_circle', 'text', 'line', 'soft_button'].includes(actionMenu.target_type) && (
                 <>
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[#8ab4f8] hover:text-[#202124]" onClick={() => openPropertiesPanel(actionMenu.target_id)}><Settings size={14} /> Properties</button>
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[#f28b82] hover:text-[#202124] text-[#f28b82]" onClick={() => deleteComponents([actionMenu.target_id])}><Trash2 size={14} /> Delete</button>
@@ -94,6 +179,7 @@ export const UIPropertiesPanel = () => {
     const getAvailableFields = () => {
         const fields = [];
         // Layout & Data
+        if(node.isVisible !== undefined) fields.push({ path: 'isVisible', label: 'Visible', type: 'boolean' });
         if(node.x !== undefined) fields.push({ path: 'x', label: 'X', type: 'number' });
         if(node.y !== undefined) fields.push({ path: 'y', label: 'Y', type: 'number' });
         if(node.size_x !== undefined) fields.push({ path: 'size_x', label: 'Width', type: 'number' });
@@ -113,6 +199,15 @@ export const UIPropertiesPanel = () => {
             if(node.type === 'frame') {
                 fields.push({ path: 'style.default_image', label: 'Default Img', type: 'image' }); 
                 fields.push({ path: 'style.bgImage', label: 'Runtime Img', type: 'image' });       
+            }
+
+            if (node.type === 'soft_button') {
+                fields.push({ path: 'content', label: 'Button Text', type: 'string' });
+                fields.push({ path: 'targetTag', label: 'Target Tag', type: 'tag_selector' }); 
+                fields.push({ path: 'actionType', label: 'Action Type', type: 'select', options: ['toggle', 'setToTrue', 'setToFalse', 'pulse'] });
+                fields.push({ path: 'style.fillColor', label: 'Normal Color', type: 'color' });
+                fields.push({ path: 'style.activeColor', label: 'Active Color', type: 'color' }); // <--- BỔ SUNG DÒNG NÀY
+                fields.push({ path: 'style.cornerRadius', label: 'Round Corner', type: 'number' });
             }
         }
         
@@ -266,3 +361,4 @@ export const UIPropertiesPanel = () => {
         </>
     );
 };
+

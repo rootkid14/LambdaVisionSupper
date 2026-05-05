@@ -5,6 +5,8 @@ import { useSequencerStore } from '../../UI_Engine/UIEngineStores/SequencerStore
 import { NodeAPI } from '../../api/nodeApi';
 import { FleetAPI } from '../../api/fleetApi';
 import { axiosClient } from '../../api/axiosClient';
+import { save } from '@tauri-apps/plugin-dialog';
+import { writeTextFile } from '@tauri-apps/plugin-fs';
 
 
 // ==========================================
@@ -45,6 +47,8 @@ export interface ProjectBundle {
     tags_db: Record<string, any>;
     sequencer: SequencerInformation;
 }
+
+
 
 // ==========================================
 // MODULE COMPILER (CORE LOGIC)
@@ -134,7 +138,7 @@ export const ProjectCompiler = {
             project_uuid: crypto.randomUUID(),
             fleet: {
                 master_gateway_host: fleetState.gateway || "",
-                workers_information: workersInfo
+                workers_information: workersInfo // Giả sử workersInfo đã được tính toán ở trên
             },
             UI: {
                 activeScreenId: uiState.activeScreenId,
@@ -150,16 +154,42 @@ export const ProjectCompiler = {
         };
 
         const jsonString = JSON.stringify(bundle, null, 2);
-        const blob = new Blob([jsonString], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `${projectName.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.json`;
-        document.body.appendChild(a);
-        a.click();
-        
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        const defaultFilename = `${projectName.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.json`;
+
+        try {
+            // KIỂM TRA MÔI TRƯỜNG: NẾU LÀ TAURI (DESKTOP APP)
+            if ((window as any).__TAURI__) {
+                // Mở hộp thoại "Save As" chuẩn của hệ điều hành
+                const filePath = await save({
+                    defaultPath: defaultFilename,
+                    filters: [{ name: 'Lambda Project', extensions: ['json', 'lambda_proj'] }]
+                });
+
+                // Nếu người dùng không ấn Cancel
+                if (filePath) {
+                    await writeTextFile(filePath, jsonString);
+                    // Hiển thị thông báo (Bạn có thể thay bằng Custom Toast Modal của bạn cho đẹp)
+                    alert(`✅ Export Project thành công!\nĐã lưu tại: ${filePath}`);
+                }
+            } 
+            // NẾU LÀ TRÌNH DUYỆT WEB BÌNH THƯỜNG
+            else {
+                const blob = new Blob([jsonString], { type: "application/json" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = defaultFilename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                
+                alert(`✅ Export Project thành công!\nFile đã được tải xuống thư mục Downloads của trình duyệt.`);
+            }
+        } catch (error: any) {
+            console.error("Export Error:", error);
+            alert(`❌ Lỗi khi Export Project:\n${error.message}`);
+        }
     },
 
     // ----------------------------------------------------
@@ -296,5 +326,5 @@ export const ProjectCompiler = {
             onStatus('failed');
             throw err; // Ném lỗi ra để Component bên ngoài biết
         }
-    }
+    },
 };
