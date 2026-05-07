@@ -10,13 +10,16 @@ from pydantic import BaseModel, Field, ConfigDict
 from app.services.node_registry import BaseNode, registry_node
 from app.services.LVSTypes import NodeType, UIDataType
 from app.services.utils.image_utils import cv2_to_base64, base64_to_cv2
+from typing import Any
 
 class FindUpperPemLocationInput(BaseModel):
+    execute_in: Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
     image_path: str = Field(title="Image Path", description=UIDataType.STRING.value)
     ai_file_name: str = Field(title="AI Model Name", description=UIDataType.STRING.value)
     min_Confidence: float = Field(default=0.4, title="Min Confidence", description=UIDataType.NUMBER.value)
 
 class FindUpperPemLocationOutput(BaseModel):
+    execute_out: Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
     result_xyxy: list = Field(default_factory=list, title="Result Coordinates", description=UIDataType.LIST.value)
     result_count: int = Field(title="Found QTY", description=UIDataType.NUMBER.value)
     result_image: str = Field(None, title="Annotated Image", description=UIDataType.BASE64.value)
@@ -82,12 +85,13 @@ class FindUpperPemLocation(BaseNode[FindUpperPemLocationInput, FindUpperPemLocat
         )
 
 class ExtractRoiInput(BaseModel):
-    # Cấp phép cho Pydantic hiểu được np.ndarray
+    execute_in: Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    
     image : str = Field(title="Input Image", description=UIDataType.BASE64.value)
     xyxy_list: list = Field(default_factory=list, title="XY List", description=UIDataType.LIST)
     offset_percentage: int = Field(default=10, title="Offset Percent", description=UIDataType.NUMBER)
+    # Thêm tham số scale_percentage
+    scale_percentage: int = Field(default=0, title="Scale Range (+/- %)", description=UIDataType.NUMBER)
     target_folder_path: str = Field(default="storage/rois", title="Save to", description=UIDataType.STRING)
 
 class ExtractRoiOutput(BaseModel):
@@ -98,87 +102,86 @@ class Extract_Roi_W_Offset(BaseNode[ExtractRoiInput, ExtractRoiOutput]):
     INPUT_SCHEMA = ExtractRoiInput
     OUTPUT_SCHEMA = ExtractRoiOutput
     NODE_TYPE = NodeType.PROGRAM
-    UI_LABEL = "Extract ROI (Offset Random)"
-    UI_COLOR = "bg-orange-600" # Chọn màu cam cho nổi bật
+    UI_LABEL = "Extract ROI (Offset & Scale)"
+    UI_COLOR = "bg-orange-600"
 
     async def execute(self) -> None:
-        # 1. Lấy và kiểm tra dữ liệu đầu vào
         img = self.local_input.image
         xyxy_list = self.local_input.xyxy_list
         offset_pct = self.local_input.offset_percentage
+        scale_pct = self.local_input.scale_percentage
         raw_folder_path = self.local_input.target_folder_path
-
-        img = base64_to_cv2(img)
         
+        img = base64_to_cv2(img)
         if not xyxy_list:
-            # Nếu không có Bounding Box nào thì trả về ảnh rỗng
             self.local_output = self.OUTPUT_SCHEMA(output_images="")
             return
 
-        # 2. Xử lý đường dẫn thư mục lưu trữ (Chống lỗi r"...")
         save_folder = raw_folder_path.strip().strip("'").strip('"')
         if save_folder.startswith('r'):
             save_folder = save_folder[1:].strip("'").strip('"')
-        
         os.makedirs(save_folder, exist_ok=True)
         
         img_h, img_w = img.shape[:2]
         cropped_rois = []
-        
-        # Dùng timestamp để tránh ghi đè tên file nếu chạy vòng lặp liên tục
         session_id = str(int(time.time()))
 
-        # 3. Thuật toán lấy Offset Random N-S-E-W
         for idx, box in enumerate(xyxy_list):
             x1, y1, x2, y2 = map(int, box)
             w, h = x2 - x1, y2 - y1
-            
             if w <= 0 or h <= 0:
                 continue
 
-            # Tính độ lệch tối đa (pixel)
-            max_ox = int(w * (offset_pct / 100.0))
-            max_oy = int(h * (offset_pct / 100.0))
-
-            # Chọn ngẫu nhiên 1 trong 4 hướng
-            direction = random.choice(['N', 'S', 'E', 'W'])
-            dx, dy = 0, 0
+            # 1. Tính toán Scale (Zoom in / Zoom out)
+            scale_factor = 0.0
+            if scale_pct > 0:
+                # Random từ âm scale_pct đến dương scale_pct
+                scale_factor = random.uniform(-scale_pct, scale_pct) / 100.0 
             
-            if direction == 'N': # Lệch lên trên (y giảm)
+            dw = w * scale_factor
+            dh = h * scale_factor
+            
+            new_w = w + dw
+            new_h = h + dh
+            cx, cy = x1 + w/2, y1 + h/2
+
+            # 2. Tính toán Offset ngẫu nhiên
+            max_ox = int(new_w * (offset_pct / 100.0))
+            max_oy = int(new_h * (offset_pct / 100.0))
+            
+            direction = random.choice(['N', 'S', 'E', 'W', 'C']) # Thêm 'C' (Center) để có tỷ lệ không bị lệch
+            dx, dy = 0, 0
+            if direction == 'N':
                 dy = -random.randint(0, max_oy)
-            elif direction == 'S': # Lệch xuống dưới (y tăng)
+            elif direction == 'S':
                 dy = random.randint(0, max_oy)
-            elif direction == 'E': # Lệch sang phải (x tăng)
+            elif direction == 'E':
                 dx = random.randint(0, max_ox)
-            elif direction == 'W': # Lệch sang trái (x giảm)
+            elif direction == 'W':
                 dx = -random.randint(0, max_ox)
 
-            # Áp dụng độ lệch
-            nx1, ny1 = x1 + dx, y1 + dy
-            nx2, ny2 = x2 + dx, y2 + dy
+            # 3. Tính toán lại tọa độ Bounding Box mới
+            nx1 = int(cx - new_w/2 + dx)
+            ny1 = int(cy - new_h/2 + dy)
+            nx2 = int(cx + new_w/2 + dx)
+            ny2 = int(cy + new_h/2 + dy)
 
-            # Clamp: Ép tọa độ không được vượt rào bức ảnh
+            # 4. Clamp (Giới hạn trong khung ảnh)
             nx1 = max(0, min(nx1, img_w - 1))
             ny1 = max(0, min(ny1, img_h - 1))
             nx2 = max(0, min(nx2, img_w))
             ny2 = max(0, min(ny2, img_h))
-            
-            # Kiểm tra diện tích sau khi Clamp
+
             if nx2 <= nx1 or ny2 <= ny1:
                 continue
 
-            # Crop ảnh
             roi_img = img[ny1:ny2, nx1:nx2]
-            
-            # 4. Lưu xuống ổ cứng
             file_name = f"roi_{session_id}_{idx}_{direction}.jpg"
             cv2.imwrite(os.path.join(save_folder, file_name), roi_img)
             
-            # Ép về kích thước chuẩn (VD: 128x128) để có thể dùng hàm hconcat và vconcat ghép thành ma trận
             roi_resized = cv2.resize(roi_img, (128, 128))
             cropped_rois.append(roi_resized)
 
-        # 5. Thuật toán ghép mảng 8 cột (Grid)
         if not cropped_rois:
             self.local_output = self.OUTPUT_SCHEMA(output_images="")
             return
@@ -186,30 +189,23 @@ class Extract_Roi_W_Offset(BaseNode[ExtractRoiInput, ExtractRoiOutput]):
         cols = 8
         rows = math.ceil(len(cropped_rois) / cols)
         total_cells = cols * rows
-        
-        # Tạo sẵn các ô đen (blank image) để đệm vào cho đủ lưới nếu bị lẻ
         blank_img = np.zeros((128, 128, 3), dtype=np.uint8)
+        
         while len(cropped_rois) < total_cells:
             cropped_rois.append(blank_img)
-
-        # Ghép lưới (Grid concatenation)
+            
         row_images = []
         for r in range(rows):
-            # Cắt 8 ảnh ghép thành 1 hàng ngang
             row_slice = cropped_rois[r * cols : (r + 1) * cols]
             row_concat = cv2.hconcat(row_slice)
             row_images.append(row_concat)
-        
-        # Ghép các hàng ngang thành bức ảnh tổng dọc
+            
         final_grid = cv2.vconcat(row_images)
-        
-        # 6. Mã hóa gửi về Frontend
         base64_grid = cv2_to_base64(final_grid)
-
         self.local_output = self.OUTPUT_SCHEMA(output_images=base64_grid)
 
-
 class FolderImageScannerInput(BaseModel):
+    execute_in: Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
     folder_path: str = Field(default="storage/dataset", title="Target Folder", description=UIDataType.STRING.value)
 
 class FolderImageScannerOutput(BaseModel):

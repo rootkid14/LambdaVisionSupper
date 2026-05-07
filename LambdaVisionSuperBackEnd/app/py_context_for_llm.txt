@@ -1144,69 +1144,150 @@ from typing import Dict, Any, TYPE_CHECKING
 from app.services.LVSTypes import NodeType
 from app.services.node_registry import BaseNode, NODE_REGISTRY
 from collections import deque
+from enum import Enum
+import uuid
+import base64
+import asyncio
 if TYPE_CHECKING:
     from app.services.LogicPoolManager import LogicPoolManager
+class TokenStatus(int, Enum):
+    READY = 0
+    PROCESSING = 1
+class GraphNodeType(int, Enum):
+    NORMAL = 0
+    SPLIT = 1
+    JOIN = 2
 class LogicObject():
     def __init__(self, workflow_json: Dict[str, Any], logicPoolManagerInst: "LogicPoolManager"):
+        self.tokens_list : Dict[str, Dict[str, Any]] = {}
         self.nodes_list: Dict[str, "BaseNode"] = {}
-        self.nodes_mapping: Dict[str, Dict[str, Dict[str, str]]] = {}
+        self.nodes_mapping : Dict[str, Dict[str, Any]] = {}
+        self.memory_pool: Dict[str, Any] = {}
+        self.extra_memory: Dict[str, Any] = {}
         self.logicPoolManagerInst = logicPoolManagerInst
-        self.sequence: list = []
-        self.initialize_logic_object(workflow_json)
-    def build_execution_sequence(self, workflow_json: Dict[str, Any]):
-        """Kahn's Topological Sort Algorithm for translating the graph to a linear list"""
-        nodes = workflow_json.get("nodes", [])
-        for node in nodes:
-            node_id = node.get("id")
-            node_data = node.get("data", {})
-            node_class_name = node_data.get("class")
-            node_class = NODE_REGISTRY.get(node_class_name)
-            if not node_class:
-                raise ValueError(f"Không tìm thấy node class {node_class_name} trong registry")
-            new_node = node_class(node_id, self, node_data)
-            self.nodes_list[node_id] = new_node
-        in_degree = {node_id : 0 for node_id in self.nodes_list}
-        graph = {node_id : [] for node_id in self.nodes_list}
-        unique_dependencies = set()
-        for target_node_id, pins in self.nodes_mapping.items():
-            for target_pin, source_info in pins.items():
-                source_node_id = source_info["source_node"]
-                unique_dependencies.add((source_node_id, target_node_id))
-        for source_id, target_id in unique_dependencies:
-            if source_id in self.nodes_list and target_id in self.nodes_list:
-                graph[source_id].append(target_id)
-                in_degree[target_id] += 1
-        queue = deque([node_id for node_id, deg in in_degree.items() if deg == 0])
-        sorted_node_ids = []
-        while (queue):
-            current_id = queue.popleft()
-            sorted_node_ids.append(current_id)
-            for neighbor_id in graph[current_id]:
-                in_degree[neighbor_id] -= 1
-                if in_degree[neighbor_id] == 0:
-                    queue.append(neighbor_id)
-        self.sequence = sorted_node_ids
-    def initialize_logic_object(self, workflow_json: Dict[str, Any]):
-        """Quét JSON để tạo danh sách node và nối dây (nodes_mapping)"""
-        edges = workflow_json.get("edges", [])
-        for edge in edges:
-            source_node = edge.get("source")
-            source_pin = edge.get("sourceHandle")
-            receive_node = edge.get("target")
-            input_pin = edge.get("targetHandle")
-            if receive_node not in self.nodes_mapping:
-                self.nodes_mapping[receive_node] = {}
-            self.nodes_mapping[receive_node][input_pin] = {
-                "source_node": source_node,
-                "source_pin": source_pin
+        self.logic_timeout = 5.0
+        self._compile_graph(workflow_json)
+    def _compile_graph(self, workflow_json: Dict[str, Any]):
+        self.logic_timeout = float(workflow_json.get("timeout", 5.0))
+        nodes_data = workflow_json.get("node", [])
+        edges_data = workflow_json.get("edges", [])
+        for nd in nodes_data:
+            node_id = nd["id"]
+            node_class_name = nd.get("data", {}).get("class")
+            NodeClass = NODE_REGISTRY.get(node_class_name)
+            if not NodeClass:
+                raise Exception(f"Error: Cannot find class: {node_class_name}")
+            node_instance = NodeClass(node_id, self, nd.get("data", {}))
+            node_instance.input_memory_map = {}
+            node_instance.output_memory_map = {}
+            node_instance.next_nodes = []
+            node_instance.prev_nodes = []
+            self.memory_generators = {}
+            self.nodes_list[node_id] = node_instance
+        EXEC_KEYWORDS  = ['execute', 'out_true', 'out_false', 'out_case', 'out_default']
+        for edge in edges_data:
+            src_id = edge.get("source")
+            src_pin = edge.get("sourceHandle")
+            tgt_id = edge.get("target")
+            tgt_pin = edge.get("targetHandle")
+            if not src_id or not tgt_id or src_id not in self.nodes_list or tgt_id not in self.nodes_list:
+                raise Exception(f"there is no src_id {src_id} or tgt_id {tgt_id} or they are not in nodes list")
+            src_node = self.nodes_list[src_id]
+            tgt_node = self.nodes_list[tgt_id]
+            is_exec_wire = any(keyword in src_pin.lower() for keyword in EXEC_KEYWORDS)
+            is_receiving_exec_wire = any(keyword in tgt_pin.lower() for keyword in EXEC_KEYWORDS)
+            is_execution_valid = (is_exec_wire and is_receiving_exec_wire)
+            is_execution_invalid = (is_exec_wire and not is_receiving_exec_wire) or (not is_exec_wire and is_receiving_exec_wire)
+            if is_execution_valid:
+                src_node.next_nodes.append(tgt_id)
+                if src_id not in tgt_node.prev_nodes:
+                    tgt_node.prev_nodes.append(src_id)
+            elif is_execution_invalid:
+                raise Exception(f"Trying to make a connection between execution and data pins of node {src_id} and {tgt_id}")
+            else:
+                if src_pin in src_node.output_memory_map:
+                    memory_slot_key = src_node.output_memory_map[src_pin]
+                else:
+                    u = uuid.uuid4()
+                    short_id = base64.urlsafe_b64encode(u.bytes).rstrip(b'=').decode()
+                    memory_slot_key = f"mem_{short_id}"
+                    src_node.output_memory_map[src_pin] = memory_slot_key
+                    self.memory_generators[memory_slot_key] = src_id
+                tgt_node.input_memory_map[tgt_pin] = memory_slot_key
+            self.memory_pool[memory_slot_key] = None
+        for node_id, node in self.nodes_list.items():
+            targets = node.next_nodes
+            sources = node.prev_nodes
+            in_degree = len(sources)
+            if node.NODE_TYPE == NodeType.JOIN:
+                node.token_qty_required = in_degree
+            self.nodes_mapping[node_id] = {"type": node.NODE_TYPE, "next_nodes": targets,"prev_nodes": sources, "in_degree": len(sources)}
+    def spawn_token(self, node_id):
+        token_id = uuid.uuid4()
+        self.tokens_list[token_id] = {"status" : TokenStatus.READY, "node_id": node_id}
+    def delete_token(self, token_id):
+        del self.tokens_list[token_id]
+    def assign_token_to(self, token_id, node_id):
+        self.tokens_list[token_id] = {"status": TokenStatus.READY, "node_id": node_id}
+    async def _run_loop(self, payload: dict = None):
+        """MAIN RUNNING LOOP OF THE LOGICOBJECT"""
+        for node_id, node_instance in self.nodes_list.items():
+            node_instance._reset_cache()
+        try:
+            self.inject_payload_and_assign_start_token(payload)
+        except Exception as e:
+            recipient_node = next((n for n in self.nodes_list.values() if n.__class__.__name__ == "ReceivePayloadNode"), None)
+            fail_id = recipient_node.node_id if recipient_node else "System_Entry"
+            return {
+                "success" : False,
+                "failed_node_id": fail_id,
+                "error_message" : f"Dữ liệu Payload không hợp lệ: {e}"
             }
-        self.build_execution_sequence(workflow_json)
-    def inject_payload(self, payload: dict):
+        async def __inner_execution_process():
+            while True:
+                try:
+                    ready_tokens = [t_id for t_id, t_info in self.tokens_list.items() if t_info["status"] == TokenStatus.READY]
+                    if not ready_tokens:
+                        if any(t["status"] == TokenStatus.PROCESSING for t in self.tokens_list.values()):
+                            await asyncio.sleep(0.01)
+                            continue
+                        else:
+                            break
+                    tasks = []
+                    for t_id in ready_tokens:
+                        node_id = self.tokens_list[t_id]["node_id"]
+                        node_instance = self.nodes_list[node_id]
+                        tasks.append(node_instance._execution_logic(t_id))
+                    await asyncio.gather(*tasks)
+                except Exception as e:
+                    raise Exception(f"Lỗi thực thi vòng lặp Logic Object tại một trong các token: {self.tokens_list}, chi chiết: {e}")
+        try:
+            if self.logic_timeout > 0:
+                await asyncio.wait_for(__inner_execution_process(), timeout=self.logic_timeout)
+            else:
+                await __inner_execution_process()
+        except asyncio.TimeoutError:
+            return {
+                "success": False,
+                "failed_node_id": "System_Graph",
+                "error_message": f"GLOBAL TIMEOUT: Đồ thị đã chạy vượt quá giới hạn {self.logic_timeout} giây. Phát hiện vòng lặp vô tận (Infinite Loop) của các khối nối dây!"
+            }
+        except Exception as e:
+            return {
+                "success" : False,
+                "failed_node_id": "node_id",
+                "error_message" : f"Lỗi Runtime: {e}"
+            }
+        return {"success": True}
+    def inject_payload_and_assign_start_token(self, payload: dict):
         """Inject the AXIOS payload in to the ReceipientNode"""
         for node in self.nodes_list.values():
             if node.__class__.__name__ == "ReceivePayloadNode":
+                self.spawn_token(node.node_id)
+                self.assign_token_to(node.node_id)
                 if not node.OUTPUT_SCHEMA:
                     return
+                payload = payload or {}
                 try:
                     node.local_output = node.OUTPUT_SCHEMA(**payload)
                 except Exception as e:
@@ -1218,31 +1299,6 @@ class LogicObject():
             if node.__class__.__name__ == "SendResponseNode":
                 return node.local_output
         return {"error": "Không tìm thấy SendResponseNode trong Graph"}
-    async def run_nodes_loop(self, payload:dict = None):
-        if payload is None:
-            payload = {}
-        self.reset_graph_state()
-        try:
-            self.inject_payload(payload)
-        except Exception as e:
-            recipient_node = next((n for n in self.nodes_list.values() if n.__class__.__name__ == "ReceivePayloadNode"), None)
-            fail_id = recipient_node.node_id if recipient_node else "System_Entry"
-            return {
-                "success" : False,
-                "failed_node_id": fail_id,
-                "error_message" : f"Dữ liệu Payload không hợp lệ: {e}"
-            }
-        for node_id in self.sequence:
-            try:
-                node = self.nodes_list[node_id]
-                await node.resolve_and_execute()
-            except Exception as e:
-                return {
-                    "success" : False,
-                    "failed_node_id": node_id,
-                    "error_message" : str(e)
-                }
-        return {"success": True}
     def reset_graph_state(self):
         """Reset All Nodes memory"""
         for node in self.nodes_list.values():
@@ -1341,7 +1397,7 @@ class LogicPoolManager:
         """For API call: Use to try / test a new graph"""
         try:
             temp_logic_obj = LogicObject(graph_json, self)
-            status = await temp_logic_obj.run_nodes_loop(input_payload)
+            status = await temp_logic_obj._run_loop(input_payload)
             if not status["success"]:
                 return {
                     "success": False,
@@ -1384,8 +1440,13 @@ class LogicPoolManager:
         logic_data["last_used"] = time.time()
         logic_obj : LogicObject = logic_data["instance"]
         lock = logic_data["lock"]
+        if lock.locked():
+            return {
+                "success": False,
+                "error_message": "Logic Object này đang bận xử lý một tiến trình khác. Vui lòng chờ hoặc gửi yêu cầu sau."
+            }
         async with lock:
-            status = await logic_obj.run_nodes_loop(payload)
+            status = await logic_obj._run_loop(payload)
             if not status["success"]:
                 return {
                     "success": False,
@@ -1608,6 +1669,7 @@ class UIDataType(str, Enum):
     DICT = "dict"
     LIST = "list"
     BASE64 = "base64"
+    EXECUTE = "execute"
 class FileType(str, Enum):
     """Define the file type the system can use"""
     FILE = "file"
@@ -1619,6 +1681,8 @@ class NodeType(Enum):
     OBJECT = 3
     FUNCTION = 4
     API = 5
+    JOIN = 6
+    SPLIT = 7
 def map_fe_type_to_python(fe_type: str) -> Any:
     """Translate data type from FrontEnd Json to Python Type for pydantic"""
     mapping = {
@@ -1633,6 +1697,7 @@ def map_fe_type_to_python(fe_type: str) -> Any:
         "dict": Dict[str, Any],
         "list": List[Any],
         "base64": str,
+        "execute": Any
     }
     return mapping.get(fe_type, Any)
 class UIConfigType(str, Enum):
@@ -1656,9 +1721,10 @@ class UIConfigField(BaseModel):
 from abc import ABC, abstractmethod
 from typing import Dict, Any, List, Type, Generic, TypeVar, TYPE_CHECKING
 from pydantic import BaseModel, Field, ValidationError, create_model, ConfigDict
-from app.services.LVSTypes import NodeType, UIDataType, map_fe_type_to_python, UIConfigField
+from app.services.LVSTypes import NodeType, UIDataType, map_fe_type_to_python, UIConfigField, UIConfigType
+import asyncio
 if TYPE_CHECKING:
-    from LogicObjects import LogicObject
+    from app.services.LogicObjects import LogicObject, TokenStatus
 NODE_REGISTRY: Dict[str, Type["BaseNode"]] = {}
 def unregister_node(class_name: str):
     """Xóa một Node khỏi Registry (Dùng khi người dùng xóa file Plugin)"""
@@ -1681,41 +1747,113 @@ class BaseNode(ABC, Generic[TInput, TOutput]):
     METHOD_NODE_LIST : List[str] = None
     CONFIG_FIELDS : List[UIConfigField] = None
     INLINE_TYPE = None
+    NODE_TIMEOUT = 5.0
     UI_DESCRIPTION : str = "No Description"
     UI_COLOR: str = "bg-gray-500"
     UI_LABEL: str = "Base Node"
+    @classmethod
+    def get_default_config(cls) -> List[UIConfigField]:
+        return [
+            UIConfigField(
+                id="timeout_limit",
+                label="Timeout (s)",
+                type=UIConfigType.NUMBER.value,
+                default=cls.NODE_TIMEOUT
+            )
+        ]
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        if getattr(cls, 'CONFIG_FIELDS', None) is None:
+            cls.CONFIG_FIELDS = []
+        has_timeout = any(f.id == "timeout_limit" for f in cls.CONFIG_FIELDS)
+        if not has_timeout:
+            cls.CONFIG_FIELDS = cls.get_default_config() + cls.CONFIG_FIELDS
     def __init__(self, node_id: str, parent: "LogicObject", node_data: dict = None):
         self.node_id = node_id
         self.parent = parent
         self.node_data = node_data or {}
+        self.next_nodes : List[str] = []
+        self.prev_nodes : List[str] = []
+        self.input_memory_map = {}
+        self.output_memory_map = {}
+        self.has_executed = False
+        self.is_resolving_data = False
+        self.kept_tokens = []
+        self.token_count = 0
+        self.token_qty_required = 0
         self.inline_val = self.node_data.get("inlineValue")
+        try:
+            self.timeout_limit = float(self.node_data.get("timeout_limit", self.NODE_TIMEOUT))
+        except (TypeError, ValueError):
+            self.timeout_limit = self.NODE_TIMEOUT
         self.local_input: TInput = None
         self.local_output: TOutput = None
-    async def resolve_and_execute(self):
-        """1. Gom dữ liệu -> 2. Kiểm duyệt Input -> 3. Chạy & tạo output """
-        raw_kwargs = {}
-        self.local_mapping = self.parent.nodes_mapping.get(self.node_id, {})
-        for input_param_name, data in self.local_mapping.items():
-            src_node_id = data["source_node"]
-            src_pin = data["source_pin"]
-            src_node = self.parent.nodes_list.get(src_node_id)
-            if not src_node or src_node.local_output is None :
-                raise ValueError(f"Node '{src_node_id}' chưa chạy hoặc thất bại, không có dữ liệu cho pin '{src_pin}'")
-            try:
-                raw_kwargs[input_param_name] = getattr(src_node.local_output, src_pin)
-            except Exception as e:
-                raise ValueError(f"Không thể trích xuất {src_pin} từ {src_node.node_id}")
-        if self.INPUT_SCHEMA:
-            try:
-                self.local_input = self.INPUT_SCHEMA(**raw_kwargs)
-            except ValidationError as e:
-                raise ValueError(f"Dữ liệu đầu vào của Node {self.node_id} bị sai định dạng:\n{e}")
+    def _reset_cache(self):
+        """LogicObject sẽ gọi hàm này ở giây đầu tiên của mỗi chu kỳ chạy"""
+        self.local_input = None
+        self.local_output = None
+        self.has_executed = False
+        self.is_resolving_data = False
+        self.kept_tokens = []
+        self.token_count = 0
+    def _receive_token(self, token_id) -> None:
+        """Swith the token state to processing"""
+        if token_id is None:
+            return
+        if (self.NODE_TYPE is NodeType.JOIN and token_id not in self.kept_tokens):
+            self.parent.delete_token(token_id)
+            self.kept_tokens.append(token_id)
+            self.token_count += 1
         else:
-            pass
+            self.parent.tokens_list[token_id] = {"status": TokenStatus.PROCESSING, "node_id": self.node_id}
+    def _forward_token(self, token_id) -> None:
+        """Move the token to next guy(s)"""
+        if token_id is None:
+            return
+        if(self.NODE_TYPE is NodeType.SPLIT):
+            self.parent.delete_token(token_id)
+            for node_id in self.next_nodes:
+                self.parent.spawn_token(node_id)
+        else:
+            if self.next_nodes:
+                self.parent.tokens_list[token_id] = {"status": TokenStatus.READY, "node_id": self.next_nodes[0]}
+            else:
+                self.parent.delete_token(token_id)
+    async def _execution_logic(self, token_id) -> List[str]:
+        """The main logic execution of this node, will be called by Logic Object in its main loop"""
+        if self.has_executed:
+            self._forward_token(token_id)
+        self._receive_token(token_id)
+        for pin_name, mem_slot in self.input_memory_map.items():
+            if self.parent.memory_pool.get(mem_slot) is None:
+                generator_node_id = self.parent.memory_generators.get(mem_slot)
+                if generator_node_id:
+                    generator_node = self.parent.nodes_list[generator_node_id]
+                    if not generator_node.has_executed:
+                        await generator_node._execution_logic(None)
+        raw_inputs = {}
+        for pin_name, mem_slot in getattr(self, 'input_memory_map', {}).items():
+            raw_inputs[pin_name] = self.parent.memory_pool.get(mem_slot)
+        if self.INPUT_SCHEMA:
+            clean_inputs = {k: v for k, v in raw_inputs.items() if v is not None}
+            try:
+                self.local_input = self.INPUT_SCHEMA(**clean_inputs)
+            except ValidationError as e:
+                raise ValidationError(f"Lỗi trích xuất input values của node {self.node_id}")
         try:
-            await self.execute()
+            if self.timeout_limit > 0:
+                await asyncio.wait_for(self.execute(), self.timeout_limit)
+            else:
+                await self.execute()
+        except asyncio.TimeoutError:
+            raise RuntimeError(f"TIMEOUT: Khối [{self.UI_LABEL}] đã chạy vượt quá {self.timeout_limit} giây! Vui lòng kiểm tra lại vòng lặp vô hạn hoặc nghẽn mạng.")
         except Exception as e:
-            raise ValueError(f"{self.node_id} đã xảy ra lỗi trong quá trình thực thi logic:\n{e}")
+            raise RuntimeError(f"Lỗi logic tại [{self.UI_LABEL}]: {str(e)}")
+        if self.local_output and hasattr(self, 'output_memory_map'):
+            for pin_name, mem_slot in self.output_memory_map.items():
+                val = getattr(self.local_output, pin_name, None)
+                self.parent.memory_pool[mem_slot] = val
+        self._forward_token(token_id)
     @abstractmethod
     async def execute(self) -> None:
         """This class use the self.local_inputs as paramters
@@ -1754,9 +1892,33 @@ class BaseNode(ABC, Generic[TInput, TOutput]):
         if cls.NODE_TYPE == NodeType.OBJECT:
             manifest.update({"functions" : cls.METHOD_NODE_LIST})
         return manifest
-    def reset(self):
-        self.local_input = None
-        self.local_output = None
+class FlowNodeInput(BaseModel):
+    execute_in: Any = Field(default="GO", title="execute", description=UIDataType.EXECUTE.value)
+class FlowNodeOutput(BaseModel):
+    execute_out: Any = Field(default="GO", title="execute", description=UIDataType.EXECUTE.value)
+@registry_node
+class JoinNode(BaseNode[FlowNodeInput, FlowNodeOutput]):
+    """This node only forward the token when all of its previous nodes has reached it"""
+    INPUT_SCHEMA = FlowNodeInput
+    OUTPUT_SCHEMA = FlowNodeOutput
+    UI_LABEL = "JOIN"
+    UI_DESCRIPTION = "Join Previous Nodes"
+    UI_COLOR = "bg_purple-500"
+    NODE_TYPE = NodeType.JOIN
+    async def execute(self):
+        if self.token_count >= self.token_qty_required:
+            if self.next_nodes:
+                self.parent.spawn_token(self.next_nodes[0])
+@registry_node
+class SplitNode(BaseNode[FlowNodeInput, FlowNodeOutput]):
+    """This node split into many tokens and do multiple things at once"""
+    INPUT_SCHEMA = FlowNodeInput
+    OUTPUT_SCHEMA = FlowNodeOutput
+    UI_LABEL = "SPLIT"
+    UI_DESCRIPTION = "SPLIT execution into several tokens"
+    UI_COLOR = "bg_red_600"
+    async def execute(self):
+        return await super().execute()
 @registry_node
 class SendResponseNode(BaseNode):
     """This Node act as the final node in the LogicHandling Graph, it is the user way to define what data they want to get back"""
@@ -1769,6 +1931,7 @@ class SendResponseNode(BaseNode):
         super().__init__(node_id, parent, node_data)
         dynamic_inputs = node_data.get("inputs", [])
         fields = {}
+        fields["execute_in"] = (Any, Field(default="GO", title="Execute In", description=UIDataType.EXECUTE.value))
         for pin in dynamic_inputs:
             pin_id = pin["id"]
             py_type = map_fe_type_to_python(pin.get("dataType"))
@@ -1810,6 +1973,7 @@ class ReceivePayloadNode(BaseNode):
         super().__init__(node_id, parent, node_data)
         dynamic_outputs = node_data.get("outputs", [])
         fields = {}
+        fields["execute_out"] = (Any, Field(default="GO", title="Execute Out", description=UIDataType.EXECUTE.value))
         for pin in dynamic_outputs:
             pin_id = pin["id"]
             py_type = map_fe_type_to_python(pin.get("dataType"))
@@ -1858,6 +2022,7 @@ from app.services.ConnectionBus import APIManualRoutingBus
 from app.services.node_registry import BaseNode, registry_node
 from app.services.LVSTypes import NodeType, UIDataType, UIConfigField, UIConfigType
 class APIInput(BaseModel):
+    execute_in: Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
     payload: Dict[str, Any] = Field(default_factory=dict, title="RequestBody", description=UIDataType.JSON)
 class APIOutput(BaseModel):
     response: Dict[str, Any] = Field(..., title="Response Data", description=UIDataType.JSON)
@@ -1956,8 +2121,7 @@ class CallLogicObjectNode(BaseNode[callLogicObjectInput, APIOutput]):
         UIConfigField(
             id="serverId",
             label="Select Server",
-            type=UIConfigType.SELECT,
-            options=["sev1", "sev2"],
+            type=UIConfigType.SERVER_POOL_DROPDOWN,
             default=""
         ),
         UIConfigField(
@@ -1993,7 +2157,7 @@ class CallLogicObjectNode(BaseNode[callLogicObjectInput, APIOutput]):
 from typing import Dict, Any, List
 from pydantic import Field, create_model, BaseModel, ConfigDict
 from app.services.node_registry import BaseNode, registry_node
-from app.services.LVSTypes import NodeType, map_fe_type_to_python, UIConfigField, UIConfigType
+from app.services.LVSTypes import NodeType, map_fe_type_to_python, UIConfigField, UIConfigType, UIDataType
 @registry_node
 class CreateJSONNode(BaseNode):
     NODE_TYPE = NodeType.PROGRAM
@@ -2109,6 +2273,7 @@ from app.services.node_registry import BaseNode, registry_node
 from app.services.LVSTypes import NodeType, UIDataType, UIConfigField, UIConfigType
 from app.services.DevicePoolManager import HTTPDevicePoolManager
 class ESPCameraOutput(BaseModel):
+    execute_out: Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
     model_config = ConfigDict(arbitrary_types_allowed=True)
     image: np.ndarray = Field(..., title="Image Data", description="numpy_array")
 @registry_node
@@ -2171,10 +2336,168 @@ class ESP32CameraNode(BaseNode[None, ESPCameraOutput]):
         np_arr = np.frombuffer(image_bytes, np.uint8)
         return cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
 
+### FILE: services/Nodes/LogicGateNodes.py ###
+from pydantic import BaseModel, Field, ConfigDict
+from typing import Any, List
+from app.services.node_registry import BaseNode, registry_node, create_model
+from app.services.LVSTypes import NodeType, UIDataType, UIConfigField, UIConfigType
+from app.services.LogicObjects import TokenStatus
+class BooleanSwitchInput(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    execute_in: Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
+    condition: bool = Field(default=False, title="Condition", description=UIDataType.BOOLEAN.value)
+class BooleanSwitchOutput(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    out_true: Any = Field(default=None, title="True Exec", description=UIDataType.ANY.value)
+    out_false: Any = Field(default=None, title="False Exec", description=UIDataType.ANY.value)
+@registry_node
+class BooleanSwitchNode(BaseNode[BooleanSwitchInput, BooleanSwitchOutput]):
+    INPUT_SCHEMA = BooleanSwitchInput
+    OUTPUT_SCHEMA = BooleanSwitchOutput
+    NODE_TYPE = NodeType.PROGRAM
+    UI_LABEL = "Boolean Switch"
+    UI_DESCRIPTION = "Rẽ nhánh tín hiệu thực thi dựa trên điều kiện Boolean"
+    UI_COLOR = "bg-red-600"
+    async def execute(self) -> None:
+        condition = self.local_input.condition
+        exec_signal = self.local_input.execute_in
+        if exec_signal is None:
+            self.local_output = self.OUTPUT_SCHEMA(out_true=None, out_false=None)
+            return
+        if condition:
+            self.local_output = self.OUTPUT_SCHEMA(out_true=exec_signal, out_false=None)
+        else:
+            self.local_output = self.OUTPUT_SCHEMA(out_true=None, out_false=exec_signal)
+    def _forward_token(self, token_id) -> None:
+        """GHI ĐÈ LOGIC CHUYỂN TOKEN CỦA BASENODE"""
+        if token_id is None:
+            return
+        condition = self.local_input.condition
+        paths = getattr(self, 'exec_paths', {})
+        target_node_id = paths.get("out_true") if condition else paths.get("out_false")
+        if target_node_id:
+            self.parent.tokens_list[token_id] = {"status": TokenStatus.READY, "node_id": target_node_id}
+        else:
+            self.parent.delete_token(token_id)
+class LogicGateInput(BaseModel):
+    val_a: bool = Field(default=False, title="Value A", description=UIDataType.BOOLEAN.value)
+    val_b: bool = Field(default=False, title="Value B", description=UIDataType.BOOLEAN.value)
+class LogicGateOutput(BaseModel):
+    result: bool = Field(..., title="Result", description=UIDataType.BOOLEAN.value)
+@registry_node
+class LogicAndNode(BaseNode[LogicGateInput, LogicGateOutput]):
+    INPUT_SCHEMA = LogicGateInput
+    OUTPUT_SCHEMA = LogicGateOutput
+    NODE_TYPE = NodeType.PROGRAM
+    UI_LABEL = "AND Gate"
+    UI_DESCRIPTION = "Trả về True nếu cả A VÀ B đều là True"
+    UI_COLOR = "bg-orange-600"
+    async def execute(self) -> None:
+        a = self.local_input.val_a
+        b = self.local_input.val_b
+        final_val = a and b
+        self.local_output = self.OUTPUT_SCHEMA(result=final_val)
+@registry_node
+class LogicOrNode(BaseNode[LogicGateInput, LogicGateOutput]):
+    INPUT_SCHEMA = LogicGateInput
+    OUTPUT_SCHEMA = LogicGateOutput
+    NODE_TYPE = NodeType.PROGRAM
+    UI_LABEL = "OR Gate"
+    UI_DESCRIPTION = "Trả về True nếu A HOẶC B là True"
+    UI_COLOR = "bg-orange-600"
+    async def execute(self) -> None:
+        a = self.local_input.val_a
+        b = self.local_input.val_b
+        final_val = a or b
+        self.local_output = self.OUTPUT_SCHEMA(result=final_val)
+class DynamicSwitchInput(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    execute_in: Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
+    match_value: Any = Field(default=None, title="Value to Match", description=UIDataType.ANY.value)
+@registry_node
+class DynamicUniversalSwitchNode(BaseNode):
+    INPUT_SCHEMA = DynamicSwitchInput
+    NODE_TYPE = NodeType.PROGRAM
+    UI_LABEL = "Dynamic Switch"
+    UI_DESCRIPTION = "Rẽ nhánh động đa kiểu dữ liệu (String, Number, Boolean)"
+    UI_COLOR = "bg-red-700"
+    CONFIG_FIELDS = [
+        UIConfigField(
+            id="compare_type",
+            label="Kiểu So Sánh",
+            type=UIConfigType.SELECT.value,
+            options=["String", "Number", "Boolean"],
+            default="String"
+        )
+    ]
+    def __init__(self, node_id, parent, node_data=None):
+        super().__init__(node_id, parent, node_data)
+        self.compare_type = self.node_data.get("compare_type", "String")
+        self.cases: List[Any] = self.node_data.get("cases", [])
+        output_fields = {}
+        self.case_pin_mapping = {}
+        for index, case_val in enumerate(self.cases):
+            pin_id = f"out_case_{index}"
+            self.case_pin_mapping[str(case_val)] = pin_id
+            output_fields[pin_id] = (Any, Field(default=None, title=f"Case: {case_val}", description=UIDataType.EXECUTE.value))
+        output_fields["out_default"] = (Any, Field(default=None, title="Default", description=UIDataType.EXECUTE.value))
+        self.OUTPUT_SCHEMA = create_model(
+            f'DynamicSwitchOutput_{self.node_id}',
+            __config__=ConfigDict(arbitrary_types_allowed=True),
+            **output_fields
+        )
+    async def execute(self) -> None:
+        """Pure Action Node: Không xử lý Data, chỉ điều hướng Token"""
+        pass
+    def _forward_token(self, token_id) -> None:
+        """GHI ĐÈ: Logic Rẽ nhánh Đa hình (Polymorphism Routing)"""
+        if token_id is None:
+            return
+        raw_val = self.local_input.match_value
+        matched_pin = "out_default"
+        try:
+            if self.compare_type == "String":
+                compare_val = str(raw_val)
+            elif self.compare_type == "Number":
+                compare_val = float(raw_val)
+            elif self.compare_type == "Boolean":
+                if isinstance(raw_val, str):
+                    compare_val = raw_val.lower() in ['true', '1', 'yes']
+                else:
+                    compare_val = bool(raw_val)
+            else:
+                compare_val = str(raw_val)
+            for case_val in self.cases:
+                if self.compare_type == "String":
+                    target_val = str(case_val)
+                elif self.compare_type == "Number":
+                    target_val = float(case_val)
+                elif self.compare_type == "Boolean":
+                    if isinstance(case_val, str):
+                        target_val = str(case_val).lower() in ['true', '1', 'yes']
+                    else:
+                        target_val = bool(case_val)
+                else:
+                    target_val = str(case_val)
+                if compare_val == target_val:
+                    matched_pin = self.case_pin_mapping[str(case_val)]
+                    break
+        except Exception as e:
+            print(f"[DynamicSwitch] Lỗi ép kiểu: {e}. Chuyển hướng sang Default.")
+            matched_pin = "out_default"
+        paths = getattr(self, 'exec_paths', {})
+        target_node_id = paths.get(matched_pin)
+        if target_node_id:
+            self.parent.tokens_list[token_id] = {"status": TokenStatus.READY, "node_id": target_node_id}
+        else:
+            self.parent.delete_token(token_id)
+
 ### FILE: services/Nodes/primitive_nodes.py ###
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from app.services.node_registry import BaseNode, registry_node
-from app.services.LVSTypes import NodeType, UIDataType
+from app.services.LVSTypes import NodeType, UIDataType, UIConfigField, UIConfigType
+import random
+from typing import Any
 class MakeStringOutput(BaseModel):
     value: str = Field(title="String", description=UIDataType.STRING.value)
 @registry_node
@@ -2223,6 +2546,474 @@ class MakeBooleanNode(BaseNode[None, MakeBooleanOutput]):
         else:
             val = bool(self.inline_val)
         self.local_output = self.OUTPUT_SCHEMA(value=val)
+class RandomIntInput(BaseModel):
+    min_val: int = Field(default=0, title="Min Value", description=UIDataType.NUMBER.value)
+    max_val: int = Field(default=100, title="Max Value", description=UIDataType.NUMBER.value)
+class RandomNumberOutput(BaseModel):
+    result: float = Field(..., title="Result", description=UIDataType.NUMBER.value)
+@registry_node
+class RandomIntNode(BaseNode[RandomIntInput, RandomNumberOutput]):
+    INPUT_SCHEMA = RandomIntInput
+    OUTPUT_SCHEMA = RandomNumberOutput
+    NODE_TYPE = NodeType.PROGRAM
+    UI_LABEL = "Random Int"
+    UI_DESCRIPTION = "Sinh số nguyên ngẫu nhiên trong khoảng [Min, Max]"
+    UI_COLOR = "bg-green-700"
+    async def execute(self) -> None:
+        min_v = int(self.local_input.min_val)
+        max_v = int(self.local_input.max_val)
+        if min_v > max_v:
+            min_v, max_v = max_v, min_v
+        val = random.randint(min_v, max_v)
+        self.local_output = self.OUTPUT_SCHEMA(result=float(val))
+class RandomFloatInput(BaseModel):
+    min_val: float = Field(default=0.0, title="Min Value", description=UIDataType.NUMBER.value)
+    max_val: float = Field(default=1.0, title="Max Value", description=UIDataType.NUMBER.value)
+@registry_node
+class RandomFloatNode(BaseNode[RandomFloatInput, RandomNumberOutput]):
+    INPUT_SCHEMA = RandomFloatInput
+    OUTPUT_SCHEMA = RandomNumberOutput
+    NODE_TYPE = NodeType.PROGRAM
+    UI_LABEL = "Random Float"
+    UI_DESCRIPTION = "Sinh số thực ngẫu nhiên trong khoảng [Min, Max]"
+    UI_COLOR = "bg-green-600"
+    async def execute(self) -> None:
+        min_v = float(self.local_input.min_val)
+        max_v = float(self.local_input.max_val)
+        val = random.uniform(min_v, max_v)
+        self.local_output = self.OUTPUT_SCHEMA(result=val)
+class InternalMemoryWriteInput(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    execute: Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
+    value: Any = Field(default=None, title="Write Value", description=UIDataType.ANY.value)
+class InternalMemoryWriteOutput(BaseModel):
+    execute: Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+@registry_node
+class InternalMemoryWrite(BaseNode[InternalMemoryWriteInput, InternalMemoryWriteOutput]):
+    INPUT_SCHEMA = InternalMemoryWriteInput
+    OUTPUT_SCHEMA = InternalMemoryWriteOutput
+    NODE_TYPE = NodeType.PROGRAM
+    UI_LABEL = "Memory Table Write"
+    UI_DESCRIPTION = "Write a Value into system Memory"
+    CONFIG_FIELDS = [
+        UIConfigField(
+            id="key",
+            label="Write key",
+            default="",
+            type=UIConfigType.TEXT.value
+        )
+    ]
+    UI_COLOR = "bg-red-600"
+    def __init__(self, node_id, parent, node_data = None):
+        super().__init__(node_id, parent, node_data)
+        self.key = node_data.get("key")
+    async def execute(self) -> None:
+        logic_object = self.parent
+        logic_object.extra_memory[self.key] = self.local_input.value
+        print(logic_object.extra_memory[self.key])
+        self.local_output = self.OUTPUT_SCHEMA(excute_out=True)
+class InternalMemoryReadOutput(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    value: Any = Field(default="", title="Returned Value", description=UIDataType.ANY.value)
+@registry_node
+class InternalMemoryRead(BaseNode[None, InternalMemoryReadOutput]):
+    INPUT_SCHEMA = None
+    OUTPUT_SCHEMA = InternalMemoryReadOutput
+    NODE_TYPE = NodeType.PROGRAM
+    UI_LABEL = "Memory Table Read"
+    UI_DESCRIPTION = "Read a Value from system Memory"
+    UI_COLOR = "bg-purple-500"
+    CONFIG_FIELDS = [
+         UIConfigField(
+            id="key",
+            label="Read Key",
+            default="",
+            type=UIConfigType.TEXT.value
+        )
+    ]
+    def __init__(self, node_id, parent, node_data = None):
+        super().__init__(node_id, parent, node_data)
+        self.key = node_data.get("key")
+    async def execute(self):
+        logic_object = self.parent
+        value = logic_object.extra_memory.get(self.key)
+        print(value)
+        self.local_output = self.OUTPUT_SCHEMA(value=value, excute_out=True)
+
+### FILE: services/Nodes/TeleportNodes.py ###
+from pydantic import BaseModel, Field, ConfigDict
+from typing import Any
+from app.services.node_registry import BaseNode, registry_node
+from app.services.LVSTypes import NodeType, UIDataType, UIConfigField, UIConfigType
+from app.services.LogicObjects import TokenStatus
+class PortalInInput(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    execute_in: Any = Field(default="GO", title="Execute In", description=UIDataType.ANY.value)
+    payload: Any = Field(default=None, title="Payload In", description=UIDataType.ANY.value)
+@registry_node
+class PortalInNode(BaseNode[PortalInInput, None]):
+    INPUT_SCHEMA = PortalInInput
+    OUTPUT_SCHEMA = None
+    NODE_TYPE = NodeType.PROGRAM
+    UI_LABEL = "Portal In (Jump)"
+    UI_DESCRIPTION = "Thu nhận Token và Dữ liệu để dịch chuyển tức thời"
+    UI_COLOR = "bg-cyan-600"
+    CONFIG_FIELDS = [
+        UIConfigField(id="channel_name", label="Channel Name", type=UIConfigType.TEXT.value, default="Channel_A")
+    ]
+    def __init__(self, node_id, parent, node_data=None):
+        super().__init__(node_id, parent, node_data)
+        self.channel_name = self.node_data.get("channel_name", "Channel_A")
+    async def execute(self) -> None:
+        """Lưu trữ dữ liệu vào Không gian chung (Ether / Extra Memory)"""
+        if self.local_input and self.local_input.payload is not None:
+            memory_key = f"portal_data_{self.channel_name}"
+            self.parent.extra_memory[memory_key] = self.local_input.payload
+    def _forward_token(self, token_id) -> None:
+        """GHI ĐÈ: Bẻ cong không gian Token"""
+        if token_id is None:
+            return
+        self.parent.delete_token(token_id)
+        for n_id, node in self.parent.nodes_list.items():
+            if node.__class__.__name__ == "PortalOutNode" and getattr(node, "channel_name", "") == self.channel_name:
+                self.parent.spawn_token(n_id)
+class PortalOutOutput(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    execute_out: Any = Field(default="GO", title="Execute Out", description=UIDataType.ANY.value)
+    payload: Any = Field(default=None, title="Payload Out", description=UIDataType.ANY.value)
+@registry_node
+class PortalOutNode(BaseNode[None, PortalOutOutput]):
+    INPUT_SCHEMA = None
+    OUTPUT_SCHEMA = PortalOutOutput
+    NODE_TYPE = NodeType.PROGRAM
+    UI_LABEL = "Portal Out (Land)"
+    UI_DESCRIPTION = "Điểm xuất hiện của Token và Dữ liệu từ không gian ảo"
+    UI_COLOR = "bg-cyan-700"
+    CONFIG_FIELDS = [
+        UIConfigField(id="channel_name", label="Channel Name", type=UIConfigType.TEXT.value, default="Channel_A")
+    ]
+    def __init__(self, node_id, parent, node_data=None):
+        super().__init__(node_id, parent, node_data)
+        self.channel_name = self.node_data.get("channel_name", "Channel_A")
+    async def execute(self) -> None:
+        """Nhận Token và bốc Dữ liệu từ Không gian chung ra"""
+        memory_key = f"portal_data_{self.channel_name}"
+        payload_data = self.parent.extra_memory.get(memory_key, None)
+        self.local_output = self.OUTPUT_SCHEMA(
+            execute_out="GO",
+            payload=payload_data
+        )
+
+### FILE: services/Nodes/FilterNodes/ImageFiltersNode.py ###
+import cv2
+import numpy as np
+from pydantic import BaseModel, Field, ConfigDict
+from typing import Any
+from app.services.node_registry import BaseNode, registry_node
+from app.services.LVSTypes import NodeType, UIDataType
+from app.services.utils.image_utils import base64_to_cv2, cv2_to_base64
+import random
+import os
+import time
+from app.core.config import get_base_dir
+def ensure_bgr(image: np.ndarray) -> np.ndarray:
+    """Checks if image is 1-channel (grayscale/binary) and converts to 3-channel BGR."""
+    if len(image.shape) == 2:
+        return cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+    return image
+def extract_cv2_image(image_input: Any) -> np.ndarray:
+    """Helper để tự động nhận diện đầu vào là Numpy hay Base64 string"""
+    if isinstance(image_input, np.ndarray):
+        return image_input.copy()
+    elif isinstance(image_input, str):
+        return base64_to_cv2(image_input)
+    else:
+        raise ValueError("Đầu vào không phải là Numpy Array hoặc Base64 String hợp lệ.")
+class ImageFilterInput(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    execute_in: Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
+    image: Any = Field(..., title="Input Image", description=UIDataType.ANY.value)
+class ImageFilterOutput(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    image_np: np.ndarray = Field(..., title="Image (Numpy)", description=UIDataType.NUMPY_ARRAY.value)
+    image_b64: str = Field(..., title="Image (Base64)", description=UIDataType.BASE64.value)
+class BrightnessContrastInput(ImageFilterInput):
+    execute_in: Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
+    alpha: float = Field(default=1.0, title="Contrast (Alpha)", description=UIDataType.NUMBER.value)
+    beta: int = Field(default=0, title="Brightness (Beta)", description=UIDataType.NUMBER.value)
+@registry_node
+class BrightnessContrastNode(BaseNode[BrightnessContrastInput, ImageFilterOutput]):
+    INPUT_SCHEMA = BrightnessContrastInput
+    OUTPUT_SCHEMA = ImageFilterOutput
+    NODE_TYPE = NodeType.PROGRAM
+    UI_LABEL = "Brightness & Contrast"
+    UI_DESCRIPTION = "Điều chỉnh độ sáng và độ tương phản của ảnh"
+    UI_COLOR = "bg-blue-500"
+    async def execute(self) -> None:
+        img = extract_cv2_image(self.local_input.image)
+        alpha = self.local_input.alpha
+        beta = self.local_input.beta
+        res = cv2.convertScaleAbs(img, alpha=alpha, beta=beta)
+        res_bgr = ensure_bgr(res)
+        self.local_output = self.OUTPUT_SCHEMA(
+            image_np=res_bgr,
+            image_b64=cv2_to_base64(res_bgr)
+        )
+class GaussianBlurInput(ImageFilterInput):
+    execute_in: Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
+    ksize: int = Field(default=3, title="Kernel Size", description=UIDataType.NUMBER.value)
+@registry_node
+class GaussianBlurNode(BaseNode[GaussianBlurInput, ImageFilterOutput]):
+    INPUT_SCHEMA = GaussianBlurInput
+    OUTPUT_SCHEMA = ImageFilterOutput
+    NODE_TYPE = NodeType.PROGRAM
+    UI_LABEL = "Gaussian Blur"
+    UI_DESCRIPTION = "Làm mờ ảnh bằng bộ lọc Gaussian"
+    UI_COLOR = "bg-blue-500"
+    async def execute(self) -> None:
+        img = extract_cv2_image(self.local_input.image)
+        k = self.local_input.ksize
+        if k % 2 == 0: k += 1
+        res = cv2.GaussianBlur(img, (k, k), 0)
+        self.local_output = self.OUTPUT_SCHEMA(image_np=res, image_b64=cv2_to_base64(res))
+class AdaptiveThresholdInput(ImageFilterInput):
+    execute_in: Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
+    block_size: int = Field(default=11, title="Block Size", description=UIDataType.NUMBER.value)
+    c_val: int = Field(default=2, title="C Constant", description=UIDataType.NUMBER.value)
+@registry_node
+class AdaptiveThresholdNode(BaseNode[AdaptiveThresholdInput, ImageFilterOutput]):
+    INPUT_SCHEMA = AdaptiveThresholdInput
+    OUTPUT_SCHEMA = ImageFilterOutput
+    NODE_TYPE = NodeType.PROGRAM
+    UI_LABEL = "Adaptive Threshold"
+    UI_DESCRIPTION = "Nhị phân hóa ảnh cục bộ (Adaptive)"
+    UI_COLOR = "bg-blue-500"
+    async def execute(self) -> None:
+        img = extract_cv2_image(self.local_input.image)
+        bs = self.local_input.block_size
+        if bs % 2 == 0: bs += 1
+        c = self.local_input.c_val
+        if len(img.shape) == 3:
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = img
+        res = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, bs, c)
+        res_bgr = ensure_bgr(res)
+        self.local_output = self.OUTPUT_SCHEMA(image_np=res_bgr, image_b64=cv2_to_base64(res_bgr))
+class MorphologyInput(ImageFilterInput):
+    execute_in: Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
+    operation: str = Field(default="Erode", title="Operation", description=UIDataType.STRING.value)
+    ksize: int = Field(default=3, title="Kernel Size", description=UIDataType.NUMBER.value)
+    iters: int = Field(default=1, title="Iterations", description=UIDataType.NUMBER.value)
+@registry_node
+class MorphologyNode(BaseNode[MorphologyInput, ImageFilterOutput]):
+    INPUT_SCHEMA = MorphologyInput
+    OUTPUT_SCHEMA = ImageFilterOutput
+    NODE_TYPE = NodeType.PROGRAM
+    UI_LABEL = "Morphology"
+    UI_DESCRIPTION = "Xử lý hình thái học (Erode, Dilate, Open, Close)"
+    UI_COLOR = "bg-blue-500"
+    async def execute(self) -> None:
+        img = extract_cv2_image(self.local_input.image)
+        op_map = {
+            "Erode": cv2.MORPH_ERODE, "Dilate": cv2.MORPH_DILATE,
+            "Open": cv2.MORPH_OPEN, "Close": cv2.MORPH_CLOSE, "Gradient": cv2.MORPH_GRADIENT
+        }
+        operation_str = self.local_input.operation
+        op_code = op_map.get(operation_str, cv2.MORPH_ERODE)
+        k = self.local_input.ksize
+        iters = self.local_input.iters
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (k, k))
+        res = cv2.morphologyEx(img, op_code, kernel, iterations=iters)
+        self.local_output = self.OUTPUT_SCHEMA(image_np=res, image_b64=cv2_to_base64(res))
+class CannyEdgeInput(ImageFilterInput):
+    execute_in: Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
+    t1: int = Field(default=50, title="Threshold 1", description=UIDataType.NUMBER.value)
+    t2: int = Field(default=150, title="Threshold 2", description=UIDataType.NUMBER.value)
+@registry_node
+class CannyEdgeNode(BaseNode[CannyEdgeInput, ImageFilterOutput]):
+    INPUT_SCHEMA = CannyEdgeInput
+    OUTPUT_SCHEMA = ImageFilterOutput
+    NODE_TYPE = NodeType.PROGRAM
+    UI_LABEL = "Canny Edge Detect"
+    UI_DESCRIPTION = "Tìm kiếm và trích xuất biên cạnh"
+    UI_COLOR = "bg-blue-500"
+    async def execute(self) -> None:
+        img = extract_cv2_image(self.local_input.image)
+        t1 = self.local_input.t1
+        t2 = self.local_input.t2
+        edges = cv2.Canny(img, t1, t2)
+        res_bgr = ensure_bgr(edges)
+        self.local_output = self.OUTPUT_SCHEMA(image_np=res_bgr, image_b64=cv2_to_base64(res_bgr))
+class GammaCorrectionInput(ImageFilterInput):
+    gamma: float = Field(default=1.0, title="Gamma", description=UIDataType.NUMBER.value)
+@registry_node
+class GammaCorrectionNode(BaseNode[GammaCorrectionInput, ImageFilterOutput]):
+    INPUT_SCHEMA = GammaCorrectionInput
+    OUTPUT_SCHEMA = ImageFilterOutput
+    NODE_TYPE = NodeType.PROGRAM
+    UI_LABEL = "Gamma Correction"
+    UI_DESCRIPTION = "Chỉnh sáng phi tuyến tính (Mô phỏng phơi sáng)"
+    UI_COLOR = "bg-blue-500"
+    async def execute(self) -> None:
+        img = extract_cv2_image(self.local_input.image)
+        gamma = self.local_input.gamma
+        if gamma == 1.0:
+            res_bgr = img
+        else:
+            invGamma = 1.0 / gamma
+            table = np.array([((i / 255.0) ** invGamma) * 255 for i in np.arange(0, 256)]).astype("uint8")
+            res_bgr = cv2.LUT(img, table)
+        self.local_output = self.OUTPUT_SCHEMA(
+            image_np=res_bgr,
+            image_b64=cv2_to_base64(res_bgr)
+        )
+class CLAHEInput(ImageFilterInput):
+    execute_in: Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
+    clip_limit: float = Field(default=2.0, title="Clip Limit", description=UIDataType.NUMBER.value)
+    grid_size: int = Field(default=8, title="Grid Size", description=UIDataType.NUMBER.value)
+@registry_node
+class CLAHENode(BaseNode[CLAHEInput, ImageFilterOutput]):
+    INPUT_SCHEMA = CLAHEInput
+    OUTPUT_SCHEMA = ImageFilterOutput
+    NODE_TYPE = NodeType.PROGRAM
+    UI_LABEL = "CLAHE (HDR Effect)"
+    UI_DESCRIPTION = "Cân bằng sáng cục bộ, giữ lại chi tiết trong vùng đổ bóng"
+    UI_COLOR = "bg-blue-500"
+    async def execute(self) -> None:
+        img = extract_cv2_image(self.local_input.image)
+        clip = self.local_input.clip_limit
+        grid = self.local_input.grid_size
+        clahe = cv2.createCLAHE(clipLimit=clip, tileGridSize=(grid, grid))
+        if len(img.shape) == 3:
+            lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+            l, a, b = cv2.split(lab)
+            cl = clahe.apply(l)
+            merged = cv2.merge((cl, a, b))
+            res_bgr = cv2.cvtColor(merged, cv2.COLOR_LAB2BGR)
+        else:
+            res_bgr = clahe.apply(img)
+            res_bgr = ensure_bgr(res_bgr)
+        self.local_output = self.OUTPUT_SCHEMA(
+            image_np=res_bgr,
+            image_b64=cv2_to_base64(res_bgr)
+        )
+class RotateImageInput(BaseModel):
+    execute_in: Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    image: Any = Field(..., title="Input Image", description=UIDataType.ANY.value)
+    max_degree: float = Field(default=15.0, title="Rotate Range (+/-)", description=UIDataType.NUMBER.value)
+@registry_node
+class RotateImageNode(BaseNode[RotateImageInput, ImageFilterOutput]):
+    INPUT_SCHEMA = RotateImageInput
+    OUTPUT_SCHEMA = ImageFilterOutput
+    NODE_TYPE = NodeType.PROGRAM
+    UI_LABEL = "Rotate Image"
+    UI_DESCRIPTION = "Xoay ảnh ngẫu nhiên theo một góc biên độ cho trước"
+    UI_COLOR = "bg-blue-500"
+    async def execute(self) -> None:
+        img = extract_cv2_image(self.local_input.image)
+        max_deg = float(self.local_input.max_degree)
+        angle = random.uniform(-max_deg, max_deg)
+        (h, w) = img.shape[:2]
+        center = (w / 2, h / 2)
+        M = cv2.getRotationMatrix2D(center, angle, 1.0)
+        rotated_img = cv2.warpAffine(img, M, (w, h), borderMode=cv2.BORDER_REPLICATE)
+        self.local_output = self.OUTPUT_SCHEMA(
+            image_np=rotated_img,
+            image_b64=cv2_to_base64(rotated_img)
+        )
+class SaveImageInput(BaseModel):
+    execute_in: Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    image: Any = Field(..., title="Input Image", description=UIDataType.ANY.value)
+    folder_path: str = Field(default="storage/dataset/augmented", title="Save Folder", description=UIDataType.STRING.value)
+    prefix: str = Field(default="aug", title="File Prefix", description=UIDataType.STRING.value)
+class SaveImageOutput(BaseModel):
+    success: bool = Field(..., title="Is Success", description=UIDataType.BOOLEAN.value)
+@registry_node
+class SaveImageNode(BaseNode[SaveImageInput, SaveImageOutput]):
+    INPUT_SCHEMA = SaveImageInput
+    OUTPUT_SCHEMA = SaveImageOutput
+    NODE_TYPE = NodeType.PROGRAM
+    UI_LABEL = "Save Image to Disk"
+    UI_DESCRIPTION = "Lưu ảnh (Base64/Numpy) xuống ổ cứng"
+    UI_COLOR = "bg-blue-600"
+    async def execute(self) -> None:
+        try:
+            img = extract_cv2_image(self.local_input.image)
+            raw_folder_path = self.local_input.folder_path
+            prefix = self.local_input.prefix
+            save_folder = raw_folder_path.strip().strip("'").strip('"')
+            if save_folder.startswith('r'):
+                save_folder = save_folder[1:].strip("'").strip('"')
+            full_path = os.path.join(str(get_base_dir()), save_folder)
+            os.makedirs(full_path, exist_ok=True)
+            filename = f"{prefix}_{int(time.time() * 1000)}_{random.randint(100, 999)}.jpg"
+            file_path = os.path.join(full_path, filename)
+            success = cv2.imwrite(file_path, img)
+            self.local_output = self.OUTPUT_SCHEMA(success=bool(success))
+        except Exception as e:
+            print(f"[SaveImageNode] Lỗi: {e}")
+            self.local_output = self.OUTPUT_SCHEMA(success=False)
+            raise e
+class StretchImageInput(ImageFilterInput):
+    execute_in: Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
+    scale_x: float = Field(default=1.0, title="Scale X", description=UIDataType.NUMBER.value)
+    scale_y: float = Field(default=1.0, title="Scale Y", description=UIDataType.NUMBER.value)
+@registry_node
+class StretchImageNode(BaseNode[StretchImageInput, ImageFilterOutput]):
+    INPUT_SCHEMA = StretchImageInput
+    OUTPUT_SCHEMA = ImageFilterOutput
+    NODE_TYPE = NodeType.PROGRAM
+    UI_LABEL = "Stretch Image"
+    UI_DESCRIPTION = "Kéo giãn/Co lại ảnh theo trục X và Y độc lập"
+    UI_COLOR = "bg-blue-500"
+    async def execute(self) -> None:
+        img = extract_cv2_image(self.local_input.image)
+        sx = float(self.local_input.scale_x)
+        sy = float(self.local_input.scale_y)
+        sx = max(0.1, sx)
+        sy = max(0.1, sy)
+        h, w = img.shape[:2]
+        new_w = int(w * sx)
+        new_h = int(h * sy)
+        res = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+        self.local_output = self.OUTPUT_SCHEMA(
+            image_np=res,
+            image_b64=cv2_to_base64(res)
+        )
+class SkewImageInput(ImageFilterInput):
+    execute_in: Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
+    skew_x: float = Field(default=0.0, title="Skew X Factor", description=UIDataType.NUMBER.value)
+    skew_y: float = Field(default=0.0, title="Skew Y Factor", description=UIDataType.NUMBER.value)
+@registry_node
+class SkewImageNode(BaseNode[SkewImageInput, ImageFilterOutput]):
+    INPUT_SCHEMA = SkewImageInput
+    OUTPUT_SCHEMA = ImageFilterOutput
+    NODE_TYPE = NodeType.PROGRAM
+    UI_LABEL = "Skew Image"
+    UI_DESCRIPTION = "Làm xiên/méo ảnh theo hệ số trục X và Y (Affine Transformation)"
+    UI_COLOR = "bg-fuchsia-500"
+    async def execute(self) -> None:
+        img = extract_cv2_image(self.local_input.image)
+        sx = float(self.local_input.skew_x)
+        sy = float(self.local_input.skew_y)
+        h, w = img.shape[:2]
+        new_w = int(w + abs(h * sx))
+        new_h = int(h + abs(w * sy))
+        offset_x = abs(h * sx) if sx < 0 else 0
+        offset_y = abs(w * sy) if sy < 0 else 0
+        M = np.float32([
+            [1, sx, offset_x],
+            [sy, 1, offset_y]
+        ])
+        res = cv2.warpAffine(img, M, (new_w, new_h), borderMode=cv2.BORDER_REPLICATE)
+        self.local_output = self.OUTPUT_SCHEMA(
+            image_np=res,
+            image_b64=cv2_to_base64(res)
+        )
 
 ### FILE: services/Nodes/InterplexNodes/InterplexNodes.py ###
 from ultralytics import YOLO
@@ -2236,7 +3027,9 @@ from pydantic import BaseModel, Field, ConfigDict
 from app.services.node_registry import BaseNode, registry_node
 from app.services.LVSTypes import NodeType, UIDataType
 from app.services.utils.image_utils import cv2_to_base64, base64_to_cv2
+from typing import Any
 class FindUpperPemLocationInput(BaseModel):
+    execute_in: Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
     image_path: str = Field(title="Image Path", description=UIDataType.STRING.value)
     ai_file_name: str = Field(title="AI Model Name", description=UIDataType.STRING.value)
     min_Confidence: float = Field(default=0.4, title="Min Confidence", description=UIDataType.NUMBER.value)
@@ -2282,10 +3075,12 @@ class FindUpperPemLocation(BaseNode[FindUpperPemLocationInput, FindUpperPemLocat
             original_image = bas64_original_img
         )
 class ExtractRoiInput(BaseModel):
+    execute_in: Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
     model_config = ConfigDict(arbitrary_types_allowed=True)
     image : str = Field(title="Input Image", description=UIDataType.BASE64.value)
     xyxy_list: list = Field(default_factory=list, title="XY List", description=UIDataType.LIST)
     offset_percentage: int = Field(default=10, title="Offset Percent", description=UIDataType.NUMBER)
+    scale_percentage: int = Field(default=0, title="Scale Range (+/- %)", description=UIDataType.NUMBER)
     target_folder_path: str = Field(default="storage/rois", title="Save to", description=UIDataType.STRING)
 class ExtractRoiOutput(BaseModel):
     output_images: str = Field(default="", title="Concat Roi Image", description=UIDataType.BASE64)
@@ -2294,12 +3089,13 @@ class Extract_Roi_W_Offset(BaseNode[ExtractRoiInput, ExtractRoiOutput]):
     INPUT_SCHEMA = ExtractRoiInput
     OUTPUT_SCHEMA = ExtractRoiOutput
     NODE_TYPE = NodeType.PROGRAM
-    UI_LABEL = "Extract ROI (Offset Random)"
+    UI_LABEL = "Extract ROI (Offset & Scale)"
     UI_COLOR = "bg-orange-600"
     async def execute(self) -> None:
         img = self.local_input.image
         xyxy_list = self.local_input.xyxy_list
         offset_pct = self.local_input.offset_percentage
+        scale_pct = self.local_input.scale_percentage
         raw_folder_path = self.local_input.target_folder_path
         img = base64_to_cv2(img)
         if not xyxy_list:
@@ -2317,9 +3113,17 @@ class Extract_Roi_W_Offset(BaseNode[ExtractRoiInput, ExtractRoiOutput]):
             w, h = x2 - x1, y2 - y1
             if w <= 0 or h <= 0:
                 continue
-            max_ox = int(w * (offset_pct / 100.0))
-            max_oy = int(h * (offset_pct / 100.0))
-            direction = random.choice(['N', 'S', 'E', 'W'])
+            scale_factor = 0.0
+            if scale_pct > 0:
+                scale_factor = random.uniform(-scale_pct, scale_pct) / 100.0
+            dw = w * scale_factor
+            dh = h * scale_factor
+            new_w = w + dw
+            new_h = h + dh
+            cx, cy = x1 + w/2, y1 + h/2
+            max_ox = int(new_w * (offset_pct / 100.0))
+            max_oy = int(new_h * (offset_pct / 100.0))
+            direction = random.choice(['N', 'S', 'E', 'W', 'C'])
             dx, dy = 0, 0
             if direction == 'N':
                 dy = -random.randint(0, max_oy)
@@ -2329,8 +3133,10 @@ class Extract_Roi_W_Offset(BaseNode[ExtractRoiInput, ExtractRoiOutput]):
                 dx = random.randint(0, max_ox)
             elif direction == 'W':
                 dx = -random.randint(0, max_ox)
-            nx1, ny1 = x1 + dx, y1 + dy
-            nx2, ny2 = x2 + dx, y2 + dy
+            nx1 = int(cx - new_w/2 + dx)
+            ny1 = int(cy - new_h/2 + dy)
+            nx2 = int(cx + new_w/2 + dx)
+            ny2 = int(cy + new_h/2 + dy)
             nx1 = max(0, min(nx1, img_w - 1))
             ny1 = max(0, min(ny1, img_h - 1))
             nx2 = max(0, min(nx2, img_w))
@@ -2360,6 +3166,7 @@ class Extract_Roi_W_Offset(BaseNode[ExtractRoiInput, ExtractRoiOutput]):
         base64_grid = cv2_to_base64(final_grid)
         self.local_output = self.OUTPUT_SCHEMA(output_images=base64_grid)
 class FolderImageScannerInput(BaseModel):
+    execute_in: Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
     folder_path: str = Field(default="storage/dataset", title="Target Folder", description=UIDataType.STRING.value)
 class FolderImageScannerOutput(BaseModel):
     image_list: list = Field(default_factory=list, title="Image List", description=UIDataType.LIST.value)

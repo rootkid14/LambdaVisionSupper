@@ -1,177 +1,241 @@
-// components/DebugPanel.tsx
+// components/ProgramMode/DebugPanel.tsx
 import React, { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Play, Save, FolderOpen, Bug, ChevronRight, Upload, Eye, X, ArrowLeft, RefreshCcw } from 'lucide-react';
-import { useFlowStore } from '../../Stores/FlowStore'; 
-import { ImageProcessing } from '../../utils/imageUtils'; 
+import { Play, Save, FolderOpen, Bug, ChevronRight, Upload, Eye, X, ArrowLeft, RefreshCcw, Timer } from 'lucide-react';
+import { useFlowStore } from '../../Stores/FlowStore';
+import { ImageProcessing } from '../../utils/imageUtils';
+import { FlowCompiler } from '../../utils/FlowCompiler';
 
 export const DebugPanel = () => {
   const store = useFlowStore();
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  
+
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
   const [isTesting, setIsTesting] = useState(false);
+  // COMPONENT MỚI CHO GRAPH TIMEOUT
+  const [graphTimeout, setGraphTimeout] = useState<number>(store.timeout || 30.0); 
 
-  // 1. TÌM NODE DATA IN (ReceivePayloadNode)
+  // TÌM NODE DATA IN (ReceivePayloadNode)
   const receiveNode = store.nodes.find(n => n.data?.className === 'ReceivePayloadNode');
   const inputConfigs = receiveNode?.data?.outputs || [];
-
+  
   const isBase64Image = (val: any) => typeof val === 'string' && val.startsWith('data:image/');
 
-  // 2. CÁC HÀM XỬ LÝ SỰ KIỆN
   const handleRun = async () => {
     if ((inputConfigs as any).length === 0 && !store.nodes.find(n => n.data?.className === 'SendResponseNode')) {
         alert("Đồ thị cần có ít nhất Data In (Receive Payload) hoặc Data Out (Send Response) để chạy test.");
         return;
     }
+
+    // ÉP FLOW COMPILER KIỂM TRA TRƯỚC KHI CHẠY
+    const compileResult = FlowCompiler.compile(store.nodes, store.edges, graphTimeout);
+    if (!compileResult.success) {
+      for (const [nodeId, msg] of Object.entries(compileResult.errors || {})) {
+        store.updateNodeData(nodeId, { errorMessage: msg });
+      }
+      alert("Đồ thị có lỗi (Thiếu kết nối bắt buộc hoặc Node lơ lửng). Vui lòng kiểm tra các Node bị viền đỏ!");
+      return;
+    }
+
+    store.setGraphTimeout(graphTimeout); // Nạp timeout vào Store
     setIsTesting(true);
     await store.preflight_run();
     setIsTesting(false);
   };
 
   const handleSave = () => {
+    // ÉP FLOW COMPILER KIỂM TRA TRƯỚC KHI LƯU
+    const compileResult = FlowCompiler.compile(store.nodes, store.edges, graphTimeout);
+    if (!compileResult.success) {
+      for (const [nodeId, msg] of Object.entries(compileResult.errors || {})) {
+        store.updateNodeData(nodeId, { errorMessage: msg });
+      }
+      console.log(compileResult)
+      alert(`Warning, Logic Graph has Flaw at node. Be cautious! ${compileResult.toString()}`);
+    }
+
+    store.setGraphTimeout(graphTimeout);
     store.saveGraphtoFile(`lambda_ui_graph_${Date.now()}.json`);
   };
 
   const handleLoad = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
         const content = JSON.parse(event.target?.result as string);
+        if (content.timeout) setGraphTimeout(content.timeout);
         store.loadGraphfromFile(content);
-      } catch (err) { alert("Lỗi đọc file JSON"); }
-      finally { if (fileInputRef.current) fileInputRef.current.value = ''; }
+      } catch (err) { 
+        alert("Lỗi đọc file JSON"); 
+      } finally { 
+        if (fileInputRef.current) fileInputRef.current.value = ''; 
+      }
     };
     reader.readAsText(file);
   };
 
   const updateInput = (id: string, val: any) => store.updateInputSimulatorData(id, val);
 
-  const handleImageUpload = async (id: string, file: File) => {
+  // NÂNG CẤP XỬ LÝ UPLOAD: Kiểm tra dataType để lưu đúng định dạng
+  const handleImageUpload = async (id: string, file: File, dataType: string) => {
     try {
        const optimized = await ImageProcessing.processImageForUpload(file, 1920, 0.8, 'image/jpeg');
-       updateInput(id, optimized);
-    } catch { alert("Lỗi xử lý ảnh"); }
+       
+       if (dataType === 'base64') {
+           // Chuyển file thành dạng chuỗi Base64
+           const reader = new FileReader();
+           reader.onloadend = () => {
+               updateInput(id, reader.result); // reader.result là chuỗi data:image/jpeg;base64,...
+           };
+           reader.readAsDataURL(optimized as Blob);
+       } else {
+           // Nếu là numpy_array / image, giữ nguyên dạng File để gửi FormData (tuỳ kiến trúc BE)
+           updateInput(id, optimized);
+       }
+    } catch { 
+       alert("Lỗi xử lý ảnh"); 
+    }
   };
 
   const simulatorData = store.input_simulator_data || {};
   const inspectorData = store.result_inspector_data;
 
+  // HÀM HELPER: Lấy URL để preview ảnh bất kể nó là File hay Base64
+  const getPreviewImageUrl = (val: any) => {
+      if (val instanceof File) return URL.createObjectURL(val);
+      if (isBase64Image(val)) return val;
+      return null;
+  };
+
   return (
     <>
-      <div className="relative w-[400px] h-full bg-[#28292c] border-r border-[#3c4043] shadow-[15px_0_40px_rgba(0,0,0,0.3)] flex flex-col shrink-0 z-40 font-sans">
-        
+      <div className="relative w-[400px] h-full bg-[#202124] border-r border-[#202124] flex flex-col z-10 shadow-2xl">
         {/* HEADER & GLOBAL BUTTONS (EXIT & REFRESH) */}
-        <div className="p-4 border-b border-[#3c4043] flex items-center justify-between bg-[#303134]">
+        <div className="p-4 border-b border-slate-700 bg-[#202124] flex items-center justify-between">
           <div className="flex items-center gap-3">
             {/* NÚT EXIT VỀ FLEET */}
-            <button 
-              onClick={() => navigate('/fleet')} 
-              className="p-1.5 bg-[#202124] hover:bg-[#3c4043] text-[#9aa0a6] hover:text-[#e8eaed] rounded-md border border-[#3c4043] transition-colors shadow-sm"
+            <button
+              onClick={() => navigate('/fleet')}
+              className="p-1.5 bg-[#202124] hover:bg-slate-700 rounded-md transition-colors border border-slate-700 text-slate-300"
               title="Exit to Fleet Dashboard"
             >
               <ArrowLeft size={16} />
             </button>
             <div className="flex items-center gap-2">
-              <Bug size={18} className="text-[#8ab4f8]" />
-              <h2 className="font-bold text-[#e8eaed] tracking-wide text-sm">COMMAND & DEBUG</h2>
+              <Bug size={18} className="text-blue-400" />
+              <h2 className="font-bold text-slate-200 uppercase tracking-wider text-xs">Debug Panel</h2>
             </div>
           </div>
-          
           {/* NÚT REFRESH CATALOGUE */}
-          <button 
-            onClick={() => store.loadNodeCatalogue()} 
+          <button
+            onClick={() => store.loadNodeCatalogue()}
             disabled={store.isLoading}
-            className="p-1.5 bg-[#202124] hover:bg-[#81c995]/20 text-[#9aa0a6] hover:text-[#81c995] rounded-md border border-[#3c4043] hover:border-[#81c995]/50 transition-colors disabled:opacity-50 shadow-sm"
+            className="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-md transition-colors border border-slate-700 text-slate-300"
             title="Refresh Node Catalogue"
           >
-            <RefreshCcw size={16} className={store.isLoading ? "animate-spin text-[#81c995]" : ""} />
+            <RefreshCcw size={16} className={store.isLoading ? "animate-spin text-blue-400" : ""} />
           </button>
         </div>
 
-        <div className="p-4 border-b border-[#3c4043] bg-[#28292c] grid grid-cols-3 gap-2">
-          <button onClick={handleRun} disabled={isTesting} className="flex flex-col items-center p-2 bg-[#81c995]/10 hover:bg-[#81c995]/20 border border-[#81c995]/30 hover:border-[#81c995]/50 rounded-lg text-[#81c995] transition-all group disabled:opacity-50">
-            <Play size={18} className={`mb-1 ${isTesting ? 'animate-ping' : 'group-hover:scale-110 transition-transform'}`} /> 
-            <span className="text-[10px] font-bold tracking-wider">{isTesting ? 'RUNNING...' : 'COMPILE/TEST'}</span>
+        <div className="p-4 border-b border-slate-700 bg-[#202124] flex justify-around">
+          <button onClick={handleRun} disabled={isTesting} className="flex flex-col items-center p-2 hover:bg-slate-700 rounded transition-colors group">
+            <Play size={18} className={`mb-1 text-emerald-400 ${isTesting ? 'animate-ping' : 'group-hover:scale-110 transition-transform'}`} />
+            <span className="text-[10px] font-bold tracking-wider text-emerald-100">{isTesting ? 'RUNNING...' : 'TEST'}</span>
           </button>
-          <button onClick={handleSave} className="flex flex-col items-center p-2 bg-[#8ab4f8]/10 hover:bg-[#8ab4f8]/20 border border-[#8ab4f8]/30 hover:border-[#8ab4f8]/50 rounded-lg text-[#8ab4f8] transition-all group">
-            <Save size={18} className="mb-1 group-hover:scale-110 transition-transform" /> 
-            <span className="text-[10px] font-bold tracking-wider">SAVE</span>
+          
+          <button onClick={handleSave} className="flex flex-col items-center p-2 hover:bg-[#202124] rounded transition-colors group">
+            <Save size={18} className="mb-1 text-blue-400 group-hover:scale-110 transition-transform" />
+            <span className="text-[10px] font-bold tracking-wider text-blue-100">SAVE</span>
           </button>
-          <button onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center p-2 bg-[#fcd663]/10 hover:bg-[#fcd663]/20 border border-[#fcd663]/30 hover:border-[#fcd663]/50 rounded-lg text-[#fcd663] transition-all group">
-            <FolderOpen size={18} className="mb-1 group-hover:scale-110 transition-transform" /> 
-            <span className="text-[10px] font-bold tracking-wider">LOAD</span>
+          
+          <button onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center p-2 hover:bg-[#202124] rounded transition-colors group">
+            <FolderOpen size={18} className="mb-1 text-amber-400 group-hover:scale-110 transition-transform" />
+            <span className="text-[10px] font-bold tracking-wider text-amber-100">LOAD</span>
           </button>
           <input type="file" ref={fileInputRef} className="hidden" accept=".json" onChange={handleLoad} />
         </div>
+        
+        {/* GRAPH TIMEOUT CONFIG */}
+        <div className="px-4 py-3 border-b border-slate-700 bg-[#202124] flex items-center justify-between">
+           <div className="flex items-center gap-2 text-slate-300">
+             <Timer size={14} className="text-amber-500" />
+             <span className="text-xs font-bold uppercase tracking-wider">Graph Timeout (s)</span>
+           </div>
+           <input 
+             type="number" 
+             step="0.1"
+             value={graphTimeout} 
+             onChange={(e) => setGraphTimeout(Number(e.target.value) || 0)} 
+             className="bg-slate-950 text-slate-200 px-2 py-1 text-xs rounded border border-slate-600 focus:border-blue-500 outline-none w-20 text-center font-mono"
+           />
+        </div>
 
-        {/* KHU VỰC CUỘN ĐƯỢC */}
+        {/* KHU VỰC CUỘN ĐƯỢC: INPUT & OUTPUT */}
         <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar bg-[#202124]">
           
-          {/* PHẦN 2: INPUT SIMULATOR */}
+          {/* INPUT SIMULATOR */}
           <section>
-            <h3 className="text-xs font-bold text-[#9aa0a6] uppercase tracking-widest mb-4 flex items-center gap-2">
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-1">
               <ChevronRight size={14}/> Input Simulator
             </h3>
             <div className="space-y-3">
               {(inputConfigs as any).length === 0 ? (
-                <div className="p-4 border border-dashed border-[#3c4043] rounded-lg text-center bg-[#171717]">
-                  <p className="text-xs text-[#5f6368] font-medium">Use Node Data In for debugging</p>
+                <div className="p-4 border border-dashed border-slate-600 rounded bg-slate-800/50">
+                  <p className="text-xs text-slate-500 italic text-center">Empty Inputs</p>
                 </div>
               ) : (inputConfigs as any).map((cfg: any) => (
-                <div key={cfg.id} className="bg-[#28292c] p-3 rounded-lg border border-[#3c4043] transition-colors hover:border-[#5f6368]">
+                <div key={cfg.id} className="bg-slate-800/80 p-3 rounded border border-slate-700">
                   
-                  {/* Image Input */}
-                  {cfg.dataType === 'numpy_array' || cfg.dataType === 'image' ? (
+                  {/* CẬP NHẬT: Hỗ trợ numpy_array, image VÀ base64 */}
+                  {['numpy_array', 'image', 'base64'].includes(cfg.dataType) ? (
                     <div>
                       <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-bold text-[#e8eaed]">{cfg.label} <span className="text-[#5f6368] font-mono font-normal">({cfg.dataType})</span></span>
-                        <label className="cursor-pointer flex items-center gap-1.5 px-3 py-1.5 bg-[#3c4043] hover:bg-[#5f6368] border border-[#5f6368] rounded text-[10px] font-bold uppercase text-[#e8eaed] transition-colors shadow-sm">
-                          <Upload size={14} className="text-[#8ab4f8]"/> Upload
-                          <input type="file" onChange={(e) => e.target.files && handleImageUpload(cfg.id, e.target.files[0])} className="hidden" />
+                        <span className="text-xs font-bold text-slate-300 font-mono">{cfg.label || cfg.id}</span>
+                        <label className="cursor-pointer flex items-center gap-1.5 px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/40 border border-blue-500/50 rounded transition-colors text-blue-400">
+                          <Upload size={14} />
+                          <span className="text-[10px] font-bold uppercase tracking-wider">Upload</span>
+                          {/* Truyền dataType vào hàm để xử lý riêng biệt */}
+                          <input type="file" accept="image/*" onChange={(e) => e.target.files && handleImageUpload(cfg.id, e.target.files[0], cfg.dataType)} className="hidden" />
                         </label>
                       </div>
-                      {simulatorData[cfg.id] && simulatorData[cfg.id] instanceof File && (
-                        <div className="relative mt-3 group w-24 h-24 rounded border border-[#3c4043] overflow-hidden bg-[#171717] shadow-inner">
-                          <img src={URL.createObjectURL(simulatorData[cfg.id])} className="w-full h-full object-cover" alt="preview" />
-                          <div onClick={() => setEnlargedImage(URL.createObjectURL(simulatorData[cfg.id]))} className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 cursor-pointer transition-opacity backdrop-blur-sm">
+                      
+                      {/* Hiển thị Preview Ảnh (Hỗ trợ cả File lẫn chuỗi Base64) */}
+                      {getPreviewImageUrl(simulatorData[cfg.id]) && (
+                        <div className="relative mt-3 group w-24 h-24 rounded border border-slate-600 overflow-hidden">
+                          <img src={getPreviewImageUrl(simulatorData[cfg.id])!} className="w-full h-full object-cover" alt="preview" />
+                          <div onClick={() => setEnlargedImage(getPreviewImageUrl(simulatorData[cfg.id])!)} className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 cursor-pointer transition-opacity backdrop-blur-sm">
                             <Eye size={20} className="text-white"/>
                           </div>
                         </div>
                       )}
                     </div>
-
+                  
                   // Boolean Input
                   ) : cfg.dataType === 'boolean' ? (
                     <label className="flex items-center justify-between cursor-pointer group">
-                      <span className="text-xs font-bold text-[#e8eaed] group-hover:text-[#8ab4f8] transition-colors">{cfg.label}</span>
+                      <span className="text-xs font-bold text-slate-300 font-mono">{cfg.label || cfg.id}</span>
                       <div className="relative flex items-center">
                         <input type="checkbox" className="sr-only peer" checked={simulatorData[cfg.id] || false} onChange={(e) => updateInput(cfg.id, e.target.checked)} />
-                        <div className="w-9 h-5 bg-[#3c4043] rounded-full peer peer-checked:after:translate-x-full peer-checked:bg-[#8ab4f8] after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-[#e8eaed] after:rounded-full after:h-4 after:w-4 after:transition-all after:shadow-sm box-border"></div>
+                        <div className="w-9 h-5 bg-slate-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-500"></div>
                       </div>
                     </label>
-
+                  
                   // Text/Number Input
                   ) : (
                     <div>
-                      <span className="text-xs font-bold text-[#e8eaed] block mb-1.5">{cfg.label}</span>
-                      <input 
-                        type={cfg.dataType === 'number' ? 'number' : 'text'} 
-                        // FIX 1: Thêm step="any" để cho phép nhập số thập phân (float)
+                      <span className="text-xs font-bold text-slate-300 font-mono mb-2 block">{cfg.label || cfg.id}</span>
+                      <input
+                        type={cfg.dataType === 'number' ? 'number' : 'text'}
                         step="any"
-                        className="w-full bg-[#171717] border border-[#3c4043] p-2 rounded text-xs text-[#e8eaed] outline-none focus:border-[#8ab4f8] transition-all shadow-inner font-mono"
-                        
-                        // FIX 2: Sử dụng toán tử ?? (nullish coalescing) thay vì || 
-                        // Để số 0 vẫn được hiển thị thay vì biến thành chuỗi rỗng
+                        className="w-full bg-slate-900 text-slate-200 px-3 py-2 text-xs rounded border border-slate-600 focus:border-blue-500 outline-none"
                         value={simulatorData[cfg.id] ?? ''}
-                        
                         onChange={(e) => {
                           const rawValue = e.target.value;
                           if (cfg.dataType === 'number') {
-                            // FIX 3: Xử lý khi xóa trắng ô nhập để không bị biến thành số 0 ngay lập tức
                             updateInput(cfg.id, rawValue === '' ? '' : Number(rawValue));
                           } else {
                             updateInput(cfg.id, rawValue);
@@ -185,48 +249,47 @@ export const DebugPanel = () => {
             </div>
           </section>
 
-          {/* PHẦN 3: RESULT INSPECTOR */}
-          <section className="border-t border-[#3c4043] pt-6">
-            <h3 className="text-xs font-bold text-[#9aa0a6] uppercase tracking-widest mb-4 flex items-center gap-2">
+          {/* RESULT INSPECTOR */}
+          <section className="border-t border-slate-700 pt-6">
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-1">
               <ChevronRight size={14}/> Result Inspector
             </h3>
-            
             {isTesting ? (
-              <div className="flex flex-col items-center justify-center p-8 text-[#8ab4f8] italic text-sm bg-[#8ab4f8]/5 rounded-lg border border-[#8ab4f8]/20">
+              <div className="flex flex-col items-center justify-center p-8 text-blue-400">
                 <Play className="animate-ping mb-3 opacity-50" size={24}/> Running Logic...
               </div>
             ) : !inspectorData || Object.keys(inspectorData).length === 0 ? (
-              <div className="p-4 border border-dashed border-[#3c4043] rounded-lg text-center bg-[#171717]">
-                <p className="text-xs text-[#5f6368] font-medium">Use Node Data Out for debugging</p>
+              <div className="p-4 border border-dashed border-slate-600 rounded bg-slate-800/50">
+                <p className="text-xs text-slate-500 italic text-center">No Result Generated</p>
               </div>
             ) : (
-              <div className="bg-[#28292c] p-4 rounded-lg border border-[#3c4043] shadow-inner space-y-4">
+              <div className="bg-slate-900 rounded border border-slate-700 overflow-hidden">
                 {inspectorData.success ? (
                   inspectorData.data && typeof inspectorData.data === 'object' ? (
                     Object.entries(inspectorData.data).map(([key, value]) => (
-                      <div key={key} className="border-b border-[#3c4043] pb-3 last:border-0 last:pb-0">
-                        <span className="text-[10px] text-[#81c995] uppercase font-bold block mb-1.5 tracking-wider">Output: {key}</span>
+                      <div key={key} className="border-b border-slate-700/50 last:border-0 p-3">
+                        <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider mb-1 block">{key}</span>
                         {isBase64Image(value) ? (
-                          <div className="relative mt-2 group w-24 h-24 rounded border border-[#3c4043] overflow-hidden bg-black shadow-inner">
+                          <div className="relative mt-2 group w-24 h-24 rounded border border-slate-600 overflow-hidden">
                             <img src={value as string} alt={key} className="w-full h-full object-cover" />
                             <div onClick={() => setEnlargedImage(value as string)} className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 cursor-pointer transition-opacity backdrop-blur-sm">
                               <Eye size={20} className="text-white"/>
                             </div>
                           </div>
                         ) : (
-                          <pre className="text-[#9aa0a6] font-mono text-xs whitespace-pre-wrap break-all bg-[#171717] p-2 rounded border border-[#3c4043]">
+                          <pre className="text-xs text-slate-300 font-mono whitespace-pre-wrap break-all">
                             {typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)}
                           </pre>
                         )}
                       </div>
                     ))
                   ) : (
-                    <pre className="text-[#9aa0a6] font-mono text-xs whitespace-pre-wrap break-all bg-[#171717] p-2 rounded border border-[#3c4043]">{JSON.stringify(inspectorData, null, 2)}</pre>
+                    <pre className="text-xs text-slate-300 font-mono p-3 break-all">{JSON.stringify(inspectorData.data, null, 2)}</pre>
                   )
                 ) : (
-                  <div className="text-[#f28b82]">
+                  <div className="text-red-400 p-3">
                     <p className="font-bold flex items-center gap-2 text-sm mb-2"><X size={16}/> Lỗi tại: {inspectorData.failed_node_id || "Hệ thống"}</p>
-                    <p className="text-xs bg-[#f28b82]/10 p-3 rounded border border-[#f28b82]/30 leading-relaxed font-mono">{inspectorData.error_message || "Đã xảy ra lỗi không xác định."}</p>
+                    <p className="text-xs bg-red-500/10 border border-red-500/20 p-2 rounded">{inspectorData.error_message}</p>
                   </div>
                 )}
               </div>
@@ -239,8 +302,10 @@ export const DebugPanel = () => {
       {enlargedImage && (
         <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-md flex items-center justify-center p-8">
           <div className="relative max-w-full max-h-full">
-            <button onClick={() => setEnlargedImage(null)} className="absolute -top-12 right-0 p-2 bg-[#202124] hover:bg-[#f28b82] text-[#9aa0a6] hover:text-[#202124] rounded-full transition-colors border border-[#3c4043] hover:border-transparent"><X size={24} /></button>
-            <img src={enlargedImage} alt="Enlarged" className="max-w-[90vw] max-h-[85vh] object-contain rounded-lg shadow-2xl border border-[#3c4043] bg-black" />
+            <button onClick={() => setEnlargedImage(null)} className="absolute -top-12 right-0 p-2 bg-red-600 hover:bg-red-500 text-white rounded-full transition-colors shadow-lg">
+              <X size={24}/>
+            </button>
+            <img src={enlargedImage} alt="Enlarged" className="max-w-[90vw] max-h-[85vh] object-contain rounded-lg shadow-2xl border border-slate-700 bg-slate-900" />
           </div>
         </div>
       )}

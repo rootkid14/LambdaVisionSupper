@@ -14,6 +14,7 @@ from app.services.DevicePoolManager import HTTPDevicePoolManager
 # ==========================================
 
 class ESPCameraOutput(BaseModel):
+    execute_out: Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
     model_config = ConfigDict(arbitrary_types_allowed=True)
     image: np.ndarray = Field(..., title="Image Data", description="numpy_array")
 
@@ -37,15 +38,14 @@ class ESP32CameraNode(BaseNode[None, ESPCameraOutput]):
         UIConfigField(
             id="deviceID",
             label="Select a Device",
-            options=["Options1", "options2"],
-            default="Options1",
-            type=UIConfigType.SELECT
+            default="",
+            type=UIConfigType.DEVICE_POOL_DROPDOWN
         )
     ]
 
     def __init__(self, node_id, parent, node_data=None):
         super().__init__(node_id, parent, node_data)
-        self.device_id = node_data.get("deviceID")
+        self.device_id = self.get_config_field_value("deviceID", "")
     # ==========================================
     # 3. LUỒNG THỰC THI CHÍNH
     # ==========================================

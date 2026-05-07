@@ -1,7 +1,7 @@
 from typing import Dict, Any, List
 from pydantic import Field, create_model, BaseModel, ConfigDict
 from app.services.node_registry import BaseNode, registry_node
-from app.services.LVSTypes import NodeType, map_fe_type_to_python, UIConfigField, UIConfigType
+from app.services.LVSTypes import NodeType, map_fe_type_to_python, UIConfigField, UIConfigType, UIDataType
 
 @registry_node
 class CreateJSONNode(BaseNode):

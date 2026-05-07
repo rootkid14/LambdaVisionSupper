@@ -9,6 +9,7 @@ from app.services.node_registry import BaseNode, registry_node
 from app.services.LVSTypes import NodeType, UIDataType, UIConfigField, UIConfigType
 
 class APIInput(BaseModel):
+    execute_in: Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
     payload: Dict[str, Any] = Field(default_factory=dict, title="RequestBody", description=UIDataType.JSON)
 
 class APIOutput(BaseModel):
@@ -154,8 +155,7 @@ class CallLogicObjectNode(BaseNode[callLogicObjectInput, APIOutput]):
         UIConfigField(
             id="serverId",
             label="Select Server",
-            type=UIConfigType.SELECT,
-            options=["sev1", "sev2"],
+            type=UIConfigType.SERVER_POOL_DROPDOWN,
             default=""
         ),
         UIConfigField(

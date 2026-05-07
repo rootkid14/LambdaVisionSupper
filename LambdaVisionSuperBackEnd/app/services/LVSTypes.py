@@ -22,6 +22,7 @@ class UIDataType(str, Enum):
     DICT = "dict"
     LIST = "list"
     BASE64 = "base64"
+    EXECUTE = "execute"
 
 
 class FileType(str, Enum):
@@ -36,6 +37,21 @@ class NodeType(Enum):
     OBJECT = 3
     FUNCTION = 4
     API = 5
+    JOIN = 6
+    SPLIT = 7
+    MEMORY = 8
+    MEMORY_READ = 9
+    TELEPORT_IN = 10
+    TELEPORT_OUT = 11
+
+class TokenStatus(int, Enum):
+    READY = 0
+    PROCESSING = 1
+
+class GraphNodeType(int, Enum):
+    NORMAL = 0
+    SPLIT = 1
+    JOIN = 2
 
 
 def map_fe_type_to_python(fe_type: str) -> Any:
@@ -52,6 +68,7 @@ def map_fe_type_to_python(fe_type: str) -> Any:
         "dict": Dict[str, Any],
         "list": List[Any],
         "base64": str,
+        "execute": Any
     }
     return mapping.get(fe_type, Any)
 

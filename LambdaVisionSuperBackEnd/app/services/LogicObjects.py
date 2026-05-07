@@ -1,107 +1,220 @@
 from typing import Dict, Any, TYPE_CHECKING
-from app.services.LVSTypes import NodeType
+from app.services.LVSTypes import NodeType, GraphNodeType, TokenStatus
 from app.services.node_registry import BaseNode, NODE_REGISTRY
 from collections import deque
+from enum import Enum
+import uuid
+import base64
+import asyncio
 
 if TYPE_CHECKING:
     from app.services.LogicPoolManager import LogicPoolManager
 
+
 class LogicObject():
     def __init__(self, workflow_json: Dict[str, Any], logicPoolManagerInst: "LogicPoolManager"):
-        # Chứa dánh sách các node đã được tạo
-        self.nodes_list: Dict[str, "BaseNode"] = {}
+        # Format: {token_id: {status: ..., node_id: ....}} --> the Logic Object will loop through this.
+        self.tokens_list : Dict[str, Dict[str, Any]] = {}
         
-        # Format: {node_id: {input_pin: {"source_node": "...", "source_pin": "..."}}}
-        self.nodes_mapping: Dict[str, Dict[str, Dict[str, str]]] = {} 
+        # Chứa dánh sách các node được tạo {node_id : instance}
+        self.nodes_list: Dict[str, "BaseNode"] = {}
+
+        #Format: {node_id : {"type" : GraphNodeType, "next_node": string}}
+        self.nodes_mapping : Dict[str, Dict[str, Any]] = {}
+    
+        # Format: {"memory slot": "value"} --> 2 pins can share a common key, The system based on the edges scheme to construct the memory pools and assign it to each node.
+        self.memory_pool: Dict[str, Any] = {}
+
+        self.extra_memory: Dict[str, Any] = {} #--> Isolated memory location used for caching (the Read/ Write Internal Memory nodes)
 
         #Format : {"filename" :  Loaded Instance}
         self.logicPoolManagerInst = logicPoolManagerInst
         
-        self.sequence: list = []
+        self.logic_timeout = 5.0 #default 5.0 seccond maximum allowed for each logic object
         
         # Chạy ngay khi khởi tạo
-        self.initialize_logic_object(workflow_json)
+        self._compile_graph(workflow_json)
 
-    def build_execution_sequence(self, workflow_json: Dict[str, Any]):
-        """Kahn's Topological Sort Algorithm for translating the graph to a linear list"""
-        nodes = workflow_json.get("nodes", [])
-        for node in nodes:
-            node_id = node.get("id")
-            node_data = node.get("data", {})
-            node_class_name = node_data.get("class")
+    def _compile_graph(self, workflow_json: Dict[str, Any]):
+        self.logic_timeout = float(workflow_json.get("timeout", 5.0))
+        nodes_data = workflow_json.get("nodes", [])
+        edges_data = workflow_json.get("edges", [])
 
-            #Get the class from the REGISTRY
-            node_class = NODE_REGISTRY.get(node_class_name)
 
-            #Create a new node instance
-            if not node_class:
-                raise ValueError(f"Không tìm thấy node class {node_class_name} trong registry")
+        #STEP 1: SPAWN THE NODES BASED ON JSON SCHEME
+        for nd in nodes_data:
+            node_id = nd["id"]
+            node_class_name = nd.get("data", {}).get("class")
 
-            new_node = node_class(node_id, self, node_data)
-            self.nodes_list[node_id] = new_node
+            NodeClass = NODE_REGISTRY.get(node_class_name)
+            if not NodeClass:
+                raise Exception(f"Error: Cannot find class: {node_class_name}")
+
+            node_instance = NodeClass(node_id, self, nd.get("data", {}))
+
+            node_instance.input_memory_map = {} #Format {name_of_input_pin: Memory_slot}  --> For memory pools mapping
+            node_instance.output_memory_map = {} #Format {name_of_output_pin: Memory_slot} --> For memory pools mapping
+            node_instance.next_nodes = []
+            node_instance.prev_nodes = []
+            self.memory_generators = {} #format ("memory slot id" : "node_id who can generate it")
+ 
+            self.nodes_list[node_id] = node_instance
+        
+
+        #STEP 2: CHECK EDGES SCHEME TO BUILD THE MEMORY POOL (ALOCATE MEMORY SLOT THEN LINK THE PINS OF NODE WITH SLOTS)
+        EXEC_KEYWORDS  = ['execute', 'out_true', 'out_false', 'out_case', 'out_default'] # NO NEED TO ALLOCATE MEMORY FOR TRIGGER PINS
+        
+        for edge in edges_data:
+            src_id = edge.get("source")
+            src_pin = edge.get("sourceHandle")
+            tgt_id = edge.get("target")
+            tgt_pin = edge.get("targetHandle")
+
+            if not src_id or not tgt_id or src_id not in self.nodes_list or tgt_id not in self.nodes_list:
+                raise Exception(f"there is no src_id {src_id} or tgt_id {tgt_id} or they are not in nodes list")
+        
+            src_node = self.nodes_list[src_id]
+            tgt_node = self.nodes_list[tgt_id]
+
+            #CASE 1 : IS EXECUTION WIRE
+            is_exec_wire = any(keyword in src_pin.lower() for keyword in EXEC_KEYWORDS)
+            is_receiving_exec_wire = any(keyword in tgt_pin.lower() for keyword in EXEC_KEYWORDS)
+            is_execution_valid = (is_exec_wire and is_receiving_exec_wire)
+            is_execution_invalid = (is_exec_wire and not is_receiving_exec_wire) or (not is_exec_wire and is_receiving_exec_wire)
+            if is_execution_valid:
+                src_node.next_nodes.append(tgt_id)
                 
+                # OUTPUT EXEC MAPPINGS FOR SWITCH NODE
+                if src_pin not in src_node.output_exec_map:
+                    src_node.output_exec_map[src_pin] = []
+                src_node.output_exec_map[src_pin].append(tgt_id)
 
-        in_degree = {node_id : 0 for node_id in self.nodes_list}
-        graph = {node_id : [] for node_id in self.nodes_list}
+                if src_id not in tgt_node.prev_nodes:
+                    tgt_node.prev_nodes.append(src_id)
 
-        unique_dependencies = set()
-        for target_node_id, pins in self.nodes_mapping.items():
-            for target_pin, source_info in pins.items():
-                source_node_id = source_info["source_node"]
-                unique_dependencies.add((source_node_id, target_node_id))
-        for source_id, target_id in unique_dependencies:
-            if source_id in self.nodes_list and target_id in self.nodes_list:
-                graph[source_id].append(target_id)
-                in_degree[target_id] += 1
-
-        queue = deque([node_id for node_id, deg in in_degree.items() if deg == 0])
-
-        sorted_node_ids = []
-
-        while (queue):
-            current_id = queue.popleft()
-            sorted_node_ids.append(current_id)
-
-            for neighbor_id in graph[current_id]:
-                in_degree[neighbor_id] -= 1
-
-                if in_degree[neighbor_id] == 0:
-                    queue.append(neighbor_id)
-        
-        self.sequence = sorted_node_ids
-
-
-    def initialize_logic_object(self, workflow_json: Dict[str, Any]):
-        """Quét JSON để tạo danh sách node và nối dây (nodes_mapping)"""
-        # ==========================================
-        # BƯỚC 1: (Xây dựng bản đồ kết nối)
-        # ==========================================
-        edges = workflow_json.get("edges", [])
-        for edge in edges:
-            source_node = edge.get("source")
-            source_pin = edge.get("sourceHandle")
+            elif is_execution_invalid:
+                raise Exception(f"Trying to make a connection between execution and data pins of node {src_id} and {tgt_id}")
             
-            receive_node = edge.get("target")
-            input_pin = edge.get("targetHandle")
+            else:
+            #CASE 2 : IS DATA WIRE
+                #NOTE: It might not look important, but do not delete it!!!
+                # IF already exist -> Get from the output memory map of this node (this is to avoid 2 uuid was generate on 2 loops in scheme where this node are output to more than one nodes)
+                if src_pin in src_node.output_memory_map:
+                    memory_slot_key = src_node.output_memory_map[src_pin]
+                else:
+                    u = uuid.uuid4()
+                    short_id = base64.urlsafe_b64encode(u.bytes).rstrip(b'=').decode()
+                    memory_slot_key = f"mem_{short_id}"
 
-            if receive_node not in self.nodes_mapping:
-                self.nodes_mapping[receive_node] = {}
+                    # Inject mapping into the node.
+                    src_node.output_memory_map[src_pin] = memory_slot_key
+
+                    self.memory_generators[memory_slot_key] = src_id
+                
+                # The target node will share the same memory slot id:
+                tgt_node.input_memory_map[tgt_pin] = memory_slot_key
+
+                # Allocate an empty memory slot
+                self.memory_pool[memory_slot_key] = None
         
-            # Ghi chép lại: "Tham số [input_pin] của tao node này lấy từ [source_node][source_pin]"
-            self.nodes_mapping[receive_node][input_pin] = {
-                "source_node": source_node,
-                "source_pin": source_pin
+
+        # STEP 3 : COMPLETING NODES MAPPING FOR LOGIC OBJECTS
+        for node_id, node in self.nodes_list.items():
+
+            targets = node.next_nodes
+            sources = node.prev_nodes # Lấy danh sách các node đang đổ về
+            in_degree = len(sources)
+
+            if node.NODE_TYPE == NodeType.JOIN:
+                node.token_qty_required = in_degree
+
+            self.nodes_mapping[node_id] = {"type": node.NODE_TYPE, "next_nodes": targets,"prev_nodes": sources, "in_degree": len(sources)}
+
+    def spawn_token(self, node_id):
+        token_id = uuid.uuid4()
+        self.tokens_list[token_id] = {"status" : TokenStatus.READY, "node_id": node_id}
+
+    def delete_token(self, token_id):
+        del self.tokens_list[token_id]        
+            
+    def assign_token_to(self, token_id, node_id):
+        self.tokens_list[token_id] = {"status": TokenStatus.READY, "node_id": node_id}
+
+    async def _run_loop(self, payload: dict = None):
+        """MAIN RUNNING LOOP OF THE LOGICOBJECT"""
+
+        for node_id, node_instance in self.nodes_list.items():
+            node_instance._reset_cache()
+        self.extra_memory = {}
+
+        try:
+            self.inject_payload_and_assign_start_token(payload)
+        except Exception as e:
+            recipient_node = next((n for n in self.nodes_list.values() if n.__class__.__name__ == "ReceivePayloadNode"), None)
+            fail_id = recipient_node.node_id if recipient_node else "System_Entry"
+            return {
+                "success" : False,
+                "failed_node_id": fail_id,
+                "error_message" : f"Dữ liệu Payload không hợp lệ: {e}"
+            }
+        
+        async def __inner_execution_process():
+            while True:
+                try:
+                    ready_tokens = [t_id for t_id, t_info in self.tokens_list.items() if t_info["status"] == TokenStatus.READY]
+
+
+                    if not ready_tokens:
+                        # Nếu có Token đang PROCESSING (ví dụ chờ API/Tải file), ta tạm nghỉ để nhường CPU
+                        if any(t["status"] == TokenStatus.PROCESSING for t in self.tokens_list.values()):
+                            await asyncio.sleep(0.01)
+                            continue
+                        else:
+                            break
+                    
+                    tasks = []
+
+                    for t_id in ready_tokens:
+                        node_id = self.tokens_list[t_id]["node_id"]
+                        print(f"active Node {node_id}")
+                        node_instance = self.nodes_list[node_id]
+                        tasks.append(node_instance._execution_logic(t_id))
+                    
+                    await asyncio.gather(*tasks)
+                except Exception as e:
+                    raise Exception(f"Lỗi thực thi vòng lặp Logic Object tại một trong các token: {self.tokens_list}, chi tiết: {e}")
+
+        try:
+            if self.logic_timeout > 0:
+                await asyncio.wait_for(__inner_execution_process(), timeout=self.logic_timeout)
+            else:
+                await __inner_execution_process()
+        except asyncio.TimeoutError:
+            return {
+                "success": False,
+                "failed_node_id": "System_Graph",
+                "error_message": f"GLOBAL TIMEOUT: Đồ thị đã chạy vượt quá giới hạn {self.logic_timeout} giây. Phát hiện vòng lặp vô tận (Infinite Loop) của các khối nối dây!"
+            }
+        
+        except Exception as e:
+
+            return {
+                "success" : False,
+                "failed_node_id": "node_id",
+                "error_message" : f"Lỗi Runtime: {e}"
             }
 
-        # Tạo node và tái tạo lại sequence chạy chuẩn
-        self.build_execution_sequence(workflow_json)
+        return {"success": True}
+                
 
-    def inject_payload(self, payload: dict):
+    def inject_payload_and_assign_start_token(self, payload: dict):
         """Inject the AXIOS payload in to the ReceipientNode"""
         for node in self.nodes_list.values():
             if node.__class__.__name__ == "ReceivePayloadNode":
+                self.spawn_token(node.node_id)
                 if not node.OUTPUT_SCHEMA:
                     return
+                payload = payload or {}
                 try:
                     node.local_output = node.OUTPUT_SCHEMA(**payload)
                 except Exception as e:
@@ -119,34 +232,6 @@ class LogicObject():
         return {"error": "Không tìm thấy SendResponseNode trong Graph"}
 
 
-    async def run_nodes_loop(self, payload:dict = None):
-        if payload is None: 
-            payload = {}
-            
-        self.reset_graph_state()
-        try:
-            self.inject_payload(payload)
-        except Exception as e:
-            recipient_node = next((n for n in self.nodes_list.values() if n.__class__.__name__ == "ReceivePayloadNode"), None)
-            fail_id = recipient_node.node_id if recipient_node else "System_Entry"
-            return {
-                "success" : False,
-                "failed_node_id": fail_id,
-                "error_message" : f"Dữ liệu Payload không hợp lệ: {e}"
-            }
-        
-        for node_id in self.sequence:
-            try:
-                node = self.nodes_list[node_id]
-                await node.resolve_and_execute()
-            except Exception as e:
-                return {
-                    "success" : False,
-                    "failed_node_id": node_id,
-                    "error_message" : str(e)
-                }
-        return {"success": True}
-    
     def reset_graph_state(self):
         """Reset All Nodes memory"""
         for node in self.nodes_list.values():

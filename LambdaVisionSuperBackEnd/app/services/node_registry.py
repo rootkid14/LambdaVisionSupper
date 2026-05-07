@@ -1,10 +1,11 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Any, List, Type, Generic, TypeVar, TYPE_CHECKING
-from pydantic import BaseModel, Field, ValidationError, create_model, ConfigDict
-from app.services.LVSTypes import NodeType, UIDataType, map_fe_type_to_python, UIConfigField
+from pydantic import BaseModel, Field, create_model, ConfigDict
+from app.services.LVSTypes import NodeType, UIDataType, map_fe_type_to_python, UIConfigField, UIConfigType, TokenStatus
+import asyncio
 
 if TYPE_CHECKING:
-    from LogicObjects import LogicObject
+    from app.services.LogicObjects import LogicObject
 
 
 NODE_REGISTRY: Dict[str, Type["BaseNode"]] = {}
@@ -40,58 +41,199 @@ class BaseNode(ABC, Generic[TInput, TOutput]):
     METHOD_NODE_LIST : List[str] = None #ONLY FOR OBJECT NODE
     CONFIG_FIELDS : List[UIConfigField] = None #For inline config fields
     INLINE_TYPE = None
+    
+    # Đặt Timeout mặc định cho tất cả các Node là 5 giây (<= 0 means allow infinite loop)
+    NODE_TIMEOUT = 1.0
 
     #UI VARIABLES (OVERRID BY CHILDREN CLASSES)
     UI_DESCRIPTION : str = "No Description"
     UI_COLOR: str = "bg-gray-500"
     UI_LABEL: str = "Base Node"
 
+    # ==========================================
+    # MAGIC METHOD: ÉP BUỘC CÓ TRƯỜNG TIMEOUT
+    # ==========================================
+    @classmethod
+    def get_default_config(cls) -> List[UIConfigField]:
+        return [
+            UIConfigField(
+                id="timeout_limit", 
+                label="Timeout (s)", 
+                type=UIConfigType.NUMBER.value, 
+                default=cls.NODE_TIMEOUT
+            )
+        ]
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        
+        # Nếu class con quên khai báo CONFIG_FIELDS, tạo mảng rỗng
+        if getattr(cls, 'CONFIG_FIELDS', None) is None:
+            cls.CONFIG_FIELDS = []
+            
+        # Kiểm tra xem class con đã tự định nghĩa trường timeout_limit chưa
+        has_timeout = any(f.id == "timeout_limit" for f in cls.CONFIG_FIELDS)
+        
+        # Tiêm trường timeout vào đầu mảng config
+        if not has_timeout:
+            cls.CONFIG_FIELDS = cls.get_default_config() + cls.CONFIG_FIELDS
+
+
     def __init__(self, node_id: str, parent: "LogicObject", node_data: dict = None):
         self.node_id = node_id
         self.parent = parent
         self.node_data = node_data or {}
+        self.next_nodes : List[str] = [] 
+
+        self.output_exec_map: Dict[str, List[str]] = {}
+
+        self.prev_nodes : List[str] = []
+        self.input_memory_map = {} 
+        self.output_memory_map = {} 
+        
+        # Trạng thái Runtime
+        self.has_executed = False
+        self.is_resolving_data = False # CHỐT CHẶN BẢO VỆ CYCLIC LOOP
+        self.kept_tokens = []
+        self.token_count = 0
+        self.token_qty_required = 0
         
         # Bóc tách inline_val từ thẳng node_data
         self.inline_val = self.node_data.get("inlineValue") 
         
+        # ĐỌC CẤU HÌNH TIMEOUT TỪ FRONTEND TRUYỀN XUỐNG
+        raw_timeout = self.get_config_field_value("timeout_limit", self.NODE_TIMEOUT)
+        try:
+            self.timeout_limit = float(raw_timeout)
+        except (TypeError, ValueError):
+            self.timeout_limit = self.NODE_TIMEOUT
+        
         self.local_input: TInput = None
         self.local_output: TOutput = None
 
-    async def resolve_and_execute(self):
-        """1. Gom dữ liệu -> 2. Kiểm duyệt Input -> 3. Chạy & tạo output """
-        raw_kwargs = {}
-        # LOCALIZE MAPPING FOR THIS NODES
-        self.local_mapping = self.parent.nodes_mapping.get(self.node_id, {})
+    def _reset_cache(self):
+        """LogicObject sẽ gọi hàm này ở giây đầu tiên của mỗi chu kỳ chạy"""
+        self.local_input = None
+        self.local_output = None
+        self.has_executed = False
+        self.is_resolving_data = False
+        self.kept_tokens = []
+        self.token_count = 0
 
-        # Find the input values by tracing the connection of this node with previous nodes that connect to it
-        for input_param_name, data in self.local_mapping.items():
-            src_node_id = data["source_node"]
-            src_pin = data["source_pin"]
-            
-            src_node = self.parent.nodes_list.get(src_node_id)
-            
-            # Ensure that the source node exists and already have some output
-            if not src_node or src_node.local_output is None :
-                raise ValueError(f"Node '{src_node_id}' chưa chạy hoặc thất bại, không có dữ liệu cho pin '{src_pin}'")
-            
-            try:
-                raw_kwargs[input_param_name] = getattr(src_node.local_output, src_pin)
-            except Exception as e:
-                raise ValueError(f"Không thể trích xuất {src_pin} từ {src_node.node_id}")
-
-        # --- Pydantic Sanity check for inputs before intialize local_input ---
-        if self.INPUT_SCHEMA:
-            try:
-                self.local_input = self.INPUT_SCHEMA(**raw_kwargs)
-            except ValidationError as e:
-                raise ValueError(f"Dữ liệu đầu vào của Node {self.node_id} bị sai định dạng:\n{e}")
+    def _receive_token(self, token_id) -> None:
+        """Swith the token state to processing"""
+        if token_id is None:
+            return
+        if (self.NODE_TYPE is NodeType.JOIN and token_id not in self.kept_tokens): 
+            self.parent.delete_token(token_id)
+            self.kept_tokens.append(token_id)
+            self.token_count += 1
         else:
-            pass
+            self.parent.tokens_list[token_id] = {"status": TokenStatus.PROCESSING, "node_id": self.node_id}
+
+    def _forward_token(self, token_id) -> None:
+        """Move the token to next guy(s)"""
+        if token_id is None:
+            return
+        if(self.NODE_TYPE is NodeType.SPLIT): 
+            self.parent.delete_token(token_id)
+            for node_id in self.next_nodes:
+                self.parent.spawn_token(node_id)
+        else:
+            if self.next_nodes:
+                self.parent.tokens_list[token_id] = {"status": TokenStatus.READY, "node_id": self.next_nodes[0]} 
+            else:
+                # Nếu không còn next_nodes, Token này đã hoàn thành sứ mệnh
+                self.parent.delete_token(token_id)
+
+    async def _execution_logic(self, token_id) -> List[str]:
+        """The main logic execution of this node, will be called by Logic Object in its main loop"""
+
+        if self.has_executed:
+            self._forward_token(token_id)
+
+        self._receive_token(token_id)
+
+        print(f"Node {self.node_id} has memory map of: input: {self.input_memory_map}, output: {self.output_memory_map}")
+
+        # Recursive call to previous node to get it running so the data appears.
+        for pin_name, mem_slot in self.input_memory_map.items():
+            if self.parent.memory_pool.get(mem_slot) is None:
+                generator_node_id = self.parent.memory_generators.get(mem_slot)
+                print(f"node {self.node_id} is recursively called {generator_node_id} for {mem_slot}")
+                if generator_node_id:
+                    generator_node = self.parent.nodes_list[generator_node_id]
+                    if not generator_node.has_executed:
+                        await generator_node._execution_logic(None)
+                            
+           
+        #Extract input from parent's Memory pool
+        raw_inputs = {}
+        #safely get self.input_memory_map.items() which is the {pin_name : memory_slot_id} 
+        for pin_name, mem_slot in getattr(self, 'input_memory_map', {}).items():
+            raw_inputs[pin_name] = self.parent.memory_pool.get(mem_slot) # {pinname: value}
+
+        if self.INPUT_SCHEMA:
+            # Lọc bỏ None để Pydantic tự động ăn giá trị Default
+            clean_inputs = {k: v for k, v in raw_inputs.items() if v is not None}
+            try:
+                self.local_input = self.INPUT_SCHEMA(**clean_inputs)
+            except Exception as e:
+                raise Exception(f"Lỗi trích xuất input values của node {self.node_id} \n{e}")
 
         try:
-            await self.execute()
+            if self.timeout_limit > 0:
+                target_pin = await asyncio.wait_for(self.execute(), self.timeout_limit)
+            else:
+                target_pin = await self.execute()
+        except asyncio.TimeoutError:
+            raise RuntimeError(f"TIMEOUT: Khối [{self.UI_LABEL}] đã chạy vượt quá {self.timeout_limit} giây! Vui lòng kiểm tra lại vòng lặp vô hạn hoặc nghẽn mạng.")
         except Exception as e:
-            raise ValueError(f"{self.node_id} đã xảy ra lỗi trong quá trình thực thi logic:\n{e}")
+            # Re-raise lỗi bình thường để hệ thống bắt
+            raise RuntimeError(f"Lỗi logic tại [{self.UI_LABEL}]: {str(e)}")
+        
+        #Get Data from ouputs pin to write to Memory Pool:
+        if self.local_output and hasattr(self, 'output_memory_map'):
+            for pin_name, mem_slot in self.output_memory_map.items():
+                #Pin names is the Output class attribute, use it to extract the value to write to memory pool
+                val = getattr(self.local_output, pin_name, None)
+                self.parent.memory_pool[mem_slot] = val
+
+        #MOVE_TOKEN
+        if isinstance(target_pin, str) and target_pin in self.output_exec_map:
+            # Node chủ động yêu cầu rẽ nhánh (VD: return "out_case_0")
+            target_nodes = self.output_exec_map[target_pin]
+            if not target_nodes:
+                 self.parent.delete_token(token_id) # Chân rẽ nhánh không cắm dây -> Hủy Token
+            else:
+                 # Đẩy Token sang node được cắm ở nhánh đó
+                 self.parent.tokens_list[token_id] = {"status": TokenStatus.READY, "node_id": target_nodes[0]}
+        else:
+            # Các node tuyến tính bình thường (không return gì cả) -> chạy luồng cũ
+            self._forward_token(token_id)
+
+
+    def get_config_field_value(self, config_id: str, fallback_value: Any = None) -> Any:
+        """
+        Trích xuất giá trị cấu hình theo thứ tự ưu tiên:
+        1. Lấy giá trị user đã đổi (nằm thẳng ở node_data)
+        2. Lấy giá trị default từ mảng config_fields (nếu user chưa từng chạm vào FE)
+        3. Lấy giá trị fallback_value truyền vào nếu hoàn toàn không tìm thấy.
+        """
+        # Ưu tiên 1: Lấy trực tiếp từ node_data (do người dùng đã đổi trên UI)
+        if config_id in self.node_data:
+            return self.node_data[config_id]
+            
+        # Ưu tiên 2: Móc vào mảng config_fields để tìm giá trị default
+        config_fields = self.node_data.get("config_fields", [])
+        for field in config_fields:
+            if field.get("id") == config_id:
+                return field.get("default", fallback_value)
+                
+        # Ưu tiên 3: Trả về fallback
+        return fallback_value
+
+
 
     @abstractmethod
     async def execute(self) -> None:
@@ -133,13 +275,54 @@ class BaseNode(ABC, Generic[TInput, TOutput]):
             manifest.update({"functions" : cls.METHOD_NODE_LIST})
         return manifest
     
-    def reset(self):
-        self.local_input = None
-        self.local_output = None
+
+class FlowNodeInput(BaseModel):
+    execute_in: Any = Field(default="GO", title="execute", description=UIDataType.EXECUTE.value)
+
+class FlowNodeOutput(BaseModel):
+    execute_out: Any = Field(default="GO", title="execute", description=UIDataType.EXECUTE.value)
+
+@registry_node
+class JoinNode(BaseNode[FlowNodeInput, FlowNodeOutput]):
+    """This node only forward the token when all of its previous nodes has reached it"""
+    INPUT_SCHEMA = FlowNodeInput
+    OUTPUT_SCHEMA = FlowNodeOutput
+    UI_LABEL = "JOIN"
+    UI_DESCRIPTION = "Join Previous Nodes"
+    UI_COLOR = "#8b5cf6"
+    NODE_TYPE = NodeType.JOIN
+
+    async def execute(self):
+        if self.token_count >= self.token_qty_required:
+            if self.next_nodes:
+                self.parent.spawn_token(self.next_nodes[0])
+        
+
+@registry_node
+class SplitNode(BaseNode[FlowNodeInput, FlowNodeOutput]):
+    """This node split into many tokens and do multiple things at once"""
+    INPUT_SCHEMA = FlowNodeInput
+    OUTPUT_SCHEMA = FlowNodeOutput
+    UI_LABEL = "SPLIT"
+    UI_DESCRIPTION = "SPLIT execution into several tokens"
+    UI_COLOR = "#8b5cf6"
+    NODE_TYPE = NodeType.SPLIT
+
+    async def execute(self):
+        return await super().execute()
+
+
+
+
+class TerminalNodeDefaultPin(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    execute: Any = Field(default="GO", title="execute", description=UIDataType.EXECUTE.value)
+
         
 @registry_node
-class SendResponseNode(BaseNode):
+class SendResponseNode(BaseNode[TerminalNodeDefaultPin, None]):
     """This Node act as the final node in the LogicHandling Graph, it is the user way to define what data they want to get back"""
+    INPUT_SCHEMA = TerminalNodeDefaultPin
     OUTPUT_SCHEMA = None
     NODE_TYPE = NodeType.PROGRAM
     UI_LABEL = "Data Out"
@@ -151,14 +334,23 @@ class SendResponseNode(BaseNode):
 
         dynamic_inputs = node_data.get("inputs", [])
         fields = {}
+
         for pin in dynamic_inputs:
             pin_id = pin["id"]
-            py_type = map_fe_type_to_python(pin.get("dataType"))
-            fields[pin_id] = (py_type, Field(title=pin.get("label", pin_id)))
+            data_type_str = pin.get("dataType")
+            
+            if data_type_str == UIDataType.EXECUTE.value:
+                continue 
+                
+            py_type = map_fe_type_to_python(data_type_str)
+            fields[pin_id] = (py_type, Field(default=None, title=pin.get("label", pin_id)))
 
         if fields:
-            # Stick the dynamic pydantic model into class Instance rather than stick to Class.
-            self.INPUT_SCHEMA = create_model(f'DynamicInput_{self.node_id}',__config__=ConfigDict(arbitrary_types_allowed=True), **fields)
+            self.INPUT_SCHEMA = create_model(
+                f'DynamicInput_{self.node_id}', 
+                __config__=ConfigDict(arbitrary_types_allowed=True), 
+                **fields
+            )
         else:
             self.INPUT_SCHEMA = None
     
@@ -167,6 +359,7 @@ class SendResponseNode(BaseNode):
             Thanks to Pydantic, the self.local_input is now sanitized.
             The data is directly flow to local_output so that the ResponseFormation class can take the result out and send back to FE.
         """
+
         if self.local_input:
             final_data = self.local_input.model_dump()
         else:
@@ -191,10 +384,9 @@ class SendResponseNode(BaseNode):
         return path
 
 
-
 @registry_node
-class ReceivePayloadNode(BaseNode):
-    OUTPUT_SCHEMA = None
+class ReceivePayloadNode(BaseNode[None, TerminalNodeDefaultPin]):
+    OUTPUT_SCHEMA = TerminalNodeDefaultPin
     NODE_TYPE = NodeType.PROGRAM
     UI_LABEL = "Data In"
     UI_DESCRIPTION = "Define what data need to receive from FE"
@@ -203,15 +395,28 @@ class ReceivePayloadNode(BaseNode):
     def __init__(self, node_id, parent, node_data = None):
         super().__init__(node_id, parent, node_data)
 
+        self.has_executed = True
+
         dynamic_outputs = node_data.get("outputs", [])
         fields = {}
+
         for pin in dynamic_outputs:
             pin_id = pin["id"]
-            py_type = map_fe_type_to_python(pin.get("dataType"))
-            fields[pin_id] = (py_type, Field(title=pin.get("label", pin_id)))
+            data_type_str = pin.get("dataType")
+            
+            #Remove Execution Pin from the BE built Pydantic to avoid error
+            if data_type_str == UIDataType.EXECUTE.value:
+                continue 
+                
+            py_type = map_fe_type_to_python(data_type_str)
+            fields[pin_id] = (py_type, Field(default=None, title=pin.get("label", pin_id)))
 
         if fields:
-            self.OUTPUT_SCHEMA = create_model(f'DynamicOutput_{self.node_id}', __config__=ConfigDict(arbitrary_types_allowed=True), **fields)
+            self.OUTPUT_SCHEMA = create_model(
+                f'DynamicOutput_{self.node_id}', 
+                __config__=ConfigDict(arbitrary_types_allowed=True), 
+                **fields
+            )
         else:
             self.OUTPUT_SCHEMA = None
 
@@ -232,7 +437,6 @@ class ReceivePayloadNode(BaseNode):
             data_type = pin.get("dataType", "any")
             if pin_id:
                 path[f".{pin_id}"] = data_type
-        
         return path
     
 

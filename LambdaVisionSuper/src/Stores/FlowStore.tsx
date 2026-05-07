@@ -1,4 +1,3 @@
-// store/FlowStore.ts
 import { create } from "zustand";
 import {
   Node,
@@ -9,39 +8,25 @@ import {
   applyNodeChanges,
   applyEdgeChanges,
   addEdge,
+  Connection, // Thêm cái này để dùng cho validator
 } from "@xyflow/react";
 
 import { WorkerDetails } from "../Stores/FleetDashboardStores";
 import { NodeAPI } from "../api/nodeApi";
-
-import {persist, createJSONStorage} from "zustand/middleware"
-
+import { persist, createJSONStorage } from "zustand/middleware";
 /* =========================================================
    I. MANIFEST TYPES
 ========================================================= */
 
-export type NodeKind = "1" | "2" | "3" | "4" | "5";
+export type NodeKind = "1" | "2" | "3" | "4" | "5" | "6" | "7" | "9"; 
 /*
-1 = normal node
-2 = inline node
-3 = object node
-4= FUNCTION
-5 = API
+1 = normal node, 2 = inline node, 3 = object node, 4 = FUNCTION, 5 = API, 6 = JOIN, 7 = SPLIT
 */
 
 export type DataType = 
-'boolean' 
-| 'number' 
-| 'string' 
-| 'numpy_array' 
-| 'tensor' 
-| 'any' 
-| "object_ref" 
-| "json" 
-| "dict" 
-| "list"
-| "base64"
-;
+'boolean' | 'number' | 'string' | 'numpy_array' | 'tensor' | 'any' | 
+"object_ref" | "json" | "dict" | "list" | "base64" | "execute";
+
 
 export interface PinManifest {
   id: string;
@@ -99,6 +84,7 @@ export type NodeManifest =
 ========================================================= */
 
 export interface GraphFile {
+  timeout: number;
   nodes: Node[];
   edges: Edge[];
 }
@@ -143,8 +129,12 @@ interface FlowState {
   nodes: Node[];
   edges: Edge[];
 
+  timeout: number;
+  setGraphTimeout: (timeout: number) => void;
+
   /* ---------- Environment ---------- */
   this_worker_infor: WorkerDetails | null;
+
 
   /* ---------- Catalogue ---------- */
   nodeCatalogueList: NodeManifest[];
@@ -285,6 +275,9 @@ export const useFlowStore = create<FlowState>()(
         /* ---------- Initial State ---------- */
         nodes: [],
         edges: [],
+
+        timeout: 30.0,
+        setGraphTimeout: (val: number) => set({ timeout: val }),
 
         this_worker_infor: null,
 
@@ -449,9 +442,11 @@ export const useFlowStore = create<FlowState>()(
 
         saveGraphtoFile: (filename : string) => {
           try {
-            const { nodes, edges } = get();
+
+            const { nodes, edges, timeout } = get();
 
             const payload = {
+              timeout,
               nodes,
               edges
             };
@@ -483,7 +478,9 @@ export const useFlowStore = create<FlowState>()(
         preflight_run: async () => {
           const worker = get().this_worker_infor;
 
+
           const graph : GraphFile = {
+            timeout: get().timeout,
             nodes: get().nodes,
             edges: get().edges
           }

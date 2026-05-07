@@ -1728,11 +1728,11 @@ export const useUIEngine = create<UIEngineStore>((set, get) => ({
             name: 'Welcome Frame',
             parent_id: 'screen_1',
             // KHAI BÁO ID CỦA TEXT CON ĐỂ FRAME RENDER NÓ
-            children_id: ['text_intro'],
+            children_id: ['text_intro', 'text_intro2', 'text_intro3'],
             x: 100, // Cách mép trái màn hình 100px
             y: 100, // Cách mép trên màn hình 100px
-            size_x: 600,
-            size_y: 400,
+            size_x: 1200,
+            size_y: 600,
             rotation: 0,
             style: {
                 strokeColor: '
@@ -1748,11 +1748,49 @@ export const useUIEngine = create<UIEngineStore>((set, get) => ({
             type: 'text',
             name: 'Guide Text',
             parent_id: 'frame_intro',
-            content: "WELCOME TO LAMBDAVISION SUPER\n\n[ Hướng dẫn sử dụng nhanh ]\n\n1. Chuột phải vào nền trống để thêm Frame.\n2. Chuột phải vào Frame để thêm các UI (Box, Circle, Text).\n3. Mở Action Menu > Properties để thiết lập Data Bindings.\n4. Ấn nút Settings ở thanh Toolbar để cài phím tắt.\n5. Cuộn chuột để Zoom, kéo nền để Pan, chuột phải > Full Viewport.\n\n 6. Dynamic BBox là đối tượng đặc biệt, nó tự động sinh bounding box\n\n để dùng, bạn hãy chuyển định dạng {}",
+            content: "WELCOME TO LAMBDAVISION SUPER\n\n[ Hướng dẫn sử dụng nhanh ]\n\n1. Chuột phải vào nền trống để thêm Frame.\n2. Chuột phải vào Frame để thêm các UI (Box, Circle, Text).\n3. Mở Action Menu > Properties để thiết lập Data Bindings.\n4. Ấn nút Settings ở thanh Toolbar để cài phím tắt.\n5. Cuộn chuột để Zoom, kéo nền để Pan, chuột phải > Full Viewport.  ]",
             x: 40,
             y: 40,
             size_x: 520,
-            size_y: 320,
+            size_y: 300,
+            rotation: 0,
+            style: {
+                fontSize: 18,
+                fontColor: '
+                fontFamily: 'monospace'
+            },
+            bindings: [],
+            isVisible: true
+        },
+        'text_intro2': {
+            id: 'text_intro2',
+            type: 'text',
+            name: 'Guide Text 2',
+            parent_id: 'frame_intro',
+            content: "Dynamic BBox là đối tượng đặc biệt, nó tự động vẽ ra nhiều bounding boxes theo dữ liệu nạp vào, bạn phải liên kết nó với một tag kiểu Array, dữ liệu bên trong trông giống thế này: \n   [\n{ 'id': 'sample_1', 'x': 10, 'y': 10, 'w': 120, 'h': 80, label: 'somelabel', 'color': '
+            x: 600,
+            y: 40,
+            size_x: 520,
+            size_y: 300,
+            rotation: 0,
+            style: {
+                fontSize: 18,
+                fontColor: '
+                fontFamily: 'monospace'
+            },
+            bindings: [],
+            isVisible: true
+        },
+        'text_intro3': {
+            id: 'text_intro3',
+            type: 'text',
+            name: 'Guide Text 3',
+            parent_id: 'frame_intro',
+            content: "Việc vẽ các bounding là dựa theo tọa độ và kích thước tương đối với Frame chủ của nó. chứ không phải theo tọa độ thật của ảnh gốc. \n vì vậy, nếu bạn cần vẽ bounding box động qua data, hãy đảm bảo chia để lấy tỉ lệ với kích thước ảnh thật, \n rồi mới đem dùng để vẽ bounding boxes",
+            x: 600,
+            y: 400,
+            size_x: 520,
+            size_y: 300,
             rotation: 0,
             style: {
                 fontSize: 18,
@@ -3535,68 +3573,68 @@ export const COLOR_PALETTE = [
 ];
 
 ### FILE: utils/FlowCompiler.ts ###
-// File: src/utils/FlowCompiler.ts
 import { Node, Edge } from '@xyflow/react';
 import { UniversalNodeData, PinData } from '../components/ProgramMode/ProgrammingNode';
 export const FlowCompiler = {
-  compile: (nodes: Node[], edges: Edge[]) => {
-    const nodeErrors: Record<string, string> = {};
-    const formattedNodes = nodes.map(node => {
-      const data = node.data as unknown as UniversalNodeData;
-      // 1. KIỂM TRA KẾT NỐI BẮT BUỘC
-      data.inputs?.forEach((input: PinData) => {
-        if (input.optional) return;
-        const isConnected = edges.some(e => e.target === node.id && e.targetHandle === input.id);
-        if (!isConnected) nodeErrors[node.id] = `Cổng [${input.label}] yêu cầu kết nối.`;
-      });
-      // 2. KIỂM TRA KHỐI ĐẦU VÀO
-      if (data.className === 'ReceivePayloadNode') {
-        const hasOutgoingConnection = edges.some(e => e.source === node.id);
-        if (!hasOutgoingConnection) {
-          nodeErrors[node.id] = "Khối [Data In] chưa được cắm vào bất kỳ logic xử lý nào.";
+    compile: (nodes: Node[], edges: Edge[], graph_timeout: number = 30.0) => {
+        const nodeErrors: Record<string, string> = {};
+        const formattedNodes = nodes.map(node => {
+            const data = node.data as unknown as UniversalNodeData;
+            // 1. KIỂM TRA KẾT NỐI BẮT BUỘC
+            data.inputs?.forEach((input: PinData) => {
+                if (input.optional) return;
+                const isConnected = edges.some(e => e.target === node.id && e.targetHandle === input.id);
+                if (!isConnected) nodeErrors[node.id] = `Cổng [${input.label}] yêu cầu kết nối.`;
+            });
+            // 2. KIỂM TRA KHỐI ĐẦU VÀO
+            if (data.className === 'ReceivePayloadNode') {
+                const hasOutgoingConnection = edges.some(e => e.source === node.id);
+                if (!hasOutgoingConnection) {
+                    nodeErrors[node.id] = "Khối [Data In] chưa được cắm vào logic xử lý nào.";
+                }
+            }
+            // 3. KIỂM TRA KHỐI ĐẦU RA
+            if (data.className === 'SendResponseNode') {
+                const hasPins = data.inputs && data.inputs.length > 0;
+                if (!hasPins) {
+                    nodeErrors[node.id] = "Khối [Data Out] cần ít nhất một cổng đầu vào.";
+                }
+                const hasIncomingConnection = edges.some(e => e.target === node.id);
+                if (hasPins && !hasIncomingConnection) {
+                    nodeErrors[node.id] = "Khối [Data Out] chưa được kết nối luồng.";
+                }
+            }
+            // CLEAN DATA CHO BACKEND FASTAPI
+            const cleanedData = { ...data };
+            delete cleanedData.errorMessage;
+            delete cleanedData.color;
+            return {
+                id: node.id,
+                type: node.type,
+                position: node.position,
+                data: cleanedData
+            };
+        });
+        const formattedEdges = edges.map(edge => ({
+            id: edge.id,
+            source: edge.source,
+            sourceHandle: edge.sourceHandle,
+            target: edge.target,
+            targetHandle: edge.targetHandle
+        }));
+        if (Object.keys(nodeErrors).length > 0) {
+            return { success: false, errors: nodeErrors };
         }
-      }
-      // 3. KIỂM TRA KHỐI ĐẦU RA
-      if (data.className === 'SendResponseNode') {
-        const hasPins = data.inputs && data.inputs.length > 0;
-        if (!hasPins) {
-          nodeErrors[node.id] = "Khối [Data Out] cần ít nhất một cổng đầu vào để định nghĩa dữ liệu trả về.";
-        }
-        const hasIncomingConnection = edges.some(e => e.target === node.id);
-        if (hasPins && !hasIncomingConnection) {
-          nodeErrors[node.id] = "Khối [Data Out] đã định nghĩa cổng nhưng chưa có dữ liệu cắm vào.";
-        }
-      }
-      // FORMAT DỮ LIỆU SẠCH CHO BACKEND
-      return {
-        id: node.id,
-        type: data.nodeType || "1",
-        class: data.className,
-        data: {
-          displayName: data.displayName,
-          inputs: data.inputs || [],
-          outputs: data.outputs || [],
-          inlineInputType: data.inlineInputType,
-          inlineValue: data.inlineValue
-        }
-      };
-    });
-    // BACKEND KHÔNG CẦN EDGE ID, CHỈ CẦN BIẾT AI NỐI VỚI AI
-    const formattedEdges = edges.map(edge => ({
-      source: edge.source,
-      sourceHandle: edge.sourceHandle,
-      target: edge.target,
-      targetHandle: edge.targetHandle
-    }));
-    return {
-      success: Object.keys(nodeErrors).length === 0,
-      nodeErrors,
-      workflow: {
-        nodes: formattedNodes,
-        edges: formattedEdges
-      }
-    };
-  }
+        // TRẢ VỀ PAYLOAD SẠCH HOÀN TOÀN CÓ CHỨA TIMEOUT
+        return {
+            success: true,
+            data: {
+                timeout: graph_timeout,
+                node: formattedNodes,
+                edges: formattedEdges
+            }
+        };
+    }
 };
 
 ### FILE: utils/FlowUtils.ts ###

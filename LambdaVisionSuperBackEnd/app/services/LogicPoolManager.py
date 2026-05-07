@@ -68,7 +68,7 @@ class LogicPoolManager:
         """For API call: Use to try / test a new graph"""
         try:
             temp_logic_obj = LogicObject(graph_json, self)
-            status = await temp_logic_obj.run_nodes_loop(input_payload)
+            status = await temp_logic_obj._run_loop(input_payload)
 
             # 2. XỬ LÝ LỖI (Catch Lỗi)
             if not status["success"]:
@@ -125,10 +125,16 @@ class LogicPoolManager:
         logic_obj : LogicObject = logic_data["instance"]
         lock = logic_data["lock"]
 
+        if lock.locked():
+            return {
+                "success": False, 
+                "error_message": "Logic Object này đang bận xử lý một tiến trình khác. Vui lòng chờ hoặc gửi yêu cầu sau."
+            }
+
         async with lock:
             # 1. Yêu cầu LogicObject chạy vòng lặp
             # Cấp PoolManager sẽ chỉ quản lý theo cơ chế concurrency. Sau này Dùng asyncio.to_thread ở cấp độ Nodes nếu cần thêm tài nguyên CPU để tính toán.
-            status = await logic_obj.run_nodes_loop(payload)
+            status = await logic_obj._run_loop(payload)
 
             # 2. XỬ LÝ LỖI (Catch Lỗi)
             if not status["success"]:

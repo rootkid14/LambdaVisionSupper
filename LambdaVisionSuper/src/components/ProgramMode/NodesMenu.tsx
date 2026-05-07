@@ -56,20 +56,27 @@ export const NodeContextMenu = ({ isOpen, screenX, screenY, onSelectNode }: Node
         ) : filteredCatalog.length === 0 ? (
           <div className="p-4 text-center text-xs text-slate-500">Không tìm thấy Node nào</div>
         ) : (
-          filteredCatalog.map((item) => (
-            <button 
-              key={item.class} 
-              onClick={() => onSelectNode(item)} 
-              className="flex items-center gap-3 p-2 text-left rounded hover:bg-purple-600/30 transition-colors group"
-            >
-              <div className={`w-2 h-2 rounded-full ${item.color}`}></div>
-              <div>
-                <div className="text-sm font-bold text-slate-200 group-hover:text-white">{item.label}</div>
-                <div className="text-[10px] text-slate-500 group-hover:text-purple-200">{item.description}</div>
-              </div>
-            </button>
-          ))
-        )}
+          filteredCatalog.map((item) => {
+            const isHex = item.color?.startsWith('#');
+            return (
+              <button 
+                key={item.class} 
+                onClick={() => onSelectNode(item)} 
+                className="flex items-center gap-3 p-2 text-left rounded hover:bg-slate-800 transition-colors group"
+              >
+                {/* SỬA ĐOẠN DẤU CHẤM BI NÀY */}
+                <div 
+                   className={`w-2 h-2 rounded-full ${isHex ? '' : item.color || 'bg-slate-500'}`}
+                   style={isHex ? { backgroundColor: item.color } : {}}
+                ></div>
+                <div>
+                  <div className="text-sm font-bold text-slate-200 group-hover:text-white">{item.label}</div>
+                  <div className="text-[10px] text-slate-500 group-hover:text-slate-400">{item.description}</div>
+                </div>
+              </button>
+            );
+          })
+        )} 
       </div>
     </div>
   );

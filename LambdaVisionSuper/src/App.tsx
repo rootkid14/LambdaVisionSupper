@@ -2,7 +2,7 @@ import { BrowserRouter, Routes, Route, useParams } from 'react-router-dom';
 // Import các trang chính
 import { MainScreen } from './Pages/MainScreen';
 import { FleetDashboard } from './Pages/FleetDashboard';
-import { ProgrammingTab } from './Pages/ProgrammingTab';
+import { ProgrammingTab } from './Pages/ProgrammingPage';
 import { InspectionPage } from './Pages/InspectionPage';
 import { SequencerPage } from './Pages/SequencerPage';
 import { DatabasePage } from './Pages/DatabasePage';

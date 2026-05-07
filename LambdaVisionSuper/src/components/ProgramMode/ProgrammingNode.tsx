@@ -112,6 +112,18 @@ export const UniversalNode = ({ id, data, selected }: NodeProps<any>) => {
                   onChange={(val) => handleConfigChange(field.id, val)}
                 />
               )}
+              {field.type === 'number' && (
+                <input
+                  type="number"
+                  step="any"
+                  className="nodrag text-xs p-1 rounded border border-slate-400 w-full"
+                  value={data[field.id] ?? field.default ?? ''}
+                  onChange={(e) => {
+                      const rawValue = e.target.value;
+                      handleConfigChange(field.id, rawValue === '' ? '' : Number(rawValue));
+                  }}
+                />
+              )}
             </div>
           ))}
         </div>

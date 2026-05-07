@@ -1209,33 +1209,55 @@ export const BaseNodeShell = ({
 };
 
 ### FILE: components/ProgramMode/DebugPanel.tsx ###
-// components/DebugPanel.tsx
+// components/ProgramMode/DebugPanel.tsx
 import React, { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Play, Save, FolderOpen, Bug, ChevronRight, Upload, Eye, X, ArrowLeft, RefreshCcw } from 'lucide-react';
+import { Play, Save, FolderOpen, Bug, ChevronRight, Upload, Eye, X, ArrowLeft, RefreshCcw, Timer } from 'lucide-react';
 import { useFlowStore } from '../../Stores/FlowStore';
 import { ImageProcessing } from '../../utils/imageUtils';
+import { FlowCompiler } from '../../utils/FlowCompiler';
 export const DebugPanel = () => {
   const store = useFlowStore();
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
   const [isTesting, setIsTesting] = useState(false);
-  // 1. TÌM NODE DATA IN (ReceivePayloadNode)
+  // COMPONENT MỚI CHO GRAPH TIMEOUT
+  const [graphTimeout, setGraphTimeout] = useState<number>(store.timeout || 30.0);
+  // TÌM NODE DATA IN (ReceivePayloadNode)
   const receiveNode = store.nodes.find(n => n.data?.className === 'ReceivePayloadNode');
   const inputConfigs = receiveNode?.data?.outputs || [];
   const isBase64Image = (val: any) => typeof val === 'string' && val.startsWith('data:image/');
-  // 2. CÁC HÀM XỬ LÝ SỰ KIỆN
   const handleRun = async () => {
     if ((inputConfigs as any).length === 0 && !store.nodes.find(n => n.data?.className === 'SendResponseNode')) {
         alert("Đồ thị cần có ít nhất Data In (Receive Payload) hoặc Data Out (Send Response) để chạy test.");
         return;
     }
+    // ÉP FLOW COMPILER KIỂM TRA TRƯỚC KHI CHẠY
+    const compileResult = FlowCompiler.compile(store.nodes, store.edges, graphTimeout);
+    if (!compileResult.success) {
+      for (const [nodeId, msg] of Object.entries(compileResult.errors || {})) {
+        store.updateNodeData(nodeId, { errorMessage: msg });
+      }
+      alert("Đồ thị có lỗi (Thiếu kết nối bắt buộc hoặc Node lơ lửng). Vui lòng kiểm tra các Node bị viền đỏ!");
+      return;
+    }
+    store.setGraphTimeout(graphTimeout); // Nạp timeout vào Store
     setIsTesting(true);
     await store.preflight_run();
     setIsTesting(false);
   };
   const handleSave = () => {
+    // ÉP FLOW COMPILER KIỂM TRA TRƯỚC KHI LƯU
+    const compileResult = FlowCompiler.compile(store.nodes, store.edges, graphTimeout);
+    if (!compileResult.success) {
+      for (const [nodeId, msg] of Object.entries(compileResult.errors || {})) {
+        store.updateNodeData(nodeId, { errorMessage: msg });
+      }
+      alert("Không thể lưu: Đồ thị đang có lỗi. Vui lòng sửa kết nối trước khi xuất file!");
+      return;
+    }
+    store.setGraphTimeout(graphTimeout);
     store.saveGraphtoFile(`lambda_ui_graph_${Date.now()}.json`);
   };
   const handleLoad = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1245,9 +1267,13 @@ export const DebugPanel = () => {
     reader.onload = (event) => {
       try {
         const content = JSON.parse(event.target?.result as string);
+        if (content.timeout) setGraphTimeout(content.timeout);
         store.loadGraphfromFile(content);
-      } catch (err) { alert("Lỗi đọc file JSON"); }
-      finally { if (fileInputRef.current) fileInputRef.current.value = ''; }
+      } catch (err) {
+        alert("Lỗi đọc file JSON");
+      } finally {
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
     };
     reader.readAsText(file);
   };
@@ -1256,80 +1282,97 @@ export const DebugPanel = () => {
     try {
        const optimized = await ImageProcessing.processImageForUpload(file, 1920, 0.8, 'image/jpeg');
        updateInput(id, optimized);
-    } catch { alert("Lỗi xử lý ảnh"); }
+    } catch {
+       alert("Lỗi xử lý ảnh");
+    }
   };
   const simulatorData = store.input_simulator_data || {};
   const inspectorData = store.result_inspector_data;
   return (
     <>
-      <div className="relative w-[400px] h-full bg-[
+      <div className="relative w-[400px] h-full bg-slate-900 border-r border-slate-700 flex flex-col z-10 shadow-2xl">
         {/* HEADER & GLOBAL BUTTONS (EXIT & REFRESH) */}
-        <div className="p-4 border-b border-[
+        <div className="p-4 border-b border-slate-700 bg-slate-900/50 flex items-center justify-between">
           <div className="flex items-center gap-3">
             {/* NÚT EXIT VỀ FLEET */}
             <button
               onClick={() => navigate('/fleet')}
-              className="p-1.5 bg-[
+              className="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-md transition-colors border border-slate-700 text-slate-300"
               title="Exit to Fleet Dashboard"
             >
               <ArrowLeft size={16} />
             </button>
             <div className="flex items-center gap-2">
-              <Bug size={18} className="text-[
-              <h2 className="font-bold text-[
+              <Bug size={18} className="text-blue-400" />
+              <h2 className="font-bold text-slate-200 uppercase tracking-wider text-xs">Debug Panel</h2>
             </div>
           </div>
           {/* NÚT REFRESH CATALOGUE */}
           <button
             onClick={() => store.loadNodeCatalogue()}
             disabled={store.isLoading}
-            className="p-1.5 bg-[
+            className="p-1.5 bg-slate-800 hover:bg-slate-700 rounded-md transition-colors border border-slate-700 text-slate-300"
             title="Refresh Node Catalogue"
           >
-            <RefreshCcw size={16} className={store.isLoading ? "animate-spin text-[
+            <RefreshCcw size={16} className={store.isLoading ? "animate-spin text-blue-400" : ""} />
           </button>
         </div>
-        <div className="p-4 border-b border-[
-          <button onClick={handleRun} disabled={isTesting} className="flex flex-col items-center p-2 bg-[
-            <Play size={18} className={`mb-1 ${isTesting ? 'animate-ping' : 'group-hover:scale-110 transition-transform'}`} />
-            <span className="text-[10px] font-bold tracking-wider">{isTesting ? 'RUNNING...' : 'COMPILE/TEST'}</span>
+        <div className="p-4 border-b border-slate-700 bg-slate-800/80 flex justify-around">
+          <button onClick={handleRun} disabled={isTesting} className="flex flex-col items-center p-2 hover:bg-slate-700 rounded transition-colors group">
+            <Play size={18} className={`mb-1 text-emerald-400 ${isTesting ? 'animate-ping' : 'group-hover:scale-110 transition-transform'}`} />
+            <span className="text-[10px] font-bold tracking-wider text-emerald-100">{isTesting ? 'RUNNING...' : 'COMPILE/TEST'}</span>
           </button>
-          <button onClick={handleSave} className="flex flex-col items-center p-2 bg-[
-            <Save size={18} className="mb-1 group-hover:scale-110 transition-transform" />
-            <span className="text-[10px] font-bold tracking-wider">SAVE</span>
+          <button onClick={handleSave} className="flex flex-col items-center p-2 hover:bg-slate-700 rounded transition-colors group">
+            <Save size={18} className="mb-1 text-blue-400 group-hover:scale-110 transition-transform" />
+            <span className="text-[10px] font-bold tracking-wider text-blue-100">SAVE</span>
           </button>
-          <button onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center p-2 bg-[
-            <FolderOpen size={18} className="mb-1 group-hover:scale-110 transition-transform" />
-            <span className="text-[10px] font-bold tracking-wider">LOAD</span>
+          <button onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center p-2 hover:bg-slate-700 rounded transition-colors group">
+            <FolderOpen size={18} className="mb-1 text-amber-400 group-hover:scale-110 transition-transform" />
+            <span className="text-[10px] font-bold tracking-wider text-amber-100">LOAD</span>
           </button>
           <input type="file" ref={fileInputRef} className="hidden" accept=".json" onChange={handleLoad} />
         </div>
-        {/* KHU VỰC CUỘN ĐƯỢC */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar bg-[
-          {/* PHẦN 2: INPUT SIMULATOR */}
+        {/* THÊM MỚI: GRAPH TIMEOUT CONFIG */}
+        <div className="px-4 py-3 border-b border-slate-700 bg-slate-900/40 flex items-center justify-between">
+           <div className="flex items-center gap-2 text-slate-300">
+             <Timer size={14} className="text-amber-500" />
+             <span className="text-xs font-bold uppercase tracking-wider">Graph Timeout (s)</span>
+           </div>
+           <input
+             type="number"
+             step="0.5"
+             value={graphTimeout}
+             onChange={(e) => setGraphTimeout(Number(e.target.value) || 0)}
+             className="bg-slate-950 text-slate-200 px-2 py-1 text-xs rounded border border-slate-600 focus:border-blue-500 outline-none w-20 text-center font-mono"
+           />
+        </div>
+        {/* KHU VỰC CUỘN ĐƯỢC: INPUT & OUTPUT */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar bg-slate-900">
+          {/* INPUT SIMULATOR */}
           <section>
-            <h3 className="text-xs font-bold text-[
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-1">
               <ChevronRight size={14}/> Input Simulator
             </h3>
             <div className="space-y-3">
               {(inputConfigs as any).length === 0 ? (
-                <div className="p-4 border border-dashed border-[
-                  <p className="text-xs text-[
+                <div className="p-4 border border-dashed border-slate-600 rounded bg-slate-800/50">
+                  <p className="text-xs text-slate-500 italic text-center">Empty Inputs</p>
                 </div>
               ) : (inputConfigs as any).map((cfg: any) => (
-                <div key={cfg.id} className="bg-[
-                  {/* Image Input */}
+                <div key={cfg.id} className="bg-slate-800/80 p-3 rounded border border-slate-700">
+                  {/* Image/Numpy Array Input */}
                   {cfg.dataType === 'numpy_array' || cfg.dataType === 'image' ? (
                     <div>
                       <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-bold text-[
-                        <label className="cursor-pointer flex items-center gap-1.5 px-3 py-1.5 bg-[
-                          <Upload size={14} className="text-[
+                        <span className="text-xs font-bold text-slate-300 font-mono">{cfg.label || cfg.id}</span>
+                        <label className="cursor-pointer flex items-center gap-1.5 px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/40 border border-blue-500/50 rounded transition-colors text-blue-400">
+                          <Upload size={14} />
+                          <span className="text-[10px] font-bold uppercase tracking-wider">Upload</span>
                           <input type="file" onChange={(e) => e.target.files && handleImageUpload(cfg.id, e.target.files[0])} className="hidden" />
                         </label>
                       </div>
                       {simulatorData[cfg.id] && simulatorData[cfg.id] instanceof File && (
-                        <div className="relative mt-3 group w-24 h-24 rounded border border-[
+                        <div className="relative mt-3 group w-24 h-24 rounded border border-slate-600 overflow-hidden">
                           <img src={URL.createObjectURL(simulatorData[cfg.id])} className="w-full h-full object-cover" alt="preview" />
                           <div onClick={() => setEnlargedImage(URL.createObjectURL(simulatorData[cfg.id]))} className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 cursor-pointer transition-opacity backdrop-blur-sm">
                             <Eye size={20} className="text-white"/>
@@ -1340,28 +1383,24 @@ export const DebugPanel = () => {
                   // Boolean Input
                   ) : cfg.dataType === 'boolean' ? (
                     <label className="flex items-center justify-between cursor-pointer group">
-                      <span className="text-xs font-bold text-[
+                      <span className="text-xs font-bold text-slate-300 font-mono">{cfg.label || cfg.id}</span>
                       <div className="relative flex items-center">
                         <input type="checkbox" className="sr-only peer" checked={simulatorData[cfg.id] || false} onChange={(e) => updateInput(cfg.id, e.target.checked)} />
-                        <div className="w-9 h-5 bg-[
+                        <div className="w-9 h-5 bg-slate-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-500"></div>
                       </div>
                     </label>
                   // Text/Number Input
                   ) : (
                     <div>
-                      <span className="text-xs font-bold text-[
+                      <span className="text-xs font-bold text-slate-300 font-mono mb-2 block">{cfg.label || cfg.id}</span>
                       <input
                         type={cfg.dataType === 'number' ? 'number' : 'text'}
-                        // FIX 1: Thêm step="any" để cho phép nhập số thập phân (float)
                         step="any"
-                        className="w-full bg-[
-                        // FIX 2: Sử dụng toán tử ?? (nullish coalescing) thay vì ||
-                        // Để số 0 vẫn được hiển thị thay vì biến thành chuỗi rỗng
+                        className="w-full bg-slate-900 text-slate-200 px-3 py-2 text-xs rounded border border-slate-600 focus:border-blue-500 outline-none"
                         value={simulatorData[cfg.id] ?? ''}
                         onChange={(e) => {
                           const rawValue = e.target.value;
                           if (cfg.dataType === 'number') {
-                            // FIX 3: Xử lý khi xóa trắng ô nhập để không bị biến thành số 0 ngay lập tức
                             updateInput(cfg.id, rawValue === '' ? '' : Number(rawValue));
                           } else {
                             updateInput(cfg.id, rawValue);
@@ -1374,47 +1413,47 @@ export const DebugPanel = () => {
               ))}
             </div>
           </section>
-          {/* PHẦN 3: RESULT INSPECTOR */}
-          <section className="border-t border-[
-            <h3 className="text-xs font-bold text-[
+          {/* RESULT INSPECTOR */}
+          <section className="border-t border-slate-700 pt-6">
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 flex items-center gap-1">
               <ChevronRight size={14}/> Result Inspector
             </h3>
             {isTesting ? (
-              <div className="flex flex-col items-center justify-center p-8 text-[
+              <div className="flex flex-col items-center justify-center p-8 text-blue-400">
                 <Play className="animate-ping mb-3 opacity-50" size={24}/> Running Logic...
               </div>
             ) : !inspectorData || Object.keys(inspectorData).length === 0 ? (
-              <div className="p-4 border border-dashed border-[
-                <p className="text-xs text-[
+              <div className="p-4 border border-dashed border-slate-600 rounded bg-slate-800/50">
+                <p className="text-xs text-slate-500 italic text-center">No Result Generated</p>
               </div>
             ) : (
-              <div className="bg-[
+              <div className="bg-slate-900 rounded border border-slate-700 overflow-hidden">
                 {inspectorData.success ? (
                   inspectorData.data && typeof inspectorData.data === 'object' ? (
                     Object.entries(inspectorData.data).map(([key, value]) => (
-                      <div key={key} className="border-b border-[
-                        <span className="text-[10px] text-[
+                      <div key={key} className="border-b border-slate-700/50 last:border-0 p-3">
+                        <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider mb-1 block">{key}</span>
                         {isBase64Image(value) ? (
-                          <div className="relative mt-2 group w-24 h-24 rounded border border-[
+                          <div className="relative mt-2 group w-24 h-24 rounded border border-slate-600 overflow-hidden">
                             <img src={value as string} alt={key} className="w-full h-full object-cover" />
                             <div onClick={() => setEnlargedImage(value as string)} className="absolute inset-0 bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 cursor-pointer transition-opacity backdrop-blur-sm">
                               <Eye size={20} className="text-white"/>
                             </div>
                           </div>
                         ) : (
-                          <pre className="text-[
+                          <pre className="text-xs text-slate-300 font-mono whitespace-pre-wrap">
                             {typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)}
                           </pre>
                         )}
                       </div>
                     ))
                   ) : (
-                    <pre className="text-[
+                    <pre className="text-xs text-slate-300 font-mono p-3">{JSON.stringify(inspectorData.data, null, 2)}</pre>
                   )
                 ) : (
-                  <div className="text-[
+                  <div className="text-red-400 p-3">
                     <p className="font-bold flex items-center gap-2 text-sm mb-2"><X size={16}/> Lỗi tại: {inspectorData.failed_node_id || "Hệ thống"}</p>
-                    <p className="text-xs bg-[
+                    <p className="text-xs bg-red-500/10 border border-red-500/20 p-2 rounded">{inspectorData.error_message}</p>
                   </div>
                 )}
               </div>
@@ -1426,8 +1465,10 @@ export const DebugPanel = () => {
       {enlargedImage && (
         <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-md flex items-center justify-center p-8">
           <div className="relative max-w-full max-h-full">
-            <button onClick={() => setEnlargedImage(null)} className="absolute -top-12 right-0 p-2 bg-[
-            <img src={enlargedImage} alt="Enlarged" className="max-w-[90vw] max-h-[85vh] object-contain rounded-lg shadow-2xl border border-[
+            <button onClick={() => setEnlargedImage(null)} className="absolute -top-12 right-0 p-2 bg-red-600 hover:bg-red-500 text-white rounded-full transition-colors shadow-lg">
+              <X size={24}/>
+            </button>
+            <img src={enlargedImage} alt="Enlarged" className="max-w-[90vw] max-h-[85vh] object-contain rounded-lg shadow-2xl border border-slate-700 bg-slate-900" />
           </div>
         </div>
       )}
@@ -1508,6 +1549,7 @@ export const DynamicTerminalNode = ({ id, data, selected }: NodeProps<any>) => {
             <option value="base64">Base64</option>
             <option value="object_ref">Object Ref</option>
             <option value="any">Any</option>
+            <option value="execute">Execute</option>
           </select>
           <div className="flex justify-end gap-2 mt-1">
             <button onClick={() => setIsAdding(false)} className="p-1 text-red-600 hover:bg-red-100 rounded"><X size={14}/></button>
@@ -1519,6 +1561,126 @@ export const DynamicTerminalNode = ({ id, data, selected }: NodeProps<any>) => {
           <Plus size={14} /> Add {isReceiver ? 'Output' : 'Input'}
         </button>
       )}
+    </BaseNodeShell>
+  );
+};
+
+### FILE: components/ProgramMode/DynamicUniversalSwitchNode.tsx ###
+// src/components/ProgramMode/DynamicSwitchNode.tsx
+import { useState } from 'react';
+import { NodeProps } from '@xyflow/react';
+import { Plus, X, Trash2 } from 'lucide-react';
+import { useFlowStore } from '../../Stores/FlowStore';
+import { BaseNodeShell } from './BaseNodeShell';
+import { PinRow } from './PinRow';
+import { SmartDropdown } from './SmartDropdown';
+export const DynamicSwitchNode = ({ id, data, selected }: NodeProps<any>) => {
+  const { updateNodeData } = useFlowStore();
+  const [isAdding, setIsAdding] = useState(false);
+  const [newCaseVal, setNewCaseVal] = useState('');
+  const isError = !!data.errorMessage;
+  const cases: any[] = data.cases || [];
+  // Hàm thay đổi cấu hình dropdown (kiểu so sánh: String, Number, Boolean)
+  const handleConfigChange = (fieldId: string, value: any) => {
+    updateNodeData(id, { [fieldId]: value });
+  };
+  // Hàm thêm Case mới
+  const handleAddCase = () => {
+    if (newCaseVal.trim() === '') return;
+    const newCases = [...cases, newCaseVal];
+    rebuildOutputs(newCases);
+    setNewCaseVal('');
+    setIsAdding(false);
+  };
+  // Hàm xóa Case
+  const handleDeleteCase = (indexToRemove: number) => {
+    const newCases = cases.filter((_, idx) => idx !== indexToRemove);
+    rebuildOutputs(newCases);
+    // Lưu ý: React Flow tự động ngắt các sợi dây nếu Handle ID không còn tồn tại!
+  };
+  // Hàm tự động tính toán lại danh sách cổng (Outputs) dựa trên mảng Cases
+  const rebuildOutputs = (currentCases: any[]) => {
+    const newOutputs = currentCases.map((c, index) => ({
+      id: `out_case_${index}`, // BẮT BUỘC DÙNG INDEX ĐỂ PYTHON KHÔNG LỖI CÚ PHÁP
+      label: `Case: ${c}`,
+      dataType: 'execute'
+    }));
+    // Luôn luôn chèn chân Default ở cuối cùng
+    newOutputs.push({
+      id: 'out_default',
+      label: 'Default',
+      dataType: 'execute'
+    });
+    // Cập nhật vào Store
+    updateNodeData(id, { cases: currentCases, outputs: newOutputs });
+  };
+  return (
+    <BaseNodeShell
+      isError={isError} errorMessage={data.errorMessage} selected={selected}
+      title={data.displayName || data.className}
+      headerColorClass="bg-red-700"
+      ringColorClass="ring-red-500 shadow-[0_0_15px_rgba(220,38,38,0.5)]"
+    >
+      {/* 1. RENDER DROP-DOWN CẤU HÌNH (Kiểu so sánh) */}
+      {data.config_fields && data.config_fields.length > 0 && (
+        <div className="p-2 border-b border-slate-300 bg-slate-100 flex flex-col gap-2">
+          {data.config_fields.map((field: any) => (
+             <div key={field.id} className="flex flex-col gap-1">
+               <span className="text-[10px] font-bold text-slate-500 uppercase">{field.label}</span>
+               <select
+                 className="nodrag text-xs p-1 rounded border border-slate-400 w-full"
+                 value={data[field.id] || field.default || ''}
+                 onChange={(e) => handleConfigChange(field.id, e.target.value)}
+               >
+                 {field.options?.map((opt: string) => <option key={opt} value={opt}>{opt}</option>)}
+               </select>
+             </div>
+          ))}
+        </div>
+      )}
+      {/* 2. RENDER PINS (Input + Output) */}
+      {data.inputs?.map((pin: any) => <PinRow key={pin.id} {...pin} type="input" />)}
+      {data.outputs?.map((pin: any, idx: number) => (
+        <div key={pin.id} className="relative group">
+           <PinRow {...pin} type="output" />
+           {/* Hiển thị nút xóa cạnh các Handle Case (Không cho xóa handle Default) */}
+           {pin.id !== 'out_default' && (
+              <button
+                onClick={() => handleDeleteCase(idx)}
+                className="absolute right-24 top-1 text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <Trash2 size={12}/>
+              </button>
+           )}
+        </div>
+      ))}
+      {/* 3. KHU VỰC THÊM CASE MỚI */}
+      <div className="p-2 bg-slate-100 border-t border-slate-300 rounded-b-md">
+        {isAdding ? (
+          <div className="flex flex-col gap-1">
+            <input
+              type="text"
+              placeholder="Nhập giá trị Case..."
+              value={newCaseVal}
+              onChange={e => setNewCaseVal(e.target.value)}
+              className="nodrag text-xs p-1 rounded border border-slate-400 w-full"
+              autoFocus
+              onKeyDown={(e) => e.key === 'Enter' && handleAddCase()}
+            />
+            <div className="flex justify-end gap-2 mt-1">
+              <button onClick={() => setIsAdding(false)} className="p-1 text-red-600 hover:bg-red-100 rounded"><X size={14}/></button>
+              <button onClick={handleAddCase} className="p-1 text-green-700 hover:bg-green-200 rounded font-bold"><Plus size={14}/></button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => setIsAdding(true)}
+            className="w-full flex items-center justify-center gap-1 py-1 px-2 text-xs font-bold text-slate-600 bg-slate-300 hover:bg-slate-400 rounded transition-colors"
+          >
+            <Plus size={12}/> Add Case
+          </button>
+        )}
+      </div>
     </BaseNodeShell>
   );
 };
@@ -2031,6 +2193,18 @@ export const UniversalNode = ({ id, data, selected }: NodeProps<any>) => {
                   onChange={(val) => handleConfigChange(field.id, val)}
                 />
               )}
+              {field.type === 'number' && (
+                <input
+                  type="number"
+                  step="any"
+                  className="nodrag text-xs p-1 rounded border border-slate-400 w-full"
+                  value={data[field.id] ?? field.default ?? ''}
+                  onChange={(e) => {
+                      const rawValue = e.target.value;
+                      handleConfigChange(field.id, rawValue === '' ? '' : Number(rawValue));
+                  }}
+                />
+              )}
             </div>
           ))}
         </div>
@@ -2175,6 +2349,18 @@ export const UniversalNode = ({ id, data, selected }: NodeProps<any>) => {
                    {field.options?.map((opt: string) => <option key={opt} value={opt}>{opt}</option>)}
                  </select>
                )}
+               {field.type === 'number' && (
+                  <input
+                    type="number"
+                    step="any"
+                    className="nodrag text-xs p-1 rounded border border-slate-400 w-full"
+                    value={data[field.name] ?? field.default ?? ''}
+                    onChange={(e) => {
+                        const rawValue = e.target.value;
+                        handleConfigChange(field.name, rawValue === '' ? '' : Number(rawValue));
+                    }}
+                  />
+                )}
                {['server_pool_dropdown', 'device_pool_dropdown', 'active_logic_dropdown'].includes(field.type) && (
                  <SmartDropdown type={field.type} id={field.name} value={data[field.name]} onChange={(val) => handleConfigChange(field.name, val)} />
                )}
@@ -2885,9 +3071,9 @@ export const MainScreen = () => {
 };
 
 ### FILE: Pages/ProgrammingTab.tsx ###
-// components/ProgrammingTab.tsx
+// Pages/ProgrammingTab.tsx
 import { useCallback, useEffect, useState } from 'react';
-import { ReactFlow, Background, BackgroundVariant, ReactFlowInstance, NodeTypes, SelectionMode } from '@xyflow/react';
+import { ReactFlow, Background, BackgroundVariant, ReactFlowInstance, NodeTypes, SelectionMode, Connection } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useFlowStore } from '../Stores/FlowStore';
 import { NodeContextMenu } from '../components/ProgramMode/NodesMenu';
@@ -2897,12 +3083,15 @@ import { DynamicTerminalNode } from '../components/ProgramMode/DynamicTerminalNo
 import { JsonBuilderNode } from '../components/ProgramMode/JsonBuilderNode';
 import { JsonExtractorNode } from '../components/ProgramMode/JsonExtractorNode';
 import { ObjectNodeUI } from '../components/ProgramMode/ObjectNodeIUI';
-// CƠ CHẾ ROUTER THÔNG MINH CHO TYPE "1"
+import { DynamicSwitchNode } from '../components/ProgramMode/DynamicUniversalSwitchNode';
+// CƠ CHẾ ROUTER THÔNG MINH CHO CÁC KHỐI NODE LỚP PROGRAM (TYPE "1")
 const Type1Router = (props: any) => {
   const { className } = props.data;
   if (className === 'CreateJSONNode') return <JsonBuilderNode {...props} />;
   if (className === 'ExtractJSONNode') return <JsonExtractorNode {...props} />;
   if (className === 'ReceivePayloadNode' || className === 'SendResponseNode') return <DynamicTerminalNode {...props} />;
+  // Mapping trực tiếp Dynamic Switch từ Backend vào Graphic Component
+  if (className === 'DynamicUniversalSwitchNode') return <DynamicSwitchNode {...props} />;
   return <UniversalNode {...props} />;
 };
 const nodeTypes: NodeTypes = {
@@ -2911,6 +3100,8 @@ const nodeTypes: NodeTypes = {
     "3": ObjectNodeUI as any,  // ObjectNode
     "4": UniversalNode as any, // FunctionNode
     "5": UniversalNode as any, // APINode
+    "6": UniversalNode as any, // Join Node
+    "7": UniversalNode as any, // Split Node
 };
 export const ProgrammingTab = () => {
   const {
@@ -2925,16 +3116,75 @@ export const ProgrammingTab = () => {
       loadNodeCatalogue();
     }
   }, [this_worker_infor, isCatalogueLoaded, loadNodeCatalogue]);
-  // Xóa lỗi khi nối dây
-  const handleConnect = useCallback((params: any) => {
+  // CƠ CHẾ EDGE VALIDATION CHO HỆ THỐNG DÂY (STRICT RULES)
+  const handleConnect = useCallback((params: Connection) => {
+    const sourceNode = nodes.find(n => n.id === params.source);
+    const targetNode = nodes.find(n => n.id === params.target);
+    if (sourceNode && targetNode) {
+      let sourcePinType = 'any';
+      let targetPinType = 'any';
+      const sourceOutputs = (sourceNode.data?.outputs as any[]) || [];
+      const sourceCases = (sourceNode.data?.cases as any[]) || [];
+      const sourcePin = sourceOutputs.find((p: any) => p.id === params.sourceHandle) ||
+                        sourceCases.map((_:any, i:number) => ({id: `out_case_${i}`, dataType: 'execute'})).find((p:any) => p.id === params.sourceHandle) ||
+                        (params.sourceHandle === 'out_default' ? {dataType: 'execute'} : null);
+      if (sourcePin) sourcePinType = sourcePin.dataType;
+      const targetInputs = (targetNode.data?.inputs as any[]) || [];
+      const targetPin = targetInputs.find((p: any) => p.id === params.targetHandle);
+      if (targetPin) targetPinType = targetPin.dataType;
+      // 1. LUẬT SO KHỚP LOGIC TYPE
+      const isSourceAny = sourcePinType === 'any';
+      const isTargetAny = targetPinType === 'any';
+      const isSourceExec = sourcePinType === 'execute';
+      const isTargetExec = targetPinType === 'execute';
+      let isValid = false;
+      if (isSourceExec || isTargetExec) {
+         if (isSourceExec && isTargetExec) isValid = true;
+      } else if (isSourceAny || isTargetAny) {
+         isValid = true;
+      } else if (sourcePinType === targetPinType) {
+         isValid = true;
+      }
+      if (!isValid) {
+         alert(`Lỗi nối dây: Không thể kết nối tín hiệu kiểu [${sourcePinType.toUpperCase()}] sang cổng [${targetPinType.toUpperCase()}].`);
+         return;
+      }
+      // 2. LUẬT RẼ NHÁNH EXECUTE (CHỈ SPLIT MỚI ĐƯỢC TỎE NHÁNH)
+      if (sourcePinType === 'execute') {
+          // Lọc xem chân Out Execute này đã có dây nào cắm chưa
+          const existingEdges = edges.filter(
+              e => e.source === params.source && e.sourceHandle === params.sourceHandle
+          );
+          // Kiểm tra xem có phải Node SPLIT (Type '7') không
+          const isSplitNode = sourceNode.type === '7';
+          // Nếu đã có dây VÀ không phải Node Split -> Chặn lại
+          if (existingEdges.length >= 1 && !isSplitNode) {
+              alert("Lỗi nối dây: Khối thông thường chỉ được phép có 1 kết nối Execute Out. Sử dụng khối SPLIT nếu muốn rẽ nhánh luồng!");
+              return;
+          }
+      }
+      // (TÙY CHỌN BỔ SUNG): LUẬT NGĂN NHIỀU DÂY DATA VÀO CÙNG 1 CỔNG IN
+      // Thông thường 1 cổng Data Input (không phải execute) chỉ nhận 1 biến đầu vào
+      if (targetPinType !== 'execute') {
+          const existingTargetEdges = edges.filter(
+              e => e.target === params.target && e.targetHandle === params.targetHandle
+          );
+          if (existingTargetEdges.length >= 1) {
+              alert("Lỗi nối dây: Cổng nhập dữ liệu (Data Input) chỉ được nhận 1 luồng kết nối.");
+              return;
+          }
+      }
+    }
     onConnect(params);
     updateNodeData(params.source, { errorMessage: undefined });
     updateNodeData(params.target, { errorMessage: undefined });
-  }, [onConnect, updateNodeData]);
+  // QUAN TRỌNG: Phải thêm biến 'edges' vào dependency array của useCallback
+  // để hàm luôn lấy được danh sách dây mới nhất khi check mảng existingEdges
+  }, [onConnect, updateNodeData, nodes, edges]);
+  // LUẬT SỐ LƯỢNG NODE (Chỉ 1 Data In, 1 Data Out duy nhất)
   const handleAddNode = useCallback((template: any) => {
     const isReceiveNode = template.class === 'ReceivePayloadNode';
     const isSendNode = template.class === 'SendResponseNode';
-    // KIỂM TRA PHÒNG THỦ
     if (isReceiveNode && nodes.some(n => n.data?.className === 'ReceivePayloadNode')) {
       alert("⚠️ Hệ thống chỉ cho phép tồn tại duy nhất MỘT node Data In (ReceivePayload).");
       setMenu(m => ({ ...m, isOpen: false }));
@@ -2945,7 +3195,6 @@ export const ProgrammingTab = () => {
       setMenu(m => ({ ...m, isOpen: false }));
       return;
     }
-    // NẾU HỢP LỆ THÌ THÊM NODE VÀO STORE
     addNode({
       id: `${template.class}-${Date.now()}`,
       type: template.type,
@@ -2955,35 +3204,42 @@ export const ProgrammingTab = () => {
     setMenu(m => ({ ...m, isOpen: false }));
   }, [menu.canvasPos, addNode, nodes]);
   return (
-    // THAY ĐỔI: Chuyển bg-slate-950 sang màu
-    <div className="relative w-full h-screen bg-[
+    <div className="relative w-full h-screen bg-slate-950 flex font-sans">
       <DebugPanel/>
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        nodeTypes={nodeTypes}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={handleConnect}
-        onInit={setRfInstance}
-        onPaneContextMenu={(e) => { e.preventDefault(); setMenu({ isOpen: true, screenX: e.clientX, screenY: e.clientY, canvasPos: rfInstance!.screenToFlowPosition({ x: e.clientX, y: e.clientY }) }); }}
-        onPaneClick={() => setMenu(m => ({ ...m, isOpen: false }))}
-        deleteKeyCode={["Delete", "Backspace"]}
-        fitView
-        // Đảm bảo background của component ReactFlow trùng màu viền
-        style={{ backgroundColor: '
-        panOnDrag={[1, 2]} // 1 = Chuột giữa, 2 = Chuột phải để kéo Canvas
-        selectionOnDrag={true} // Chuột trái kéo để tạo Selection Box (Lasso)
-        selectionMode={SelectionMode.Partial} // Quét trúng 1 góc Node là chọn luôn
-      >
-        {/* THAY ĐỔI: Dùng đường kẻ Line màu
-        <Background
-            variant={BackgroundVariant.Dots}
-            color="rgba(255,255,255,0.15)" // Chỉnh màu chấm bi sáng lên một chút cho dễ nhìn
-            gap={16} // Khoảng cách giữa các chấm (Mặc định là 16)
-            size={1.5} // Kích thước của mỗi chấm
-        />
-      </ReactFlow>
+      <div className="flex-1 relative">
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          nodeTypes={nodeTypes}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={handleConnect}
+          onInit={setRfInstance}
+          onPaneContextMenu={(e) => {
+            e.preventDefault();
+            setMenu({
+              isOpen: true,
+              screenX: e.clientX,
+              screenY: e.clientY,
+              canvasPos: rfInstance!.screenToFlowPosition({ x: e.clientX, y: e.clientY })
+            });
+          }}
+          onPaneClick={() => setMenu(m => ({ ...m, isOpen: false }))}
+          deleteKeyCode={["Delete", "Backspace"]}
+          fitView
+          style={{ backgroundColor: '
+          panOnDrag={[1, 2]} // 1 = Chuột giữa, 2 = Chuột phải để kéo Canvas
+          selectionOnDrag={true} // Chuột trái kéo để tạo Selection Box (Lasso)
+          selectionMode={SelectionMode.Partial} // Quét trúng 1 góc Node là chọn luôn
+        >
+          <Background
+              variant={BackgroundVariant.Dots}
+              color="rgba(255,255,255,0.15)" // Màu chấm bi sáng mờ
+              gap={16}
+              size={1.5}
+          />
+        </ReactFlow>
+      </div>
       <NodeContextMenu isOpen={menu.isOpen} screenX={menu.screenX} screenY={menu.screenY} onSelectNode={handleAddNode} />
     </div>
   );
@@ -3172,7 +3428,6 @@ export const SequencerPage = () => {
 };
 
 ### FILE: Stores/FlowStore.tsx ###
-// store/FlowStore.ts
 import { create } from "zustand";
 import {
   Node,
@@ -3183,34 +3438,21 @@ import {
   applyNodeChanges,
   applyEdgeChanges,
   addEdge,
+  Connection, // Thêm cái này để dùng cho validator
 } from "@xyflow/react";
 import { WorkerDetails } from "../Stores/FleetDashboardStores";
 import { NodeAPI } from "../api/nodeApi";
-import {persist, createJSONStorage} from "zustand/middleware"
+import { persist, createJSONStorage } from "zustand/middleware";
 /* =========================================================
    I. MANIFEST TYPES
 ========================================================= */
-export type NodeKind = "1" | "2" | "3" | "4" | "5";
+export type NodeKind = "1" | "2" | "3" | "4" | "5" | "6" | "7";
 /*
-1 = normal node
-2 = inline node
-3 = object node
-4= FUNCTION
-5 = API
+1 = normal node, 2 = inline node, 3 = object node, 4 = FUNCTION, 5 = API, 6 = JOIN, 7 = SPLIT
 */
 export type DataType =
-'boolean'
-| 'number'
-| 'string'
-| 'numpy_array'
-| 'tensor'
-| 'any'
-| "object_ref"
-| "json"
-| "dict"
-| "list"
-| "base64"
-;
+'boolean' | 'number' | 'string' | 'numpy_array' | 'tensor' | 'any' |
+"object_ref" | "json" | "dict" | "list" | "base64" | "execute";
 export interface PinManifest {
   id: string;
   label: string;
@@ -3253,6 +3495,7 @@ export type NodeManifest =
    II. GRAPH FILE TYPES
 ========================================================= */
 export interface GraphFile {
+  timeout: number;
   nodes: Node[];
   edges: Edge[];
 }
@@ -3286,6 +3529,8 @@ interface FlowState {
   /* ---------- Graph Runtime ---------- */
   nodes: Node[];
   edges: Edge[];
+  timeout: number;
+  setGraphTimeout: (timeout: number) => void;
   /* ---------- Environment ---------- */
   this_worker_infor: WorkerDetails | null;
   /* ---------- Catalogue ---------- */
@@ -3393,6 +3638,8 @@ export const useFlowStore = create<FlowState>()(
         /* ---------- Initial State ---------- */
         nodes: [],
         edges: [],
+        timeout: 30.0,
+        setGraphTimeout: (val: number) => set({ timeout: val }),
         this_worker_infor: null,
         nodeCatalogueList: [],
         nodeCatalogueMap: {},
@@ -3528,8 +3775,9 @@ export const useFlowStore = create<FlowState>()(
         },
         saveGraphtoFile: (filename : string) => {
           try {
-            const { nodes, edges } = get();
+            const { nodes, edges, timeout } = get();
             const payload = {
+              timeout,
               nodes,
               edges
             };
@@ -3555,6 +3803,7 @@ export const useFlowStore = create<FlowState>()(
         preflight_run: async () => {
           const worker = get().this_worker_infor;
           const graph : GraphFile = {
+            timeout: get().timeout,
             nodes: get().nodes,
             edges: get().edges
           }
@@ -5135,9 +5384,9 @@ export const UIPropertiesPanel = () => {
                 fields.push({ path: 'style.activeColor', label: 'Active Color', type: 'color' }); // <--- BỔ SUNG DÒNG NÀY
                 fields.push({ path: 'style.cornerRadius', label: 'Round Corner', type: 'number' });
             }
-            if (node.type === 'dynamic_bboxes') {
-                fields.push({ path: 'data', label: 'BBox Array Tag', type: 'tag_selector' });
-            }
+        }
+        if (node.type === 'dynamic_bboxes') {
+            fields.push({ path: 'data', label: 'BBox Array Tag', type: 'tag_selector' });
         }
         return fields; // <--- CỰC KỲ QUAN TRỌNG: Không có dòng này là sập màn hình!
     };
