@@ -229,6 +229,15 @@ export interface SequencerState {
   onEdgesChange: (changes: EdgeChange[]) => void;
   onConnect: (connection: Connection) => void;
   markGraphDirty: () => void;
+
+  past: { nodes: Node[]; edges: Edge[] }[];
+  future: { nodes: Node[]; edges: Edge[] }[];
+  clipboard: { nodes: Node[] } | null;
+  takeSnapshot: () => void;
+  undo: () => void;
+  redo: () => void;
+  copySelection: () => void;
+  pasteSelection: (mousePos?: { x: number; y: number }) => void;
 }
 
 /* =========================
@@ -599,4 +608,102 @@ export const useSequencerStore =
       });
       get().markGraphDirty();
     },
+    past: [],
+  future: [],
+  clipboard: null,
+
+  takeSnapshot: () => {
+    const { nodes, edges, past } = get();
+    // Deep Clone trạng thái hiện tại và lưu tối đa 50 bước
+    const newPast = [
+      ...past,
+      {
+        nodes: JSON.parse(JSON.stringify(nodes)),
+        edges: JSON.parse(JSON.stringify(edges)),
+      },
+    ].slice(-50);
+    set({ past: newPast, future: [] });
+  },
+
+  undo: () => {
+    const { past, future, nodes, edges } = get();
+    if (past.length === 0) return;
+
+    const previousState = past[past.length - 1];
+    const newPast = past.slice(0, past.length - 1);
+
+    set({
+      past: newPast,
+      future: [{ nodes: JSON.parse(JSON.stringify(nodes)), edges: JSON.parse(JSON.stringify(edges)) }, ...future],
+      nodes: previousState.nodes,
+      edges: previousState.edges,
+      isGraphDirty: true, // Đánh dấu cần compile lại
+    });
+  },
+
+  redo: () => {
+    const { past, future, nodes, edges } = get();
+    if (future.length === 0) return;
+
+    const nextState = future[0];
+    const newFuture = future.slice(1);
+
+    set({
+      past: [...past, { nodes: JSON.parse(JSON.stringify(nodes)), edges: JSON.parse(JSON.stringify(edges)) }],
+      future: newFuture,
+      nodes: nextState.nodes,
+      edges: nextState.edges,
+      isGraphDirty: true,
+    });
+  },
+
+  copySelection: () => {
+    const { nodes } = get();
+    const selectedNodes = nodes.filter((n) => n.selected);
+    // CHẶN SINGLETONS: Không copy khối start và end
+    const copyableNodes = selectedNodes.filter(n => n.type !== 'start' && n.type !== 'end');
+
+    if (copyableNodes.length === 0) return;
+    set({ clipboard: { nodes: copyableNodes } });
+  },
+
+  pasteSelection: (mousePos) => {
+    const { clipboard, nodes, edges, takeSnapshot } = get();
+    if (!clipboard || clipboard.nodes.length === 0) return;
+
+    takeSnapshot();
+
+    // Thuật toán tìm tọa độ gốc cụm node đang copy
+    const minX = Math.min(...clipboard.nodes.map((n) => n.position.x));
+    const minY = Math.min(...clipboard.nodes.map((n) => n.position.y));
+
+    const deltaX = mousePos ? mousePos.x - minX : 50;
+    const deltaY = mousePos ? mousePos.y - minY : 50;
+
+    const pastedNodes = clipboard.nodes.map((node) => {
+      // Sinh ID mới dựa trên type của node sequencer
+      const newId = `${node.type}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      const newData = JSON.parse(JSON.stringify(node.data));
+
+      return {
+        ...node,
+        id: newId,
+        selected: true,
+        position: {
+          x: node.position.x + deltaX,
+          y: node.position.y + deltaY,
+        },
+        data: newData,
+      };
+    });
+
+    const unselectedOldNodes = nodes.map((n) => ({ ...n, selected: false }));
+    const unselectedOldEdges = edges.map((e) => ({ ...e, selected: false }));
+
+    set({
+      nodes: [...unselectedOldNodes, ...pastedNodes],
+      edges: unselectedOldEdges,
+      isGraphDirty: true,
+    });
+  },
   }));

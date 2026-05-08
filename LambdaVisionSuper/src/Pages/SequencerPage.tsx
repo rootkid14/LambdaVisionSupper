@@ -1,5 +1,5 @@
-import React, { useState, useCallback, useEffect } from 'react';
-import { ReactFlow, Background, SelectionMode } from '@xyflow/react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { ReactFlow, Background, SelectionMode, ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { Play, Square, Wrench, AlertTriangle, Cpu, Split, Combine, Shuffle, PlayCircle, StopCircle, ArrowBigLeft, Wifi, Radio } from 'lucide-react';
 import { useSequencerStore } from '../UI_Engine/UIEngineStores/SequencerStores';
@@ -28,6 +28,8 @@ export const SequencerPage = () => {
   const store = useSequencerStore();
   const fleetStore = useFleetStore()
   const [rfInstance, setRfInstance] = useState<any>(null);
+
+  const lastMousePos = useRef({ x: 0, y: 0 });
   
   // State quản lý UI mở Sidebar
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
@@ -42,6 +44,50 @@ export const SequencerPage = () => {
       setEditingNodeId(null);
     }
   }, [editingNodeId, store.onNodesChange]);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      lastMousePos.current = { x: e.clientX, y: e.clientY };
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      const isCmdOrCtrl = e.ctrlKey || e.metaKey;
+
+      // COPY / PASTE
+      if (isCmdOrCtrl && e.key.toLowerCase() === 'c') {
+        e.preventDefault();
+        store.copySelection();
+      }
+      if (isCmdOrCtrl && e.key.toLowerCase() === 'v') {
+        e.preventDefault();
+        const flowPos = rfInstance?.screenToFlowPosition({
+          x: lastMousePos.current.x,
+          y: lastMousePos.current.y
+        });
+        store.pasteSelection(flowPos);
+      }
+
+      // UNDO / REDO
+      if (isCmdOrCtrl && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) store.redo();
+        else store.undo();
+      }
+      if (isCmdOrCtrl && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        store.redo();
+      }
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [store, rfInstance]);
 
   useEffect(() => {
     // Chỉ gọi nếu đã có gateway lưu trong LocalStorage
@@ -166,6 +212,10 @@ export const SequencerPage = () => {
               deleteKeyCode={['Backspace', 'Delete']}
               style={{ backgroundColor: '#202124' }}
 
+              onNodeDragStart={() => store.takeSnapshot()} // Lưu snapshot khi bắt đầu kéo
+              onNodesDelete={() => store.takeSnapshot()}   // Lưu snapshot trước khi xóa
+              onEdgesDelete={() => store.takeSnapshot()}
+
               // ===============================================
               // NÂNG CẤP UX CHUỘT: QUYỀN NĂNG CỦA REACT FLOW
               // ===============================================
@@ -193,7 +243,7 @@ export const SequencerPage = () => {
         {/* =============================================== */}
         {editingNodeId && (
           // FIX Ở ĐÂY: Đổi w-[400px] thành w-[480px]
-          <div className="absolute top-0 right-0 h-full w-[480px] z-10 shadow-[-15px_0_40px_rgba(0,0,0,0.5)] border-l border-[#8ab4f8]/30">
+          <div className="absolute top-0 left-0 h-full w-[480px] z-10 shadow-[-15px_0_40px_rgba(0,0,0,0.5)] border-l border-[#8ab4f8]/30">
             <PropertiesSidebar nodeId={editingNodeId} onClose={() => setEditingNodeId(null)} />
           </div>
         )}

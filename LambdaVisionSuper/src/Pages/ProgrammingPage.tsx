@@ -1,5 +1,5 @@
 // Pages/ProgrammingTab.tsx
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import { ReactFlow, Background, BackgroundVariant, ReactFlowInstance, NodeTypes, SelectionMode, Connection } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useFlowStore } from '../Stores/FlowStore';
@@ -48,7 +48,8 @@ const nodeTypes: NodeTypes = {
 export const ProgrammingTab = () => {
   const {
     nodes, edges, onNodesChange, onEdgesChange, onConnect,
-    addNode, updateNodeData, loadNodeCatalogue, isCatalogueLoaded, this_worker_infor
+    addNode, updateNodeData, loadNodeCatalogue, isCatalogueLoaded, this_worker_infor, copySelection, pasteSelection,
+    takeSnapshot, undo, redo
   } = useFlowStore();
 
   const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
@@ -59,6 +60,82 @@ export const ProgrammingTab = () => {
       loadNodeCatalogue();
     }
   }, [this_worker_infor, isCatalogueLoaded, loadNodeCatalogue]);
+
+  const lastMousePos = useRef({ x: 0, y: 0 });
+
+  // LẮNG NGHE SỰ KIỆN CHUỘT VÀ BÀN PHÍM (COPY, PASTE, UNDO, REDO)
+  useEffect(() => {
+    // 1. Theo dõi tọa độ chuột liên tục trên toàn màn hình (Dành cho Paste)
+    const handleMouseMove = (e: MouseEvent) => {
+      lastMousePos.current = { x: e.clientX, y: e.clientY };
+    };
+    
+    // 2. Định tuyến các tổ hợp phím tắt
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // BỎ QUA NẾU ĐANG GÕ TEXT: Tránh cướp phím nếu đang gõ văn bản trong các ô input
+      if (
+        e.target instanceof HTMLInputElement || 
+        e.target instanceof HTMLTextAreaElement || 
+        e.target instanceof HTMLSelectElement
+      ) {
+        return;
+      }
+
+      // Hỗ trợ cả phím Ctrl (Windows) và Cmd (Mac)
+      const isCmdOrCtrl = e.ctrlKey || e.metaKey;
+
+      // ==========================================
+      // NHÓM LỆNH COPY & PASTE
+      // ==========================================
+      if (isCmdOrCtrl && e.key.toLowerCase() === 'c') {
+        e.preventDefault();
+        copySelection();
+      }
+
+      if (isCmdOrCtrl && e.key.toLowerCase() === 'v') {
+        e.preventDefault();
+        
+        // Quy đổi tọa độ màn hình sang tọa độ Canvas của React Flow
+        let flowPos = undefined;
+        if (rfInstance) {
+          flowPos = rfInstance.screenToFlowPosition({
+            x: lastMousePos.current.x,
+            y: lastMousePos.current.y
+          });
+        }
+        
+        // Paste và dời cụm Node tới vị trí chuột
+        pasteSelection(flowPos);
+      }
+
+      // ==========================================
+      // NHÓM LỆNH UNDO & REDO
+      // ==========================================
+      if (isCmdOrCtrl && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          redo(); // Bấm Ctrl + Shift + Z
+        } else {
+          undo(); // Bấm Ctrl + Z
+        }
+      }
+
+      if (isCmdOrCtrl && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        redo(); // Bấm Ctrl + Y
+      }
+    };
+
+    // Đăng ký Event Listeners
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('keydown', handleKeyDown);
+    
+    // Clean up: Gỡ bỏ event khi Component bị unmount để chống rò rỉ bộ nhớ (Memory Leak)
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [copySelection, pasteSelection, undo, redo, rfInstance]);
 
   // CƠ CHẾ EDGE VALIDATION CHO HỆ THỐNG DÂY (STRICT RULES)
   const handleConnect = useCallback((params: Connection) => {
@@ -169,6 +246,9 @@ export const ProgrammingTab = () => {
           onEdgesChange={onEdgesChange}
           onConnect={handleConnect}
           onInit={setRfInstance}
+          onNodeDragStart={() => takeSnapshot()} // Chụp ảnh ngay lúc NHẤC chuột lên kéo Node
+          onNodesDelete={() => takeSnapshot()}   // Chụp ảnh trước khi Xóa Node
+          onEdgesDelete={() => takeSnapshot()}
           onPaneContextMenu={(e) => { 
             e.preventDefault(); 
             setMenu({ 

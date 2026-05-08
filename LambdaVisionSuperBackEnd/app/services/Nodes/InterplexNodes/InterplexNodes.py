@@ -95,6 +95,7 @@ class ExtractRoiInput(BaseModel):
     target_folder_path: str = Field(default="storage/rois", title="Save to", description=UIDataType.STRING)
 
 class ExtractRoiOutput(BaseModel):
+    execute_out: Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
     output_images: str = Field(default="", title="Concat Roi Image", description=UIDataType.BASE64)
 
 @registry_node
@@ -205,11 +206,14 @@ class Extract_Roi_W_Offset(BaseNode[ExtractRoiInput, ExtractRoiOutput]):
         self.local_output = self.OUTPUT_SCHEMA(output_images=base64_grid)
 
 class FolderImageScannerInput(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
     execute_in: Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
     folder_path: str = Field(default="storage/dataset", title="Target Folder", description=UIDataType.STRING.value)
 
 class FolderImageScannerOutput(BaseModel):
     # Trả về nguyên 1 List đường dẫn ảnh
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    execute_out: Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
     image_list: list = Field(default_factory=list, title="Image List", description=UIDataType.LIST.value)
 
 @registry_node

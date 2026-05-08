@@ -129,6 +129,7 @@ class RandomIntNode(BaseNode[RandomIntInput, RandomNumberOutput]):
     UI_LABEL = "Random Int"
     UI_DESCRIPTION = "Sinh số nguyên ngẫu nhiên trong khoảng [Min, Max]"
     UI_COLOR = "bg-green-700"
+    REQUIRE_TIMEOUT = False
 
     async def execute(self) -> None:
         min_v = int(self.local_input.min_val)
@@ -143,6 +144,8 @@ class RandomIntNode(BaseNode[RandomIntInput, RandomNumberOutput]):
 
 # --- RANDOM FLOAT ---
 class RandomFloatInput(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    # Bổ sung chân Execute In để nhận luồng chạy
     min_val: float = Field(default=0.0, title="Min Value", description=UIDataType.NUMBER.value)
     max_val: float = Field(default=1.0, title="Max Value", description=UIDataType.NUMBER.value)
 
@@ -154,13 +157,36 @@ class RandomFloatNode(BaseNode[RandomFloatInput, RandomNumberOutput]):
     UI_LABEL = "Random Float"
     UI_DESCRIPTION = "Sinh số thực ngẫu nhiên trong khoảng [Min, Max]"
     UI_COLOR = "bg-green-600"
+    REQUIRE_TIMEOUT = False
+
+    # 1. Khai báo trường cấu hình để Frontend tự động vẽ ô nhập liệu
+    CONFIG_FIELDS = [
+        UIConfigField(
+            id="decimal_places", 
+            label="Decimal Places", 
+            type=UIConfigType.NUMBER.value, 
+            default=2  # Mặc định lấy 2 chữ số thập phân
+        )
+    ]
 
     async def execute(self) -> None:
         min_v = float(self.local_input.min_val)
         max_v = float(self.local_input.max_val)
         
-        val = random.uniform(min_v, max_v)
-        self.local_output = self.OUTPUT_SCHEMA(result=val)
+        if min_v > max_v:
+            min_v, max_v = max_v, min_v
+            
+        # 2. Đọc giá trị cấu hình từ giao diện (Fallback về 2 nếu có lỗi)
+        decimals = int(self.get_config_field_value("decimal_places", 2))
+        
+        # 3. Sinh số ngẫu nhiên và làm tròn theo hệ số thập phân đã cấu hình
+        raw_val = random.uniform(min_v, max_v)
+        final_val = round(raw_val, decimals)
+        
+        self.local_output = self.OUTPUT_SCHEMA(
+            execute_out="GO",
+            result=final_val
+        )
 
 
 class InternalMemoryWriteInput(BaseModel):

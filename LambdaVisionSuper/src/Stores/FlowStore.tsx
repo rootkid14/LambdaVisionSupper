@@ -150,6 +150,16 @@ interface FlowState {
   input_simulator_data : any | null  //For preview of dummy input data in the debug panel
   result_inspector_data : any | null //For preview of preflight run result received from BE
 
+  clipboard: { nodes: Node[] } | null;
+  copySelection: () => void;
+  pasteSelection: (mousePos?: { x: number, y: number }) => void;
+
+  past: { nodes: Node[]; edges: Edge[] }[];
+  future: { nodes: Node[]; edges: Edge[] }[];
+  takeSnapshot: () => void;
+  undo: () => void;
+  redo: () => void;
+
   /* ---------- React Flow handlers ---------- */
   onNodesChange: OnNodesChange;
   onEdgesChange: OnEdgesChange;
@@ -292,6 +302,122 @@ export const useFlowStore = create<FlowState>()(
         input_simulator_data: {},  //For preview of dummy input data in the debug panel
         result_inspector_data: {},
 
+        clipboard: null,
+
+      copySelection: () => {
+        const { nodes } = get();
+        
+        // Lấy các Node đang được bôi đen
+        const selectedNodes = nodes.filter(n => n.selected);
+
+        // LỌC BỎ SINGLETONS: Không cho copy Data In / Data Out
+        const copyableNodes = selectedNodes.filter(n => 
+          n.data?.className !== 'ReceivePayloadNode' && 
+          n.data?.className !== 'SendResponseNode'
+        );
+
+        if (copyableNodes.length === 0) return;
+
+        // Lưu thẳng vào clipboard, không quan tâm tới edges nữa
+        set({ clipboard: { nodes: copyableNodes } });
+      },
+
+      pasteSelection: (mousePos) => {
+        const { clipboard, nodes, edges } = get();
+        if (!clipboard || clipboard.nodes.length === 0) return;
+
+        get().takeSnapshot();
+
+        // Thuật toán Bounding Box: Tìm tọa độ góc trên - bên trái cùng của cụm Node đang copy
+        const minX = Math.min(...clipboard.nodes.map(n => n.position.x));
+        const minY = Math.min(...clipboard.nodes.map(n => n.position.y));
+
+        // Tính độ dời (Delta)
+        // Nếu có tọa độ chuột, dời cụm Node tới ngay vị trí chuột
+        // Nếu không (hoặc lỗi), fallback về việc dời lệch 50px như cũ
+        const deltaX = mousePos ? mousePos.x - minX : 50;
+        const deltaY = mousePos ? mousePos.y - minY : 50;
+
+        // 1. TẠO NODES MỚI
+        const pastedNodes = clipboard.nodes.map(node => {
+          const newId = `${node.data?.className || 'Node'}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+          const newData = JSON.parse(JSON.stringify(node.data));
+
+          return {
+            ...node,
+            id: newId,
+            selected: true,
+            position: {
+              x: node.position.x + deltaX, // Dời node theo hệ quy chiếu chuột
+              y: node.position.y + deltaY
+            },
+            data: newData
+          };
+        });
+
+        const unselectedOldNodes = nodes.map(n => ({ ...n, selected: false }));
+        const unselectedOldEdges = edges.map(e => ({ ...e, selected: false }));
+
+        set({
+          nodes: [...unselectedOldNodes, ...pastedNodes],
+          edges: unselectedOldEdges
+        });
+      },
+
+      past: [],
+      future: [],
+
+      takeSnapshot: () => {
+        const { nodes, edges, past } = get();
+        
+        // Dùng JSON.parse(JSON.stringify) để Deep Clone, tránh dính tham chiếu (reference bug)
+        // Giới hạn lưu 50 bước gần nhất để tránh tràn RAM
+        const newPast = [
+          ...past, 
+          { 
+            nodes: JSON.parse(JSON.stringify(nodes)), 
+            edges: JSON.parse(JSON.stringify(edges)) 
+          }
+        ].slice(-50); 
+        
+        set({ past: newPast, future: [] }); // Khi có hành động mới, tương lai (redo) sẽ bị xóa
+      },
+
+      undo: () => {
+        const { past, future, nodes, edges } = get();
+        if (past.length === 0) return; // Hết quá khứ để lùi
+
+        // Lấy ra trạng thái ngay trước đó
+        const previousState = past[past.length - 1];
+        const newPast = past.slice(0, past.length - 1);
+
+        set({
+          past: newPast,
+          // Đẩy trạng thái hiện tại vào future để có thể Redo
+          future: [{ nodes: JSON.parse(JSON.stringify(nodes)), edges: JSON.parse(JSON.stringify(edges)) }, ...future],
+          // Phục hồi UI
+          nodes: previousState.nodes,
+          edges: previousState.edges,
+        });
+      },
+
+      redo: () => {
+        const { past, future, nodes, edges } = get();
+        if (future.length === 0) return; // Hết tương lai để tiến
+
+        const nextState = future[0];
+        const newFuture = future.slice(1);
+
+        set({
+          // Đẩy trạng thái hiện tại vào past để có thể Undo lại
+          past: [...past, { nodes: JSON.parse(JSON.stringify(nodes)), edges: JSON.parse(JSON.stringify(edges)) }],
+          future: newFuture,
+          // Phục hồi UI
+          nodes: nextState.nodes,
+          edges: nextState.edges,
+        });
+      },
+
         /* =====================================================
           React Flow Handlers
         ===================================================== */
@@ -309,6 +435,7 @@ export const useFlowStore = create<FlowState>()(
         },
 
         onConnect: (connection) => {
+          get().takeSnapshot();
           set({
             edges: addEdge(connection, get().edges),
           });
@@ -413,6 +540,7 @@ export const useFlowStore = create<FlowState>()(
         },
 
         addNode: (node) => {
+          get().takeSnapshot();
           set({
             nodes: [...get().nodes, node],
           });

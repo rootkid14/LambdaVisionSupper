@@ -43,6 +43,7 @@ class BaseNode(ABC, Generic[TInput, TOutput]):
     INLINE_TYPE = None
     
     # Đặt Timeout mặc định cho tất cả các Node là 5 giây (<= 0 means allow infinite loop)
+    REQUIRE_TIMEOUT = True
     NODE_TIMEOUT = 1.0
 
     #UI VARIABLES (OVERRID BY CHILDREN CLASSES)
@@ -75,7 +76,7 @@ class BaseNode(ABC, Generic[TInput, TOutput]):
         has_timeout = any(f.id == "timeout_limit" for f in cls.CONFIG_FIELDS)
         
         # Tiêm trường timeout vào đầu mảng config
-        if not has_timeout:
+        if not has_timeout and cls.REQUIRE_TIMEOUT:
             cls.CONFIG_FIELDS = cls.get_default_config() + cls.CONFIG_FIELDS
 
 
@@ -154,17 +155,20 @@ class BaseNode(ABC, Generic[TInput, TOutput]):
 
         self._receive_token(token_id)
 
-        print(f"Node {self.node_id} has memory map of: input: {self.input_memory_map}, output: {self.output_memory_map}")
+        # print(f"Node {self.node_id} has memory map of: input: {self.input_memory_map}, output: {self.output_memory_map}")
 
         # Recursive call to previous node to get it running so the data appears.
-        for pin_name, mem_slot in self.input_memory_map.items():
-            if self.parent.memory_pool.get(mem_slot) is None:
-                generator_node_id = self.parent.memory_generators.get(mem_slot)
-                print(f"node {self.node_id} is recursively called {generator_node_id} for {mem_slot}")
-                if generator_node_id:
-                    generator_node = self.parent.nodes_list[generator_node_id]
-                    if not generator_node.has_executed:
-                        await generator_node._execution_logic(None)
+        try:
+            for pin_name, mem_slot in self.input_memory_map.items():
+                if self.parent.memory_pool.get(mem_slot) is None:
+                    generator_node_id = self.parent.memory_generators.get(mem_slot)
+                    # print(f"node {self.node_id} is recursively called {generator_node_id} for {mem_slot}")
+                    if generator_node_id:
+                        generator_node = self.parent.nodes_list[generator_node_id]
+                        if not generator_node.has_executed:
+                            await generator_node._execution_logic(None)
+        except Exception as e:
+            raise Exception(f"Something failed at recursive back loop of node {self.node_id} {e}, maybe its input memory is unexpectedly empty")
                             
            
         #Extract input from parent's Memory pool

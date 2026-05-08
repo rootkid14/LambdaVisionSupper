@@ -35,6 +35,25 @@ class LogicObject():
         # Chạy ngay khi khởi tạo
         self._compile_graph(workflow_json)
 
+    def reset_state(self):
+        """Dọn dẹp sạch sẽ toàn bộ rác bộ nhớ từ các lần chạy (Run) trước đó"""
+        # 1. Xóa hàng đợi token và bộ nhớ dùng chung
+        self.tokens_list.clear()
+        self.memory_pool.clear()
+        
+        # 2. Rửa sạch Extra Memory (Cực kỳ quan trọng để fix lỗi bóng ma Memory Read/Write)
+        self.extra_memory.clear()
+        
+        # 3. Quét qua toàn bộ các Node và reset Input/Output ảo của chúng
+        for node in self.nodes_list.values():
+            node.local_input = None
+            node.local_output = None
+            node.output_exec_map.clear()
+            
+            # Nếu là ObjectNode (có bộ nhớ riêng), cũng dọn dẹp luôn
+            if hasattr(node, 'internal_memory'):
+                node.internal_memory.clear()
+
     def _compile_graph(self, workflow_json: Dict[str, Any]):
         self.logic_timeout = float(workflow_json.get("timeout", 5.0))
         nodes_data = workflow_json.get("nodes", [])
@@ -145,7 +164,9 @@ class LogicObject():
 
         for node_id, node_instance in self.nodes_list.items():
             node_instance._reset_cache()
-        self.extra_memory = {}
+        self.reset_state()
+
+        print(self.extra_memory)
 
         try:
             self.inject_payload_and_assign_start_token(payload)
@@ -176,10 +197,9 @@ class LogicObject():
 
                     for t_id in ready_tokens:
                         node_id = self.tokens_list[t_id]["node_id"]
-                        print(f"active Node {node_id}")
+                        # print(f"active Node {node_id}")
                         node_instance = self.nodes_list[node_id]
                         tasks.append(node_instance._execution_logic(t_id))
-                    
                     await asyncio.gather(*tasks)
                 except Exception as e:
                     raise Exception(f"Lỗi thực thi vòng lặp Logic Object tại một trong các token: {self.tokens_list}, chi tiết: {e}")

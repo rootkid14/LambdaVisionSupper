@@ -39,11 +39,14 @@ export const UniversalNode = ({ id, data, selected }: NodeProps<any>) => {
                    </select>
                  )}
                  {field.type === 'number' && (
-                    <input type="number" step="any" className="nodrag text-xs p-1 rounded border border-slate-400 w-full" value={data[field.id] ?? field.default ?? ''} 
-                           onChange={(e) => {
-                               const rawValue = e.target.value;
-                               handleConfigChange(field.id, rawValue === '' ? '' : Number(rawValue));
-                           }} />
+                    <input 
+                      type="text" 
+                      inputMode="decimal" 
+                      placeholder="Nhập số..."
+                      className="nodrag text-xs p-1 rounded border border-slate-400 w-full" 
+                      value={data[field.id] ?? field.default ?? ''} 
+                      onChange={(e) => handleConfigChange(field.id, e.target.value)} 
+                    />
                   )}
                  {['server_pool_dropdown', 'device_pool_dropdown', 'active_logic_dropdown'].includes(field.type) && (
                    <SmartDropdown type={field.type} id={field.id} value={data[field.id]} onChange={(val) => handleConfigChange(field.id, val)} />

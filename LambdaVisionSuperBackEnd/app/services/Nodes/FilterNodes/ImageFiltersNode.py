@@ -302,6 +302,7 @@ class SaveImageInput(BaseModel):
     prefix: str = Field(default="aug", title="File Prefix", description=UIDataType.STRING.value)
 
 class SaveImageOutput(BaseModel):
+    execute_out: Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
     success: bool = Field(..., title="Is Success", description=UIDataType.BOOLEAN.value)
 
 @registry_node

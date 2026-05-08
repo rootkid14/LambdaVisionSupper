@@ -1,17 +1,14 @@
 // components/Nodes/InlineNode.tsx
 import { NodeProps, Handle, Position } from '@xyflow/react';
 import { useFlowStore } from '../../Stores/FlowStore';
-import { getPinColor } from '../../utils/FlowUtils'; // Đảm bảo bạn có import hàm màu sắc
+import { getPinColor } from '../../utils/FlowUtils'; 
 
 export const InlineNode = ({ id, data, selected }: NodeProps<any>) => {
   const { updateNodeData } = useFlowStore();
 
   const handleInlineChange = (e: any) => {
-    let val = e.target.value;
-    if (data.inlineInputType === 'number') {
-      val = val === '' ? '' : Number(val);
-    }
-    if (data.inlineInputType === 'checkbox') val = e.target.checked;
+    // Chỉ quan tâm checkbox hoặc lấy thẳng text
+    const val = data.inlineInputType === 'checkbox' ? e.target.checked : e.target.value;
     updateNodeData(id, { inlineValue: val });
   };
 
@@ -20,12 +17,10 @@ export const InlineNode = ({ id, data, selected }: NodeProps<any>) => {
       relative flex items-center min-w-[120px] h-8 bg-slate-800 rounded-full pr-1 pl-3 transition-all
       ${selected ? 'ring-2 ring-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]' : 'border border-slate-600 shadow-md'}
     `}>
-      {/* Tên Khối */}
       <div className="text-[10px] font-bold text-slate-300 uppercase tracking-wider mr-2 whitespace-nowrap">
         {data.displayName || data.className}
       </div>
 
-      {/* Khu vực Input */}
       <div className="flex-1 flex justify-end">
         {data.inlineInputType === 'checkbox' ? (
           <input 
@@ -36,7 +31,9 @@ export const InlineNode = ({ id, data, selected }: NodeProps<any>) => {
           />
         ) : (
           <input
-            type={data.inlineInputType || 'text'} 
+            // Ép thành text để dập tắt sự can thiệp của trình duyệt
+            type="text" 
+            inputMode={data.inlineInputType === 'number' ? "decimal" : undefined}
             value={data.inlineValue ?? ''} 
             onChange={handleInlineChange}
             placeholder="..."
@@ -45,7 +42,6 @@ export const InlineNode = ({ id, data, selected }: NodeProps<any>) => {
         )}
       </div>
 
-      {/* Chân Output (Thường Inline Node chỉ có 1 output) */}
       {data.outputs?.map((pin: any) => (
         <Handle 
           key={pin.id} 
