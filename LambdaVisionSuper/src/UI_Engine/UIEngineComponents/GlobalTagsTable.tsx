@@ -79,8 +79,22 @@ export const TagManagerTable = ({ onClose, mode = 'edit' }: { onClose?: () => vo
             val = JSON.parse(newTagValue);
             if(!Array.isArray(val)) throw new Error("Not an array");
         }
-    } catch {
-        alert(`Lỗi cú pháp! Dữ liệu bạn nhập không đúng chuẩn định dạng ${newTagType.toUpperCase()}`);
+    } catch (err) {
+        // TẠO THÔNG BÁO LỖI THÔNG MINH
+        const isJsonType = ['list', 'dict', 'json'].includes(newTagType);
+        let errorMsg = `❌ LỖI CÚ PHÁP: Dữ liệu bạn nhập không đúng chuẩn định dạng ${newTagType.toUpperCase()}`;
+        
+        if (isJsonType) {
+            errorMsg += `\n\n⚠️ HỆ THỐNG YÊU CẦU CHUẨN STRICT JSON:\n` +
+                        ` Bắt buộc phải dùng NGOẶC KÉP (" ") cho TẤT CẢ các Key và Chuỗi.\n` +
+                        ` KHÔNG dùng ngoặc đơn (' ') hoặc để Key trần (không có ngoặc).\n\n` +
+                        ` VÍ DỤ ĐÚNG:\n` +
+                        `- List chữ: ["apple", "banana"]\n` +
+                        `- List số: [1, 2, 3]\n` +
+                        `- Dict/JSON: {"id": 1, "status": "running"}`;
+        }
+        
+        alert(errorMsg);
         return;
     }
     writeTag(newTagName.trim(), val);

@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { useTagDb } from './GlobalTagsStore';
 import { COLOR_PALETTE } from "../../utils/ColorConst";
 
-export type DrawType = 'screen' | 'thumbnail' | 'frame' | 'bounding_box' | 'text' | 'line' | 'bounding_circle' | 'soft_button' | 'dynamic_bboxes';
+export type DrawType = 'screen' | 'thumbnail' | 'frame' | 'bounding_box' | 'text' | 'line' | 'bounding_circle' | 'soft_button' | 'dynamic_bboxes' | 'text_input' | 'combobox' | 'slider' | 'checkbox';
 
 export interface DataBinding {
     propName: string;
@@ -475,6 +475,38 @@ export const useUIEngine = create<UIEngineStore>((set, get) => ({
                 { id: "sample_1", x: 10, y: 10, w: 120, h: 80, label: "JSON: {x,y,w,h}", color: "#00ffff" },
                 { id: "sample_2", x: 60, y: 50, w: 90, h: 60, label: "Example", color: "#ff9900" }
             ];
+        }
+
+        if (type === 'text_input') {
+            newNode.size_x = 180;
+            newNode.size_y = 32;
+            newNode.targetTag = ""; // Tag đích để lưu text
+            newNode.style = { fontSize: 13, strokeColor: '#8ab4f8', fontColor: '#e8eaed' };
+        }
+        
+        if (type === 'combobox') {
+            newNode.size_x = 180;
+            newNode.size_y = 32;
+            newNode.sourceTag = ""; // Tag chứa mảng options
+            newNode.targetTag = ""; // Tag để lưu lựa chọn
+            newNode.style = { fontSize: 13, strokeColor: '#8ab4f8', fontColor: '#e8eaed' };
+        }
+        
+        if (type === 'slider') {
+            newNode.size_x = 200;
+            newNode.size_y = 20;
+            newNode.targetTag = "";
+            newNode.min = 0;
+            newNode.max = 100;
+            newNode.style = { fillColor: '#ffffff', activeColor: '#8ab4f8' };
+        }
+        
+        if (type === 'checkbox') {
+            newNode.size_x = 20;
+            newNode.size_y = 20;
+            newNode.content = "Checkbox Label";
+            newNode.targetTag = "";
+            newNode.style = { fontSize: 14, strokeColor: '#3c4043', activeColor: '#8ab4f8', fontColor: '#e8eaed' };
         }
 
 

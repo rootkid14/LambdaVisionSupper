@@ -1,15 +1,17 @@
 import React, { useState } from 'react';
 import { useUIEngine } from '../UIEngineStores/InspectionStore';
 import { useTagDb } from '../UIEngineStores/GlobalTagsStore';
-import { Settings, Trash2, Box, Type, Circle, Edit2, Maximize, Layout, Monitor, Unlink, KeyIcon, MousePointer2 } from 'lucide-react';
+import { 
+    Settings, Trash2, Box, Type, Circle, Edit2, Maximize, Layout, 
+    Monitor, Unlink, KeyIcon, MousePointer2, 
+    List, Sliders, CheckSquare 
+} from 'lucide-react';
 import { COLOR_PALETTE } from "../../utils/ColorConst";
-
 
 export const CreateButtonModal = () => {
     const { createButtonModal, closeCreateButtonModal, addComponent } = useUIEngine();
     const globalTags = useTagDb(state => Object.keys(state.tags));
     
-    // State tạm thời để lưu thông tin trước khi nhấn Create
     const [config, setConfig] = useState({
         label: "START",
         targetTag: "",
@@ -21,8 +23,6 @@ export const CreateButtonModal = () => {
 
     const handleCreate = (e: React.FormEvent) => {
         e.preventDefault();
-        // Gọi addComponent với đầy đủ tham số cấu hình
-        // Lưu ý: Bạn cần cập nhật hàm addComponent trong Store để nhận thêm config object này
         (addComponent as any)('soft_button', createButtonModal.parent_id, createButtonModal.x, createButtonModal.y, config);
         closeCreateButtonModal();
     };
@@ -36,7 +36,6 @@ export const CreateButtonModal = () => {
                 </div>
                 
                 <form onSubmit={handleCreate} className="p-5 flex flex-col gap-4 text-xs">
-                    {/* Nhập nhãn nút */}
                     <div className="flex flex-col gap-1.5">
                         <label className="text-[#9aa0a6] font-bold ml-1">BUTTON LABEL</label>
                         <input autoFocus value={config.label} onChange={e => setConfig({...config, label: e.target.value})}
@@ -44,7 +43,6 @@ export const CreateButtonModal = () => {
                                placeholder="e.g. RESET, START..." />
                     </div>
 
-                    {/* Chọn Tag mục tiêu */}
                     <div className="flex flex-col gap-1.5">
                         <label className="text-[#9aa0a6] font-bold ml-1">TARGET TAG (CONTROL)</label>
                         <select value={config.targetTag} onChange={e => setConfig({...config, targetTag: e.target.value})}
@@ -54,7 +52,6 @@ export const CreateButtonModal = () => {
                         </select>
                     </div>
 
-                    {/* Chọn kiểu tác động */}
                     <div className="flex flex-col gap-1.5">
                         <label className="text-[#9aa0a6] font-bold ml-1">ACTION TYPE</label>
                         <div className="grid grid-cols-2 gap-2">
@@ -67,7 +64,6 @@ export const CreateButtonModal = () => {
                         </div>
                     </div>
 
-                    {/* Chọn màu sắc */}
                     <div className="flex flex-col gap-1.5">
                         <label className="text-[#9aa0a6] font-bold ml-1">BUTTON COLOR</label>
                         <div className="flex gap-2 flex-wrap">
@@ -93,7 +89,6 @@ export const RenameModal = () => {
     const { renameModal, closeRenameModal, renameComponent } = useUIEngine();
     const [inputValue, setInputValue] = useState("");
 
-    // Khởi tạo value khi modal mở
     React.useEffect(() => { if (renameModal.isOpen) setInputValue(renameModal.currentName); }, [renameModal]);
 
     if (!renameModal.isOpen) return null;
@@ -136,6 +131,7 @@ export const ActionMenu = () => {
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[#f28b82] hover:text-[#202124] text-[#f28b82]" onClick={() => { deleteComponents([actionMenu.target_id]); }}><Trash2 size={14} /> Delete Screen</button>
                 </>
             )}
+            
             {actionMenu.target_type === 'screen' && (
                 <>
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[#8ab4f8] hover:text-[#202124]" onClick={() => { addComponent('frame', actionMenu.target_id, (actionMenu as any).local_x || 0, (actionMenu as any).local_y || 0); closeActionMenu(); }}><Layout size={14} /> Add Frame</button>
@@ -146,22 +142,30 @@ export const ActionMenu = () => {
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[#8ab4f8] hover:text-[#202124]" onClick={() => openPropertiesPanel(actionMenu.target_id)}><Settings size={14} /> Properties</button>
                 </>
             )}
+            
             {actionMenu.target_type === 'frame' && (
                 <>
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[#8ab4f8] hover:text-[#202124]" onClick={() => { addComponent('bounding_box', actionMenu.target_id, (actionMenu as any).local_x||0, (actionMenu as any).local_y||0); closeActionMenu(); }}><Box size={14} /> Add Box</button>
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[#8ab4f8] hover:text-[#202124]" onClick={() => { addComponent('bounding_circle', actionMenu.target_id, (actionMenu as any).local_x||0, (actionMenu as any).local_y||0); closeActionMenu(); }}><Circle size={14} /> Add Circle</button>
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[#8ab4f8] hover:text-[#202124]" onClick={() => { addComponent('text', actionMenu.target_id, (actionMenu as any).local_x||0, (actionMenu as any).local_y||0); closeActionMenu(); }}><Type size={14} /> Add Text</button>
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[#8ab4f8] hover:text-[#202124]" onClick={() => { openCreateButtonModal(actionMenu.target_id, (actionMenu as any).local_x || 0, (actionMenu as any).local_y || 0); closeActionMenu()}}><MousePointer2 size={14} /> Add Button</button>
-                    <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-slate-700 text-cyan-400" onClick={() => { addComponent('dynamic_bboxes', actionMenu.target_id, (actionMenu as any).local_x || 0, (actionMenu as any).local_y || 0); closeActionMenu(); }}
-        >
-            <Layout size={14} /> Add Dynamic BBoxes
-        </button>
+                    
+                    <div className="h-px bg-[#3c4043] my-1"></div>
+                    <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[#8ab4f8] hover:text-[#202124]" onClick={() => { addComponent('text_input', actionMenu.target_id, (actionMenu as any).local_x || 0, (actionMenu as any).local_y || 0); closeActionMenu(); }}><Type size={14} /> Add Input Field</button>
+                    <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[#8ab4f8] hover:text-[#202124]" onClick={() => { addComponent('combobox', actionMenu.target_id, (actionMenu as any).local_x || 0, (actionMenu as any).local_y || 0); closeActionMenu(); }}><List size={14} /> Add Combobox</button>
+                    <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[#8ab4f8] hover:text-[#202124]" onClick={() => { addComponent('slider', actionMenu.target_id, (actionMenu as any).local_x || 0, (actionMenu as any).local_y || 0); closeActionMenu(); }}><Sliders size={14} /> Add Slider</button>
+                    <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[#8ab4f8] hover:text-[#202124]" onClick={() => { addComponent('checkbox', actionMenu.target_id, (actionMenu as any).local_x || 0, (actionMenu as any).local_y || 0); closeActionMenu(); }}><CheckSquare size={14} /> Add Checkbox</button>
+
+                    <div className="h-px bg-[#3c4043] my-1"></div>
+                    <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-slate-700 text-cyan-400" onClick={() => { addComponent('dynamic_bboxes', actionMenu.target_id, (actionMenu as any).local_x || 0, (actionMenu as any).local_y || 0); closeActionMenu(); }}><Layout size={14} /> Add Dynamic BBoxes</button>
+                    
                     <div className="h-px bg-[#3c4043] my-1"></div>
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[#8ab4f8] hover:text-[#202124]" onClick={() => openPropertiesPanel(actionMenu.target_id)}><Settings size={14} /> Properties</button>
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[#f28b82] hover:text-[#202124] text-[#f28b82]" onClick={() => deleteComponents([actionMenu.target_id])}><Trash2 size={14} /> Delete</button>
                 </>
             )}
-            {['bounding_box', 'bounding_circle', 'text', 'line', 'soft_button', 'dynamic_bboxes'].includes(actionMenu.target_type) && (
+            
+            {['bounding_box', 'bounding_circle', 'text', 'line', 'soft_button', 'dynamic_bboxes', 'text_input', 'combobox', 'slider', 'checkbox'].includes(actionMenu.target_type) && (
                 <>
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[#8ab4f8] hover:text-[#202124]" onClick={() => openPropertiesPanel(actionMenu.target_id)}><Settings size={14} /> Properties</button>
                     <button className="flex w-full items-center gap-3 px-4 py-2 hover:bg-[#f28b82] hover:text-[#202124] text-[#f28b82]" onClick={() => deleteComponents([actionMenu.target_id])}><Trash2 size={14} /> Delete</button>
@@ -179,10 +183,9 @@ export const UIPropertiesPanel = () => {
     const node = components_map[propertyPanel.target_id];
     if (!node) return null;
 
-    // FIX LỖI CRASH: Đảm bảo hàm luôn return mảng `fields` hợp lệ
     const getAvailableFields = () => {
         const fields = [];
-        // Layout & Data
+        
         if(node.isVisible !== undefined) fields.push({ path: 'isVisible', label: 'Visible', type: 'boolean' });
         if(node.x !== undefined) fields.push({ path: 'x', label: 'X', type: 'number' });
         if(node.y !== undefined) fields.push({ path: 'y', label: 'Y', type: 'number' });
@@ -191,7 +194,6 @@ export const UIPropertiesPanel = () => {
         if(node.radius !== undefined) fields.push({ path: 'radius', label: 'Radius', type: 'number' });
         if(node.content !== undefined) fields.push({ path: 'content', label: 'Text', type: 'string' });
         
-        // Styles
         if(node.style) {
             if(node.style.border_thickness !== undefined) fields.push({ path: 'style.border_thickness', label: 'Stroke W', type: 'number' });
             if(node.style.strokeColor !== undefined) fields.push({ path: 'style.strokeColor', label: 'Stroke Color', type: 'color' });
@@ -199,7 +201,6 @@ export const UIPropertiesPanel = () => {
             if(node.style.fontColor !== undefined) fields.push({ path: 'style.fontColor', label: 'Font Color', type: 'color' });
             if(node.style.fontSize !== undefined) fields.push({ path: 'style.fontSize', label: 'Font Size', type: 'number' });
             
-            // CẢI TIẾN: Hỗ trợ 2 trường ảnh cho Frame
             if(node.type === 'frame') {
                 fields.push({ path: 'style.default_image', label: 'Default Img', type: 'image' }); 
                 fields.push({ path: 'style.bgImage', label: 'Runtime Img', type: 'image' });       
@@ -210,7 +211,7 @@ export const UIPropertiesPanel = () => {
                 fields.push({ path: 'targetTag', label: 'Target Tag', type: 'tag_selector' }); 
                 fields.push({ path: 'actionType', label: 'Action Type', type: 'select', options: ['toggle', 'setToTrue', 'setToFalse', 'pulse'] });
                 fields.push({ path: 'style.fillColor', label: 'Normal Color', type: 'color' });
-                fields.push({ path: 'style.activeColor', label: 'Active Color', type: 'color' }); // <--- BỔ SUNG DÒNG NÀY
+                fields.push({ path: 'style.activeColor', label: 'Active Color', type: 'color' }); 
                 fields.push({ path: 'style.cornerRadius', label: 'Round Corner', type: 'number' });
             }
         }
@@ -218,11 +219,31 @@ export const UIPropertiesPanel = () => {
         if (node.type === 'dynamic_bboxes') {
             fields.push({ path: 'data', label: 'BBox Array Tag', type: 'tag_selector' });
         }
+
+        if (node.type === 'text_input') {
+            fields.push({ path: 'targetTag', label: 'Save To Tag', type: 'tag_selector' });
+            fields.push({ path: 'style.fontSize', label: 'Font Size', type: 'number' });
+            fields.push({ path: 'style.strokeColor', label: 'Border Color', type: 'color' });
+        }
+        if (node.type === 'combobox') {
+            fields.push({ path: 'sourceTag', label: 'Options Tag (Array)', type: 'tag_selector' });
+            fields.push({ path: 'targetTag', label: 'Selected Tag', type: 'tag_selector' });
+        }
+        if (node.type === 'slider') {
+            fields.push({ path: 'targetTag', label: 'Value Tag', type: 'tag_selector' });
+            fields.push({ path: 'min', label: 'Min Value', type: 'number' });
+            fields.push({ path: 'max', label: 'Max Value', type: 'number' });
+            fields.push({ path: 'style.activeColor', label: 'Track Color', type: 'color' });
+        }
+        if (node.type === 'checkbox') {
+            fields.push({ path: 'content', label: 'Label', type: 'string' });
+            fields.push({ path: 'targetTag', label: 'Bool Tag', type: 'tag_selector' });
+            fields.push({ path: 'style.activeColor', label: 'Check Color', type: 'color' });
+        }
         
-        return fields; // <--- CỰC KỲ QUAN TRỌNG: Không có dòng này là sập màn hình!
+        return fields;
     };
 
-    // Helper functions để đọc ghi object lồng nhau (Nested object: style.strokeColor)
     const getNestedValue = (obj: any, path: string) => path.split('.').reduce((o, p) => o?.[p], obj);
     const setNestedValue = (path: string, value: any) => {
         if (path.startsWith('style.')) {
@@ -233,7 +254,6 @@ export const UIPropertiesPanel = () => {
         }
     };
 
-    // Upload Ảnh Base64
     const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file) {
@@ -245,20 +265,16 @@ export const UIPropertiesPanel = () => {
 
     return (
         <>
-            {/* BACKDROP TÀNG HÌNH CHẶN CLICK & ĐÓNG PANEL */}
             <div 
                 className="fixed inset-0 z-[35] bg-transparent" 
                 onClick={closePropertiesPanel}
                 title="Click outside to close"
             ></div>
 
-            {/* BẢNG PROPERTIES PANEL CHÍNH */}
             <div className="absolute top-20 right-4 w-[480px] bg-[#28292c] border border-[#3c4043] shadow-2xl z-40 rounded-xl font-sans flex flex-col max-h-[80vh]">
                 
-                {/* HEADER - INLINE RENAME */}
                 <div className="flex justify-between items-center px-4 py-3 border-b border-[#3c4043] bg-[#303134] rounded-t-xl shrink-0">
                     <div className="flex flex-col flex-1 mr-4">
-                        {/* SỬA TÊN TRỰC TIẾP Ở ĐÂY */}
                         <input 
                             value={node.name}
                             onChange={(e) => renameComponent(node.id, e.target.value)}
@@ -291,7 +307,6 @@ export const UIPropertiesPanel = () => {
                                             <td className="p-2 font-mono text-[#8ab4f8] text-[10px]">{field.label}</td>
                                             <td className="p-2 text-center"><span className="px-1 py-0.5 bg-[#3c4043] text-[#e8eaed] rounded text-[8px] uppercase">{field.type}</span></td>
                                             
-                                            {/* CỘT INPUT LOCAL VALUE TÙY THEO TYPE */}
                                             <td className="p-2">
                                                 {binding ? (
                                                     <span className="text-[#5f6368] italic text-[10px]">Bound to Global Tag</span>
@@ -305,6 +320,40 @@ export const UIPropertiesPanel = () => {
                                                             />
                                                         )}
                                                         
+                                                        {field.type === 'boolean' && (
+                                                            <select 
+                                                                value={val === false ? 'false' : 'true'} 
+                                                                onChange={e => setNestedValue(field.path, e.target.value === 'true')} 
+                                                                className="w-full bg-[#171717] border border-[#3c4043] rounded px-1.5 py-1 text-[#e8eaed] text-[10px] outline-none cursor-pointer"
+                                                            >
+                                                                <option value="true">True</option>
+                                                                <option value="false">False</option>
+                                                            </select>
+                                                        )}
+
+                                                        {/* BỔ SUNG GIAO DIỆN SELECTOR CHO TAG */}
+                                                        {field.type === 'tag_selector' && (
+                                                            <select 
+                                                                value={val || ''} 
+                                                                onChange={e => setNestedValue(field.path, e.target.value)} 
+                                                                className="w-full bg-[#171717] border border-[#8ab4f8] rounded px-1.5 py-1 text-[#8ab4f8] text-[10px] outline-none cursor-pointer font-bold"
+                                                            >
+                                                                <option value="">-- Select Tag --</option>
+                                                                {globalTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}
+                                                            </select>
+                                                        )}
+
+                                                        {/* BỔ SUNG GIAO DIỆN SELECTOR CHO OPTIONS */}
+                                                        {field.type === 'select' && (
+                                                            <select 
+                                                                value={val || ''} 
+                                                                onChange={e => setNestedValue(field.path, e.target.value)} 
+                                                                className="w-full bg-[#171717] border border-[#3c4043] rounded px-1.5 py-1 text-[#e8eaed] text-[10px] outline-none cursor-pointer"
+                                                            >
+                                                                {field.options?.map((opt: string) => <option key={opt} value={opt}>{opt}</option>)}
+                                                            </select>
+                                                        )}
+
                                                         {field.type === 'color' && (
                                                             <div className="flex items-center gap-2">
                                                                 <div className="relative w-5 h-5 rounded-full overflow-hidden border border-[#5f6368] cursor-pointer shrink-0">
@@ -344,19 +393,20 @@ export const UIPropertiesPanel = () => {
                                                 )}
                                             </td>
 
-                                            {/* CỘT BINDING */}
                                             <td className="p-2 text-right">
-                                                {/* CẢI TIẾN 3: Bỏ chặn điều kiện field.type, cho phép Bind Tag ở mọi trường[cite: 17] */}
-                                                {binding ? (
-                                                    <button onClick={() => unbindTag(node.id, field.path)} className="inline-flex items-center gap-1.5 px-2 py-1 bg-[#8ab4f8]/10 text-[#8ab4f8] hover:bg-[#f28b82]/10 hover:text-[#f28b82] border border-[#8ab4f8]/30 hover:border-[#f28b82]/30 rounded transition-colors text-[9px] font-bold w-full justify-between" title="Unbind">
-                                                        <span className="truncate max-w-[70px]">{binding.globalTagKey}</span>
-                                                        <Unlink size={10} className="shrink-0"/>
-                                                    </button>
-                                                ) : (
-                                                    <select className="w-full bg-[#28292c] border border-[#3c4043] rounded px-1 py-1 text-[#9aa0a6] text-[9px] outline-none cursor-pointer focus:border-[#81c995]" value="" onChange={(e) => bindTagToProperty(node.id, field.path, e.target.value)}>
-                                                        <option value="" disabled>+ Link Tag</option>
-                                                        {globalTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}
-                                                    </select>
+                                                {/* ẨN NÚT BINDING ĐỐI VỚI CÁC TRƯỜNG TỰ LIÊN KẾT */}
+                                                {field.type !== 'tag_selector' && field.type !== 'select' && (
+                                                    binding ? (
+                                                        <button onClick={() => unbindTag(node.id, field.path)} className="inline-flex items-center gap-1.5 px-2 py-1 bg-[#8ab4f8]/10 text-[#8ab4f8] hover:bg-[#f28b82]/10 hover:text-[#f28b82] border border-[#8ab4f8]/30 hover:border-[#f28b82]/30 rounded transition-colors text-[9px] font-bold w-full justify-between" title="Unbind">
+                                                            <span className="truncate max-w-[70px]">{binding.globalTagKey}</span>
+                                                            <Unlink size={10} className="shrink-0"/>
+                                                        </button>
+                                                    ) : (
+                                                        <select className="w-full bg-[#28292c] border border-[#3c4043] rounded px-1 py-1 text-[#9aa0a6] text-[9px] outline-none cursor-pointer focus:border-[#81c995]" value="" onChange={(e) => bindTagToProperty(node.id, field.path, e.target.value)}>
+                                                            <option value="" disabled>+ Link Tag</option>
+                                                            {globalTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}
+                                                        </select>
+                                                    )
                                                 )}
                                             </td>
                                         </tr>
@@ -370,4 +420,3 @@ export const UIPropertiesPanel = () => {
         </>
     );
 };
-
