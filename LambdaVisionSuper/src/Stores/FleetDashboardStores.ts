@@ -117,6 +117,7 @@ type FleetStore = {
     undeployLogic: (logic_obj_id : string) => Promise<any>;
     silentRefreshFleet: () => Promise<void>;
     toggleFileRamStatus: (filename: string, isCurrentlyInRam: boolean) => Promise<void>;
+    fetchGraphContent: (filename: string) => Promise<any>;
 };
 
 export const useFleetStore = create<FleetStore>()(persist(
@@ -646,6 +647,22 @@ export const useFleetStore = create<FleetStore>()(persist(
                 set({ errorMessage: error?.response?.data?.detail || error.message || "Lỗi mạng", isErrorModalOpen: true });
             }
         },
+        
+    fetchGraphContent: async (filename: string) => {
+        const selected_worker_id = get().selected_worker?.selected_worker_id;
+        if (!selected_worker_id) throw new Error("Chưa chọn Worker");
+        
+        const isMaster = selected_worker_id === "master_gateway";
+        let blob: Blob;
+        
+        // Gọi API đã có sẵn
+        if (isMaster) blob = await FleetAPI.master_downloadFile(filename, 'graph');
+        else blob = await FleetAPI.proxy_downloadFile(selected_worker_id, filename, 'graph');
+        
+        // Convert Blob nhị phân thành Text, rồi Parse sang JSON Object
+        const text = await blob.text();
+        return JSON.parse(text);
+    },
 }),
 {
     name: "fleet-storage", // Tên bộ nhớ lưu IP Server

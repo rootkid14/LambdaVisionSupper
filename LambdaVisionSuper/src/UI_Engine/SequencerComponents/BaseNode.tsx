@@ -17,7 +17,7 @@ interface BaseNodeProps {
 export const BaseNode = ({ selected, title, icon, headerColor, children, inputs = 1, outputs = 1 }: BaseNodeProps) => {
   return (
     <div className={`
-      min-w-[180px] bg-white rounded-md border transition-all duration-200
+      min-w-[180px] bg-[#606060] rounded-md border transition-all duration-200
       ${selected ? 'border-blue-500 ring-2 ring-blue-500/20 shadow-lg' : 'border-slate-300 shadow-sm'}
       hover:shadow-md
     `}>

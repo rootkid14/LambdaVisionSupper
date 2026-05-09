@@ -1,9 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Settings2, X, Database, Trash2, Plus, Cpu, Network, HelpCircle, Info, Braces, TerminalSquare, ArrowRight, ArrowLeft, Server } from 'lucide-react';
+import { Settings2, X, Database, Trash2, Plus, Cpu, Network, HelpCircle, Info, Braces, TerminalSquare, ArrowRight, ArrowLeft, Server, Layout } from 'lucide-react';
 import { useSequencerStore, NodeProcessConfig } from '../UIEngineStores/SequencerStores';
 import { useTagDb } from '../UIEngineStores/GlobalTagsStore';
 import { useFleetStore } from '../../Stores/FleetDashboardStores';
 import { DBEngineAPI } from '../../api/dbEngineApi';
+import Editor from 'react-simple-code-editor';
+import Prism from 'prismjs';
+import 'prismjs/components/prism-javascript';
+import 'prismjs/themes/prism-tomorrow.css';
 
 // ĐỒNG BỘ: Cập nhật hàm inferType khớp với GlobalTagsStore
 const inferType = (value: any): string => {
@@ -22,6 +26,24 @@ const inferType = (value: any): string => {
       return 'string';
   }
   return 'any';
+};
+
+const NodeNameHeader = ({ nodeId, currentName }: { nodeId: string, currentName: string }) => {
+    const updateNodeData = useSequencerStore(state => state.updateNodeData);
+    
+    return (
+        <div className="p-4 border-b border-[#3c4043] bg-[#28292c]">
+            <label className="text-[10px] font-bold text-[#9aa0a6] uppercase tracking-widest mb-2 block">
+                Node Identity Name
+            </label>
+            <input 
+                value={currentName || ""} 
+                onChange={(e) => updateNodeData(nodeId, { name: e.target.value })}
+                placeholder="Enter Node Name"
+                className="w-full bg-[#171717] border border-[#3c4043] focus:border-[#4fd1c5] text-[#e8eaed] text-sm p-2 rounded outline-none transition-colors"
+            />
+        </div>
+    );
 };
 
 // ==============================================================
@@ -81,49 +103,109 @@ const GuideModal = ({ onClose }: { onClose: () => void }) => (
 
 const ScriptGuideModal = ({ onClose }: { onClose: () => void }) => (
   <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center font-sans">
-    <div className="bg-[#28292c] w-full max-w-2xl rounded-xl border border-[#3c4043] shadow-2xl overflow-hidden flex flex-col">
-      <div className="px-6 py-4 bg-[#303134] border-b border-[#3c4043] flex items-center justify-between">
+    <div className="bg-[#28292c] w-full max-w-4xl rounded-xl border border-[#3c4043] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="px-6 py-4 bg-[#303134] border-b border-[#3c4043] flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3 text-[#4fd1c5]">
           <TerminalSquare size={20} />
-          <h2 className="font-bold text-base uppercase tracking-wider">Hướng dẫn Javascript Script</h2>
+          <h2 className="font-bold text-base uppercase tracking-wider">Tài liệu API Javascript</h2>
         </div>
         <button onClick={onClose} className="text-[#9aa0a6] hover:text-[#f28b82] transition-colors"><X size={20}/></button>
       </div>
       
-      <div className="p-6 overflow-y-auto custom-scrollbar flex flex-col gap-6 text-[#e8eaed] text-sm">
-        <div className="bg-[#4fd1c5]/10 border border-[#4fd1c5]/30 p-4 rounded-lg flex gap-3 text-[#4fd1c5]">
-          <Info size={24} className="shrink-0 mt-0.5" />
-          <p className="leading-relaxed">Script Node chạy trong một <b>Hộp cát (Sandbox)</b> cô lập. Bạn giao tiếp với hệ thống thông qua hai đối tượng: <b className="text-[#fcd663]">IN</b> (Đầu vào) và <b className="text-[#fcd663]">OUT</b> (Đầu ra).</p>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
+      <div className="p-6 overflow-y-auto custom-scrollbar flex flex-col gap-8 text-[#e8eaed] text-sm">
+        
+        {/* KHU VỰC 1: GIỚI THIỆU CHUNG */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="bg-[#171717] p-4 rounded-lg border border-[#3c4043]">
-            <h3 className="text-[#4fd1c5] font-bold mb-2 flex items-center gap-2"><ArrowRight size={14}/> Đối tượng IN</h3>
-            <p className="text-[#9aa0a6] text-xs">Chứa dữ liệu đọc từ các Global Tags mà bạn đã ánh xạ. <br/>Ví dụ: <code className="text-[#e8eaed]">IN.my_var</code></p>
+            <h3 className="text-[#4fd1c5] font-bold mb-2 flex items-center gap-2"><ArrowRight size={14}/> 1. Đọc dữ liệu (IN)</h3>
+            <p className="text-[#9aa0a6] text-xs">Đọc giá trị từ các Global Tags đã map.<br/><code className="text-[#e8eaed] bg-[#202124] px-1 py-0.5 rounded mt-1 inline-block">let val = IN.my_var;</code></p>
           </div>
           <div className="bg-[#171717] p-4 rounded-lg border border-[#3c4043]">
-            <h3 className="text-[#c58af9] font-bold mb-2 flex items-center gap-2"><ArrowLeft size={14}/> Đối tượng OUT</h3>
-            <p className="text-[#9aa0a6] text-xs">Gán giá trị vào đối tượng này để lưu ngược lại vào Global Tags. <br/>Ví dụ: <code className="text-[#e8eaed]">OUT.result = 100;</code></p>
+            <h3 className="text-[#c58af9] font-bold mb-2 flex items-center gap-2"><ArrowLeft size={14}/> 2. Ghi dữ liệu (OUT)</h3>
+            <p className="text-[#9aa0a6] text-xs">Xuất giá trị ra Global Tags.<br/><code className="text-[#e8eaed] bg-[#202124] px-1 py-0.5 rounded mt-1 inline-block">OUT.result = 100;</code></p>
+          </div>
+          <div className="bg-[#171717] p-4 rounded-lg border border-[#3c4043] relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-16 h-16 bg-[#8ab4f8] opacity-5 rounded-bl-full"></div>
+            <h3 className="text-[#8ab4f8] font-bold mb-2 flex items-center gap-2"><Layout size={14}/> 3. Thao tác Canvas (UI)</h3>
+            <p className="text-[#9aa0a6] text-xs">Đọc/Ghi thuộc tính của Component trực tiếp.<br/><code className="text-[#e8eaed] bg-[#202124] px-1 py-0.5 rounded mt-1 inline-block">UI.set("Box_1", {"{x: 10}"})</code></p>
           </div>
         </div>
 
+        {/* KHU VỰC 2: CHEAT SHEET (TỪ ĐIỂN THUỘC TÍNH) */}
         <div>
-          <h3 className="text-[#81c995] font-bold mb-2 text-base">Ví dụ xử lý mảng (Array):</h3>
-          <div className="bg-[#171717] border border-[#3c4043] rounded-lg p-4 font-mono text-xs leading-relaxed text-[#e8eaed]">
-            <span className="text-[#5f6368]">// Lấy độ dài mảng từ Tag</span><br/>
-            <span className="text-[#4fd1c5]">let</span> count = IN.boxes ? IN.boxes.length : <span className="text-[#fcd663]">0</span>;<br/><br/>
-            <span className="text-[#5f6368]">// Tính toán logic phức tạp</span><br/>
-            <span className="text-[#4fd1c5]">if</span> (count {`> `} <span className="text-[#fcd663]">10</span>) {` { `}<br/>
-            &nbsp;&nbsp;OUT.status = <span className="text-[#fcd663]">"OVERLOAD"</span>;<br/>
-            {` } `} <span className="text-[#4fd1c5]">else</span> {` { `}<br/>
-            &nbsp;&nbsp;OUT.status = <span className="text-[#fcd663]">"NORMAL"</span>;<br/>
-            {` } `}<br/><br/>
-            <span className="text-[#c58af9]">OUT</span>.total = count;
+          <h3 className="text-[#8ab4f8] font-bold mb-3 text-base flex items-center gap-2">
+            <Database size={18}/> Từ điển Thuộc tính UI (Properties Cheat Sheet)
+          </h3>
+          <div className="overflow-x-auto border border-[#3c4043] rounded-lg">
+            <table className="w-full text-xs text-left">
+              <thead className="bg-[#202124] text-[#9aa0a6] border-b border-[#3c4043]">
+                <tr>
+                  <th className="p-3 font-bold w-[25%]">Nhóm Component</th>
+                  <th className="p-3 font-bold">Các Key (Props) có thể Get / Set</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#3c4043] text-[#e8eaed] bg-[#171717]">
+                <tr className="hover:bg-[#202124] transition-colors">
+                  <td className="p-3 font-bold text-[#e8eaed]"> Tất cả (Common)</td>
+                  <td className="p-3 font-mono text-[11px] leading-relaxed">
+                    <span className="text-[#fcd663]">x, y, w, h, rotation, isVisible</span> <br/>
+                    <span className="text-[#9aa0a6]">{"// Lưu ý: w và h sẽ tự động chuyển thành size_x, size_y bên dưới hệ thống"}</span>
+                  </td>
+                </tr>
+                <tr className="hover:bg-[#202124] transition-colors">
+                  <td className="p-3 font-bold text-[#81c995]"> Style (Màu sắc, Viền)</td>
+                  <td className="p-3 font-mono text-[11px] leading-relaxed text-[#fcd663]">
+                    {"style: { strokeColor, fillColor, fontColor, fontSize, border_thickness, activeColor, cornerRadius }"}
+                  </td>
+                </tr>
+                <tr className="hover:bg-[#202124] transition-colors">
+                  <td className="p-3 font-bold text-[#4fd1c5]">Aa Text / Button / Checkbox</td>
+                  <td className="p-3 font-mono text-[11px] leading-relaxed text-[#fcd663]">content <span className="text-[#9aa0a6]">{"// Thay đổi chữ hiển thị"}</span></td>
+                </tr>
+                <tr className="hover:bg-[#202124] transition-colors">
+                  <td className="p-3 font-bold text-[#c58af9]"> Bounding Circle</td>
+                  <td className="p-3 font-mono text-[11px] leading-relaxed text-[#fcd663]">radius <span className="text-[#9aa0a6]">{"// Thay cho w và h"}</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          {/* MẸO PRO-TIP */}
+          <div className="mt-4 bg-[#fcd663]/10 border border-[#fcd663]/30 p-3 rounded-lg flex gap-3 text-[#fc9363]">
+            <Info size={18} className="shrink-0 mt-0.5" />
+            <div className="text-xs">
+              <strong className="block mb-1 tracking-wider uppercase">💡 Mẹo Debug (Khám phá cấu trúc):</strong>
+              Nếu bạn không chắc một Component có những thuộc tính gì, hãy ép nó ra một biến OUT và xem ở bảng Global Tags:
+              <code className="block text-[#e8eaed] bg-[#202124] px-2 py-1 rounded mt-1.5 border border-[#3c4043]">
+                <span className="text-[#c58af9]">OUT</span>.my_debug_data = <span className="text-[#8ab4f8]">UI.get</span>(<span className="text-[#fcd663]">"Tên_Component"</span>);
+              </code>
+            </div>
           </div>
         </div>
+
+        {/* KHU VỰC 3: CODE MẪU */}
+        <div>
+          <h3 className="text-[#e8eaed] font-bold mb-3 text-base">Code Mẫu (Snippets)</h3>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="bg-[#171717] border border-[#3c4043] rounded-lg p-4 font-mono text-xs leading-relaxed text-[#e8eaed]">
+              <span className="text-[#5f6368]">{"// 1. Tính toán logic và xuất ra Tag"}</span><br/>
+              <span className="text-[#4fd1c5]">{"let "}</span>{"count = IN.boxes ? IN.boxes.length : "}<span className="text-[#fcd663]">{"0"}</span>{";"}<br/>
+              <span className="text-[#c58af9]">{"OUT"}</span>{".status = (count > "}<span className="text-[#fcd663]">{"10"}</span>{") ? "}<span className="text-[#fcd663]">{"\"OVERLOAD\""}</span>{" : "}<span className="text-[#fcd663]">{"\"NORMAL\""}</span>{";"}
+            </div>
+            <div className="bg-[#171717] border border-[#3c4043] rounded-lg p-4 font-mono text-xs leading-relaxed text-[#e8eaed]">
+              <span className="text-[#5f6368]">{"// 2. Lấy tọa độ Box và đổi màu viền"}</span><br/>
+              <span className="text-[#4fd1c5]">{"let "}</span>{"box = "}<span className="text-[#8ab4f8]">{"UI.get"}</span>{"("}<span className="text-[#fcd663]">{"\"Face_Box\""}</span>{");"}<br/>
+              <span className="text-[#4fd1c5]">{"if "}</span>{"(box) {"}<br/>
+              &nbsp;&nbsp;<span className="text-[#c58af9]">{"OUT"}</span>{".crop_area = {x: box.x, y: box.y, w: box.w, h: box.h};"}<br/>
+              &nbsp;&nbsp;<span className="text-[#8ab4f8]">{"UI.set"}</span>{"("}<span className="text-[#fcd663]">{"\"Face_Box\""}</span>{", { style: { strokeColor: "}<span className="text-[#fcd663]">{"'#ff0000'"}</span>{" } });"}<br/>
+              {"}"}
+            </div>
+          </div>
+        </div>
+
       </div>
 
-      <div className="p-4 border-t border-[#3c4043] bg-[#202124] flex justify-end">
+      <div className="p-4 border-t border-[#3c4043] bg-[#202124] flex justify-end shrink-0">
         <button onClick={onClose} className="px-6 py-2 bg-[#4fd1c5] text-[#202124] font-bold rounded hover:bg-[#81e6d9] transition-colors">ĐÃ HIỂU</button>
       </div>
     </div>
@@ -152,7 +234,16 @@ export const PropertiesSidebar = ({ nodeId, onClose }: { nodeId: string, onClose
       case 'buildjson':
         return <JsonScriptPanel nodeId={nodeId} config={config} isExtract={false} />;
       case 'script':
-        return <ScriptPanel nodeId={nodeId} config={config} />;
+        return (
+        <div className="flex flex-col h-full">
+            {/* Header đổi tên luôn nằm trên cùng */}
+            <NodeNameHeader nodeId={nodeId} currentName={node.data.name as any} />
+            
+            <div className="flex-1 overflow-y-auto custom-scrollbar">
+                <ScriptPanel nodeId={nodeId} config={config} />
+            </div>
+        </div>
+    );
       case 'writedb':
         return <WriteDbPanel nodeId={nodeId} config={config} />
       default:
@@ -691,13 +782,32 @@ const ScriptPanel = ({ nodeId, config }: { nodeId: string, config: any }) => {
         <label className="text-xs font-bold text-[#4fd1c5] uppercase mb-2 flex items-center gap-2">
           <TerminalSquare size={16} /> Javascript Sandbox
         </label>
-        <p className="text-[10px] text-[#5f6368] mb-2 italic">Ex: <span className="text-[#4fd1c5]">let a = IN.var1;</span> <span className="text-[#c58af9]">OUT.res = a * 2;</span></p>
-        <textarea 
-           value={scriptContent} 
-           onChange={(e) => setFieldValue(nodeId, 'script_content', e.target.value)}
-           spellCheck={false}
-           className="w-full flex-1 bg-[#171717] border border-[#3c4043] text-[#e8eaed] font-mono text-sm p-4 rounded outline-none focus:border-[#4fd1c5] custom-scrollbar whitespace-pre"
-        />
+        
+        {/* KHU VỰC CHEATSHEET HƯỚNG DẪN */}
+        <div className="text-[10px] text-[#9aa0a6] bg-[#171717] border border-[#3c4043] rounded p-2 mb-2 font-mono flex flex-col gap-1 shrink-0">
+            <span><b className="text-[#4fd14f]">IN.var</b> : Đọc dữ liệu từ biến đầu vào</span>
+            <span><b className="text-[#9230e7]">OUT.var</b> : Ghi dữ liệu ra biến đầu ra</span>
+            <span><b className="text-[#8ab4f8]">UI.get(name_or_id)</b> : Lấy {`{x, y, w, h, style...}`} của component</span>
+            <span><b className="text-[#0058e6]">UI.set(name_or_id, props)</b> : Đổi thuộc tính component</span>
+        </div>
+
+        {/* BỌC EDITOR VÀO TRONG MỘT DIV CÓ SCROLL ĐỂ GIAO DIỆN KHÔNG BỊ TRÀN */}
+        <div className="flex-1 w-full bg-[#1d1f21] border border-[#3c4043] focus-within:border-[#4fd1c5] transition-colors rounded overflow-y-auto custom-scrollbar relative">
+          <Editor
+            value={scriptContent}
+            onValueChange={(code) => setFieldValue(nodeId, 'script_content', code)}
+            highlight={(code) => Prism.highlight(code, Prism.languages.javascript, 'javascript')}
+            padding={16}
+            tabSize={4}
+            textareaClassName="focus:outline-none"
+            className="min-h-full font-mono text-sm"
+            style={{
+              fontFamily: '"Fira Code", "Consolas", monospace',
+              backgroundColor: 'transparent',
+              color: '#e8eaed', // Màu chữ mặc định nếu Prism không highlight
+            }}
+          />
+        </div>
       </div>
     </div>
   );

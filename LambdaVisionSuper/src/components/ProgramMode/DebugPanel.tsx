@@ -1,15 +1,21 @@
 // components/ProgramMode/DebugPanel.tsx
 import React, { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Play, Save, FolderOpen, Bug, ChevronRight, Upload, Eye, X, ArrowLeft, RefreshCcw, Timer } from 'lucide-react';
+import { Play, Save, FolderOpen, Bug, ChevronRight, Upload, Eye, X, ArrowLeft, RefreshCcw, Timer, CloudUpload } from 'lucide-react';
 import { useFlowStore } from '../../Stores/FlowStore';
 import { ImageProcessing } from '../../utils/imageUtils';
 import { FlowCompiler } from '../../utils/FlowCompiler';
+import { useFleetStore } from '../../Stores/FleetDashboardStores';
+import { FleetAPI } from '../../api/fleetApi';
 
 export const DebugPanel = () => {
+
   const store = useFlowStore();
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const fleetStore = useFleetStore();
+  const remoteGraphName = store.editing_remote_graph_name;
 
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
   const [isTesting, setIsTesting] = useState(false);
@@ -111,6 +117,59 @@ export const DebugPanel = () => {
       return null;
   };
 
+  const handleCloudSave = async () => {
+    let name = remoteGraphName;
+    
+    // Nếu chưa có tên, hỏi người dùng
+    if (!name) {
+        name = prompt("Nhập tên File Graph muốn lưu lên Cloud (Server):", `graph_${Date.now()}.json`);
+        if (!name) return;
+        if (!name.endsWith('.json')) name += '.json';
+    }
+
+    // ÉP FLOW COMPILER KIỂM TRA TRƯỚC KHI LƯU
+    const compileResult = FlowCompiler.compile(store.nodes, store.edges, graphTimeout);
+    if (!compileResult.success) {
+      for (const [nodeId, msg] of Object.entries(compileResult.errors || {})) {
+        store.updateNodeData(nodeId, { errorMessage: msg });
+      }
+      alert("Hệ thống phát hiện lỗi Nối dây / Cấu hình. Xin hãy sửa trước khi tải lên Cloud!");
+      return;
+    }
+
+    // LẤY ID WORKER TỪ FLOW STORE (Không lấy từ Fleet Store để tránh bị null)
+    const workerId = store.this_worker_infor?.selected_worker_id;
+    if (!workerId) {
+        alert("Lỗi: Không tìm thấy ID của Worker hiện tại để upload!");
+        return;
+    }
+
+    // Tạo file từ Graph hiện tại
+    const payload = { timeout: graphTimeout, nodes: store.nodes, edges: store.edges };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const file = new File([blob], name, { type: "application/json" });
+
+    // Đẩy thẳng lên API (Bỏ qua FleetStore)
+    try {
+        let resp;
+        if (workerId === "master_gateway") {
+            resp = await FleetAPI.master_uploadFile(file, 'graph');
+        } else {
+            resp = await FleetAPI.proxy_uploadFile(workerId, file, 'graph');
+        }
+        
+        // Kiểm tra Response thực tế từ Backend
+        if (resp && resp.success) {
+            store.setEditingRemoteGraphName(name); // Đánh dấu tên để lần sau overwrite tiếp
+            alert(`Thành công! Đã ghi đè dữ liệu lên File [${name}] trên Server.`);
+        } else {
+            alert(`Lỗi từ Server: ${resp?.message || "Upload thất bại"}`);
+        }
+    } catch (e: any) {
+        alert(`Lỗi khi kết nối đến Server: ${e?.response?.data?.detail || e.message}`);
+    }
+  };
+
   return (
     <>
       <div className="relative w-[400px] h-full bg-[#202124] border-r border-[#202124] flex flex-col z-10 shadow-2xl">
@@ -147,12 +206,17 @@ export const DebugPanel = () => {
             <span className="text-[10px] font-bold tracking-wider text-emerald-100">{isTesting ? 'RUNNING...' : 'TEST'}</span>
           </button>
           
-          <button onClick={handleSave} className="flex flex-col items-center p-2 hover:bg-[#202124] rounded transition-colors group">
+          <button onClick={handleCloudSave} className="flex flex-col items-center p-2 hover:bg-[#202124] rounded transition-colors group" title={remoteGraphName ? `Ghi đè file: ${remoteGraphName}` : "Lưu mới lên Server"}>
+            <CloudUpload size={18} className="mb-1 text-purple-400 group-hover:scale-110 transition-transform" />
+            <span className="text-[10px] font-bold tracking-wider text-purple-100">BE SAVE</span>
+          </button>
+
+          <button onClick={handleSave} className="flex flex-col items-center p-2 hover:bg-[#202124] rounded transition-colors group" title="Lưu về Máy tính">
             <Save size={18} className="mb-1 text-blue-400 group-hover:scale-110 transition-transform" />
-            <span className="text-[10px] font-bold tracking-wider text-blue-100">SAVE</span>
+            <span className="text-[10px] font-bold tracking-wider text-blue-100">LOCAL</span>
           </button>
           
-          <button onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center p-2 hover:bg-[#202124] rounded transition-colors group">
+          <button onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center p-2 hover:bg-[#202124] rounded transition-colors group" title="Mở File từ Máy tính">
             <FolderOpen size={18} className="mb-1 text-amber-400 group-hover:scale-110 transition-transform" />
             <span className="text-[10px] font-bold tracking-wider text-amber-100">LOAD</span>
           </button>

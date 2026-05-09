@@ -266,29 +266,68 @@ const CheckboxInner = ({ node, commonProps, isEngineRunning, shapeRef }: any) =>
 };
 
 const DynamicBBoxGroup = ({ node, commonProps, isEngineRunning, shapeRef }: any) => {
-    const bboxesArray = useDataBinding(node.bindings, 'data', node.data);
+    // 1. SỬA LỖI ĐỌC DATA: 
+    // Kiểm tra xem node.data đang là String (Tên Tag) hay là Array (Mảng mẫu mặc định)
+    // Nếu là tên Tag, gọi thẳng vào hook useTagDb để lấy mảng dữ liệu thật.
+    const tagData = useTagDb(state => typeof node.data === 'string' ? state.tags[node.data] : undefined);
+    
+    // Nếu tagData có dữ liệu thì dùng, nếu không thì dùng node.data (mảng mẫu)
+    const bboxesArray = tagData || node.data;
     const safeArray = Array.isArray(bboxesArray) ? bboxesArray : [];
+
+    // 2. TẤM NỀN ẢO (VIEWPORT) CHỐNG SỤP ĐỔ
+    const vpWidth = node.size_x || 100;
+    const vpHeight = node.size_y || 100;
 
     return (
         <Group ref={shapeRef} {...commonProps}>
-            {safeArray.map((box: any, idx: number) => (
-                <Group key={box.id || idx} x={box.x} y={box.y}>
-                    <Rect
-                        width={box.w} height={box.h}
-                        stroke={box.color || '#ff0000'}
-                        strokeWidth={2}
-                        dash={!isEngineRunning ? [5, 5] : undefined}
-                    />
-                    {box.label && (
-                        <Text
-                            text={box.label} y={-14} fill={box.color || '#ff0000'}
-                            fontSize={!isEngineRunning ? 11 : 14} 
-                            fontStyle="bold" shadowColor="black"
-                            shadowBlur={2} shadowOffsetX={1} shadowOffsetY={1}
+            
+            {/* TẤM NỀN: Hứng trọn sự kiện click/drag, ngăn Transformer tính toán sai */}
+            <Rect
+                width={vpWidth}
+                height={vpHeight}
+                fill={!isEngineRunning ? "rgba(138, 180, 248, 0.05)" : "transparent"} 
+                stroke={!isEngineRunning ? "#5f6368" : "transparent"} 
+                strokeWidth={1}
+                dash={[4, 4]}
+            />
+
+            {/* NHÃN HIỂN THỊ KHI ĐANG EDIT */}
+            {!isEngineRunning && (
+                <Text
+                    x={4} y={4}
+                    text={`[BBox Area: ${safeArray.length} items]`}
+                    fill="#5f6368" fontSize={10} fontStyle="italic" listening={false}
+                />
+            )}
+
+            {/* 3. VẼ CÁC BOUNDING BOX TỪ DỮ LIỆU */}
+            {safeArray.map((box: any, idx: number) => {
+                // Ép kiểu sang Number để tránh lỗi khi JSON lỡ lưu String
+                const bx = Number(box.x) || 0;
+                const by = Number(box.y) || 0;
+                const bw = Number(box.w) || 0;
+                const bh = Number(box.h) || 0;
+
+                return (
+                    <Group key={box.id || idx} x={bx} y={by} listening={false}> 
+                        <Rect
+                            width={bw} height={bh}
+                            stroke={box.color || '#ff0000'}
+                            strokeWidth={2}
+                            dash={!isEngineRunning ? [5, 5] : undefined}
                         />
-                    )}
-                </Group>
-            ))}
+                        {box.label && (
+                            <Text
+                                text={box.label} y={-14} fill={box.color || '#ff0000'}
+                                fontSize={!isEngineRunning ? 11 : 14} 
+                                fontStyle="bold" shadowColor="black"
+                                shadowBlur={2} shadowOffsetX={1} shadowOffsetY={1}
+                            />
+                        )}
+                    </Group>
+                );
+            })}
         </Group>
     );
 };

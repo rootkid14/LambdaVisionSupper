@@ -160,6 +160,9 @@ interface FlowState {
   undo: () => void;
   redo: () => void;
 
+  editing_remote_graph_name: string | null;
+  setEditingRemoteGraphName: (name: string | null) => void;
+
   /* ---------- React Flow handlers ---------- */
   onNodesChange: OnNodesChange;
   onEdgesChange: OnEdgesChange;
@@ -448,6 +451,12 @@ export const useFlowStore = create<FlowState>()(
         setWorkerEnvironment: (worker) => {
           set({
             this_worker_infor: worker,
+            // RESET các biến này để buộc ProgrammingPage phải load lại Catalogue của Worker mới
+            isCatalogueLoaded: false,
+            nodeCatalogueList: [],
+            nodeCatalogueMap: {},
+            nodes: [], // Clear luôn nodes cũ để tránh rác dữ liệu
+            edges: []
           });
         },
 
@@ -498,6 +507,7 @@ export const useFlowStore = create<FlowState>()(
         },
 
         loadGraphfromFile: (json_content) => {
+          set({ editing_remote_graph_name: null });
           /* 1. Shape check */
           if (!isGraphFile(json_content)) {
             set({
@@ -663,6 +673,10 @@ export const useFlowStore = create<FlowState>()(
             input_simulator_data: { ...state.input_simulator_data, [key]: value }
           }));
         },
+        editing_remote_graph_name: null,
+        setEditingRemoteGraphName: (name) => set({ editing_remote_graph_name: name }),
+
+
       }),
       {
           name: "lambda-flow-storage", // Tên khóa lưu trong localStorage

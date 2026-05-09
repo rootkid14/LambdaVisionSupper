@@ -115,6 +115,28 @@ export const PoolsDrawer = () => {
                 closeDrawer(); 
                 navigate(`/fleet/${selectedWorker.selected_worker_id}/logic`); 
               }}
+              // THÊM SỰ KIỆN NÀY ĐỂ EDIT GRAPH TRỰC TIẾP TỪ CLOUD
+              onEditGraph={async (filename: string) => {
+                  try {
+                      // 1. Dọn dẹp trạng thái cũ và thiết lập môi trường mới
+                      useFlowStore.getState().setWorkerEnvironment(selectedWorker);
+
+                      // 2. Tải nội dung mới từ Server (Hàm này giờ đã được phá cache ở Bước 1)
+                      const content = await useFleetStore.getState().fetchGraphContent(filename);
+                      
+                      // 3. Đợi nạp xong danh mục Node của Worker mới
+                      await useFlowStore.getState().loadNodeCatalogue(); 
+                      
+                      // 4. Lúc này mới nạp dữ liệu từ File vào
+                      useFlowStore.getState().loadGraphfromFile(content);
+                      useFlowStore.getState().setEditingRemoteGraphName(filename);
+                      
+                      closeDrawer();
+                      navigate(`/fleet/${selectedWorker.selected_worker_id}/logic`);
+                  } catch (err) {
+                      alert("Lỗi đồng bộ dữ liệu: " + err);
+                  }
+              }}
             />
           )}
         </div>

@@ -172,6 +172,7 @@ export interface NodeProcessServerData{
 }
 
 export interface SequencerNodeData {
+  name?: string;
   type: SequencerNodeType;
   config: SequencerNodeConfig;
   ishighlighted: boolean;
@@ -218,6 +219,7 @@ export interface SequencerState {
   setFieldValue: (node_id : string, field: string, value: any) => void; // Helper dùng đặt lại giá trị của một field dữ liệu bất kỳ trong một node (khi đang tạo graph)
   createDefaultConfig: (type: SequencerNodeType) => SequencerNodeData; //Helper dùng tạo node
   addNode: (type: SequencerNodeType,position?: { x: number; y: number }) => void; //Helper dùng tạo node
+  updateNodeData: (nodeId : string, newData : any) => void;
   onSelectWorker: (worker_id: string) => Promise<string[]>; // API helper dùng để hiện dữ liệu khi chọn vào worker tương ứng ở trong Process Node properties
   onSelectLogicObject: (worker_id: string, logic_object_id: string) => Promise<Record<string, any>> // API helper dùng để hiện dữ liệu schema đầu vào / ra của một logic object khi ở trong process node properties
   appendCompilerLog: (msg: string) => void; //Thêm thông tin vào log 
@@ -458,9 +460,10 @@ export const useSequencerStore =
               next_node_id: "",
               input_aliases: {},
               output_aliases: {},
-              script_content: "// Write your JS logic here...\n// Ex: let len = IN.arr ? IN.arr.length : 0;\n// OUT.result = len * 2;\n",
+              script_content: "// Write your JS logic here...\n// Ex 1: let len = IN.arr ? IN.arr.length : 0;\n// OUT.result = len * 2;\n\n// Ex 2: let box = UI.get(\"BBox 1\");\n// if (box) UI.set(\"BBox 1\", { w: box.w + 10, style: { fillColor: '#ff0000' } });\n",
             },
-            ishighlighted: false
+            ishighlighted: false,
+            name: "JS SCRIPT"
           };
 
         case "portal_in":
@@ -508,6 +511,16 @@ export const useSequencerStore =
 
       set((state) => ({
         nodes: [...state.nodes, newNode],
+      }));
+    },
+
+    updateNodeData: (nodeId, newData) => {
+      set((state) => ({
+        nodes: state.nodes.map((node) =>
+          node.id === nodeId 
+            ? { ...node, data: { ...node.data, ...newData } } 
+            : node
+        ),
       }));
     },
 

@@ -21,6 +21,7 @@ import { useSequencerStore,
 
 import { NodeAPI } from "../../api/nodeApi";
 import { DBEngineAPI } from "../../api/dbEngineApi";
+import { useUIEngine } from '../UIEngineStores/InspectionStore';
 
 interface BaseSequenceNode {
     execute(token_id: string) : Promise<void>;
@@ -634,19 +635,66 @@ class NodeScript implements BaseSequenceNode {
         const OUT: any = {};
 
         try {
-            // 1. Nhặt dữ liệu từ Tag đổ vào object IN
+            // 1. Nhặt dữ liệu từ Tag đổ vào object IN (GIỮ NGUYÊN)
             for (const [alias, tagId] of Object.entries(this.input_aliases)) {
                 IN[alias] = tagStore.readTag(tagId);
             }
 
-            // 2. Ép kiểu tạo AsyncFunction một cách an toàn
+            // ========================================================
+            // 2. KHỞI TẠO ĐỐI TƯỢNG "UI" ĐỂ TRUY XUẤT NHANH COMPONENT
+            // ========================================================
+            const uiMap = useUIEngine.getState().components_map;
+            
+            const findComp = (query: string) => {
+                if (uiMap[query]) return uiMap[query]; // Ưu tiên tìm bằng ID
+                return Object.values(uiMap).find((c: any) => c.name === query); // Tìm bằng tên
+            };
+
+            const UI = {
+                get: (query: string) => {
+                    const comp = findComp(query);
+                    if (!comp) return null;
+                    return {
+                        id: comp.id,
+                        name: comp.name,
+                        type: comp.type,
+                        x: (comp as any).x,
+                        y: (comp as any).y,
+                        w: (comp as any).size_x, 
+                        h: (comp as any).size_y,
+                        rotation: (comp as any).rotation,
+                        content: (comp as any).content,
+                        isVisible: (comp as any).isVisible,
+                        style: { ...((comp as any).style || {}) }
+                    };
+                },
+                set: (query: string, props: any) => {
+                    const comp = findComp(query);
+                    if (!comp) return false;
+                    
+                    const updatePayload: any = { ...props };
+                    // Map lại từ w, h sang chuẩn size_x, size_y của Engine
+                    if (updatePayload.w !== undefined) { updatePayload.size_x = updatePayload.w; delete updatePayload.w; }
+                    if (updatePayload.h !== undefined) { updatePayload.size_y = updatePayload.h; delete updatePayload.h; }
+                    
+                    // Giữ nguyên style cũ, chỉ ghi đè thuộc tính được yêu cầu
+                    if (updatePayload.style) {
+                        updatePayload.style = { ...(comp.style || {}), ...updatePayload.style };
+                    }
+
+                    useUIEngine.getState().updateComponentProps(comp.id, updatePayload);
+                    return true;
+                }
+            };
+
+            // 3. Ép kiểu tạo AsyncFunction với 3 tham số: IN, OUT, UI
             const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor as any;
-            const userCode = new AsyncFunction('IN', 'OUT', this.script_content);
+            const userCode = new AsyncFunction('IN', 'OUT', 'UI', this.script_content);
 
-            // 3. Thực thi kịch bản của người dùng (Token sẽ chờ lệnh await nếu có)
-            await userCode(IN, OUT);
+            // 4. Thực thi kịch bản
+            await userCode(IN, OUT, UI);
 
-            // 4. Lấy kết quả từ object OUT đổ ngược vào Tag
+            // 5. Lấy kết quả từ object OUT đổ ngược vào Tag (GIỮ NGUYÊN)
             for (const [alias, tagId] of Object.entries(this.output_aliases)) {
                 if (OUT[alias] !== undefined) {
                     tagStore.writeTag(tagId, OUT[alias]);
@@ -656,7 +704,6 @@ class NodeScript implements BaseSequenceNode {
             this.engine.moveToken(token_id, this.next_node_id);
 
         } catch (error: any) {
-            // Bắt cú pháp/Lỗi Runtime cực đỉnh để báo cho người dùng
             const errorMsg = `JS Script Error: ${error.message}`;
             useSequencerStore.setState({ isSequencerErrorModalOpen: true, SequencerErrorMessage: errorMsg});
             useSequencerStore.getState().appendCompilerLog(`[RUNTIME ERROR] ${errorMsg}`);

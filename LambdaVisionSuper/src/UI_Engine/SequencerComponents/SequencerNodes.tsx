@@ -3,6 +3,7 @@ import { Handle, Position, useUpdateNodeInternals } from '@xyflow/react';
 import { Clock, FileText, Braces, Plus, X, Settings2, Wifi, Radio, TerminalSquare, Database } from 'lucide-react';
 import { useSequencerStore } from '../UIEngineStores/SequencerStores';
 import { useTagDb } from '../UIEngineStores/GlobalTagsStore';
+import { BaseNode } from './BaseNode';
 // ==========================================
 // SHARED HELPER COMPONENTS (Tái sử dụng để code Clean hơn)
 // ==========================================
@@ -394,20 +395,30 @@ export const EndNode = ({ id, data, selected }: any) => (
 // 10. SCRIPT NODE (Javascript Sandbox)
 // ==========================================
 export const ScriptNode = ({ id, data, selected }: any) => {
-  return (
-    <div className={`w-48 bg-[#202124] rounded-lg border-2 flex flex-col ${selected ? 'border-[#4fd1c5] shadow-[0_0_15px_rgba(79,209,197,0.2)]' : 'border-[#5f6368]'}`}>
-      <div className="p-2 border-b border-[#3c4043] bg-[#28292c] rounded-t-md flex items-center justify-center gap-2 text-[#4fd1c5]">
-        <TerminalSquare size={14}/> <span className="font-bold text-[10px] uppercase tracking-wider">JS Script</span>
-      </div>
-      <div className="p-3">
-        <button onClick={() => data.onEdit?.(id)} className="w-full py-1.5 bg-[#4fd1c5]/10 border border-[#4fd1c5]/30 text-[#4fd1c5] font-bold text-[10px] rounded hover:bg-[#4fd1c5]/20 transition-colors">
-          <Settings2 size={12} className="inline mr-1"/> CONFIGURE
-        </button>
-      </div>
-      <CustomHandle type="target" position={Position.Left} colorClass="!bg-[#e8eaed]" />
-      <CustomHandle type="source" position={Position.Right} colorClass="!bg-[#4fd1c5]" />
-    </div>
-  );
+    // Ưu tiên lấy data.name, nếu rỗng thì dùng mặc định
+    const titleName = data.name || "JS SCRIPT";
+
+    return (
+        <BaseNode 
+            id={id} 
+            data={data} 
+            selected={selected} 
+            title={titleName} // Truyền tên động vào title
+            icon={<TerminalSquare size={14}/>} 
+            headerColor="bg-[#202020]"
+        >
+            <div className="p-3">
+                <button 
+                    onClick={() => data.onEdit?.(id)} 
+                    className="w-full py-1.5 bg-white/80 border border-[#4fd1c5]/30 text-[#0c1a18] font-bold text-[10px] rounded hover:bg-[#4fd1c5]/20 transition-colors"
+                >
+                    <Settings2 size={12} className="inline mr-1"/> EDIT SCRIPT
+                </button>
+            </div>
+            <CustomHandle type="target" position={Position.Left} colorClass="!bg-[#e8eaed]" />
+            <CustomHandle type="source" position={Position.Right} colorClass="!bg-[#e8eaed]" />
+        </BaseNode>
+    );
 };
 
 // ==========================================
