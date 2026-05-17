@@ -67,7 +67,11 @@ class HTTPDevicePoolManager:
             else:
                 await session.close()
                 self._active_devices.pop(device_id, None)
-                raise ConnectionError(f"{device_id} response with code {res['status_code']}")
+                
+                # --- SỬA TẠI ĐÂY ---
+                # Lấy status_code nếu có, nếu không thì lấy thông báo lỗi 'error', mặc định là 'Mất kết nối'
+                err_detail = res.get('status_code', res.get('error', 'Mất kết nối / Timeout'))
+                raise ConnectionError(f"Phản hồi thất bại: {err_detail}")
             
         except Exception as e:
             response = {"success": False, "message": f"Cannot Connect to {device_id} with host {device_host} : {str(e)}"}

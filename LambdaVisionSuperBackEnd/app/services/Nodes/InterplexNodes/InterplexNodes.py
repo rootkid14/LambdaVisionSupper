@@ -12,6 +12,49 @@ from app.services.LVSTypes import NodeType, UIDataType
 from app.services.utils.image_utils import cv2_to_base64, base64_to_cv2
 from typing import Any
 
+class BBoxesToCentersInput(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    execute_in: Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
+    # Nhận vào danh sách [[x1, y1, x2, y2], ...]
+    bboxes: list = Field(default=[], title="BBoxes Coords", description=UIDataType.LIST.value)
+
+# 2. Định nghĩa Output Schema
+class BBoxesToCentersOutput(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    execute_out: Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
+    # Trả ra danh sách [[cx, cy], ...]
+    centers: list = Field(default=[], title="Center Points", description=UIDataType.LIST.value)
+
+# 3. Khởi tạo Node
+@registry_node
+class BBoxesToCentersNode(BaseNode[BBoxesToCentersInput, BBoxesToCentersOutput]):
+    INPUT_SCHEMA = BBoxesToCentersInput
+    OUTPUT_SCHEMA = BBoxesToCentersOutput
+    NODE_TYPE = NodeType.PROGRAM
+    UI_LABEL = "BBoxes to Centers"
+    UI_DESCRIPTION = "Converts [x1, y1, x2, y2] format into center points [cx, cy]"
+    UI_COLOR = "#0ea5e9" # Màu xanh dương nhạt để dễ phân biệt
+    REQUIRE_TIMEOUT = False
+
+    async def execute(self) -> None:
+        bboxes = self.local_input.bboxes
+        centers_list = []
+        
+        # Xử lý tính toán tâm cho từng bounding box
+        for box in bboxes:
+            # Đảm bảo box có ít nhất 4 giá trị (x1, y1, x2, y2)
+            if len(box) >= 4:
+                x1, y1, x2, y2 = box[:4]
+                
+                # Tính tọa độ tâm (có thể dùng int() nếu bạn muốn làm tròn thành pixel nguyên)
+                cx = (x1 + x2) / 2.0
+                cy = (y1 + y2) / 2.0
+                
+                centers_list.append([cx, cy])
+                
+        # Trả kết quả ra cổng output
+        self.local_output = self.OUTPUT_SCHEMA(centers=centers_list)
+
 class FindUpperPemLocationInput(BaseModel):
     execute_in: Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
     image_path: str = Field(title="Image Path", description=UIDataType.STRING.value)

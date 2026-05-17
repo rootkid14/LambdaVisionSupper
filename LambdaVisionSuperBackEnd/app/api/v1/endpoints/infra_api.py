@@ -165,6 +165,7 @@ class DeviceInfo(BaseModel):
 @router.post("/devices/add", summary="Add a device in to Bus Cache")
 async def add_local_device(info : DeviceInfo):
     res = await device_bus.add_new_device({"device_id" : info.device_id, "host" : info.host})
+    print(res)
     if not res["success"]:
         raise HTTPException(status_code=400, detail=res["message"])
     return res

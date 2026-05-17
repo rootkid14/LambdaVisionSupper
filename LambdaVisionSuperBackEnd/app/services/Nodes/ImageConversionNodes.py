@@ -102,6 +102,7 @@ class ImageResize(BaseNode[ImageResizeInput, ImageResizeOutput]):
         super().__init__(node_id, parent, node_data)
         self.output_format = self.get_config_field_value("Format")
 
+    @staticmethod
     def extract_cv2_image(image_input: Any) -> np.ndarray:
         if isinstance(image_input, np.ndarray):
             return image_input.copy()
@@ -109,11 +110,14 @@ class ImageResize(BaseNode[ImageResizeInput, ImageResizeOutput]):
             return base64_to_cv2(image_input)
         else:
             raise ValueError("Đầu vào không phải là Numpy Array hoặc Base64 String hợp lệ.")
-
+    
     async def execute(self):
         img = self.extract_cv2_image(self.local_input.input_image)
 
-        out_img = cv2.resize(img, (self.local_input.width, self.local_input.height))
+        w = int(self.local_input.width)
+        h = int(self.local_input.height)
+
+        out_img = cv2.resize(img, (w, h))
 
         if self.output_format == "B64":
             out_img = cv2_to_base64(out_img)
@@ -145,43 +149,58 @@ class BBoxesWarpAffine(BaseNode[BBoxesWarpAffineInput, BBoxesWarpAffineOutput]):
     UI_COLOR = "#202020"
     REQUIRE_TIMEOUT = False
 
+
     async def execute(self):
-        if(len(self.local_input.actual_points) != 3):
-            raise ValueError(f"There is not enough anchor points for caliberation")
+        # 1. Kiểm tra nghiêm ngặt cả hai danh sách điểm
+        if len(self.local_input.actual_points) != 3 or len(self.local_input.anchor_points) != 3:
+            raise ValueError(f"Warp Affine yêu cầu chính xác 3 điểm neo và 3 điểm thực tế. "
+                             f"Hiện có: {len(self.local_input.anchor_points)} anchor, "
+                             f"{len(self.local_input.actual_points)} actual.")
 
-        src_pts = np.array(self.local_input.anchor_points, dtype=np.float32)
-        dst_pts = np.array(self.local_input.actual_points, dtype=np.float32)
+        try:
+            # 2. Ép kiểu và kiểm tra cấu trúc mảng (3, 2)
+            src_pts = np.array(self.local_input.anchor_points, dtype=np.float32)[:, :2]
+            dst_pts = np.array(self.local_input.actual_points, dtype=np.float32)[:, :2]
+            
+            # Tính toán ma trận biến đổi
+            M = cv2.getAffineTransform(src_pts, dst_pts)
+        except Exception as e:
+            raise RuntimeError(f"Lỗi cấu trúc điểm đầu vào: {str(e)}")
 
-        # 2. Truyền Numpy Array vào OpenCV
-        M = cv2.getAffineTransform(src_pts, dst_pts)
-
+        # Tính toán tọa độ tâm
         centers_old = []
         for bboxes in self.local_input.boundingboxes_coords:
+            if len(bboxes) < 4: continue
             x_min, y_min, w, h = bboxes
             cx = x_min + w / 2.0
             cy = y_min + h / 2.0
             centers_old.append([cx, cy])
 
-        centers_old_np = np.array(centers_old, dtype=np.float32).reshape(-1, 1, 2)
+        if not centers_old:
+            self.local_output = self.OUTPUT_SCHEMA(new_bboxes_coords=[])
+            return
 
+        # Biến đổi tọa độ tâm
+        centers_old_np = np.array(centers_old, dtype=np.float32).reshape(-1, 1, 2)
         centers_new_np = cv2.transform(centers_old_np, M)
 
+        # Tính toán tỷ lệ scale (Tùy chọn nhưng nên có nếu có sự thay đổi kích thước)
+        scale_x = np.sqrt(M[0,0]**2 + M[0,1]**2)
+        scale_y = np.sqrt(M[1,0]**2 + M[1,1]**2)
+
         bboxes_new = []
-        for i in range(len(self.local_input.boundingboxes_coords)):
-            # Lấy tọa độ tâm mới
+        for i in range(len(centers_old)):
             new_cx = centers_new_np[i][0][0]
             new_cy = centers_new_np[i][0][1]
             
-            # Lấy lại width và height cũ của box tương ứng
-            w = self.local_input.boundingboxes_coords[i][2]
-            h = self.local_input.boundingboxes_coords[i][3]
+            # Cập nhật width/height theo tỷ lệ scale thực tế
+            w = self.local_input.boundingboxes_coords[i][2] * scale_x
+            h = self.local_input.boundingboxes_coords[i][3] * scale_y
             
-            # Tính toán lại x_min, y_min
             new_xmin = int(round(new_cx - w / 2.0))
             new_ymin = int(round(new_cy - h / 2.0))
             
-            # Thêm vào danh sách mới
-            bboxes_new.append([new_xmin, new_ymin, w, h])
+            bboxes_new.append([new_xmin, new_ymin, int(round(w)), int(round(h))])
 
         self.local_output = self.OUTPUT_SCHEMA(new_bboxes_coords=bboxes_new)
 

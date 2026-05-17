@@ -39,7 +39,7 @@ class BaseNode(ABC, Generic[TInput, TOutput]):
     OUTPUT_SCHEMA: Type[TOutput] = None
     NODE_TYPE = None
     METHOD_NODE_LIST : List[str] = None #ONLY FOR OBJECT NODE
-    CONFIG_FIELDS : List[UIConfigField] = None #For inline config fields
+    CONFIG_FIELDS : List[UIConfigField] = None #For inline config fields (Note: type does not need .value)
     INLINE_TYPE = None
     
     # Đặt Timeout mặc định cho tất cả các Node là 5 giây (<= 0 means allow infinite loop)
@@ -453,6 +453,7 @@ class ObjectNode(BaseNode[TInput, TOutput]):
     def __init__(self, node_id, parent, node_data = None):
         super().__init__(node_id, parent, node_data)
         self.internal_memory: Dict[str, Any] = {}  #Any persistent memory data of this node will be put in side here (use fule if the function node need to access)
+        self.intialize_object()
 
     @abstractmethod
     def intialize_object(self):
