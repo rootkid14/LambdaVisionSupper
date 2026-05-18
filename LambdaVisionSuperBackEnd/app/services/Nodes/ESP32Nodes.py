@@ -77,9 +77,6 @@ class ESP32CameraInput(BaseModel):
     # Cấu hình phơi sáng
     auto_exposure: bool = Field(default=True, title="Auto Exposure (AEC)", description=UIDataType.BOOLEAN.value)
     manual_exposure: int = Field(default=300, title="Manual Exp (if AEC off)", description=UIDataType.NUMBER.value)
-    
-    # Tính năng tự động cắt viền (Crop 20%) ở PC
-    auto_crop: bool = Field(default=True, title="Crop 20% Padding", description=UIDataType.BOOLEAN.value)
 
 class ESP32CameraOutput(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -107,7 +104,6 @@ class ESP32CameraNode(BaseNode[ESP32CameraInput, ESP32CameraOutput]):
         device_id = self.local_input.device_id.strip()
         is_auto = self.local_input.auto_exposure
         exp_val = int(self.local_input.manual_exposure)
-        do_crop = self.local_input.auto_crop
         
         # 1. Gọi Device Bus Singleton để lấy thông tin kết nối
         device_bus = HTTPDevicePoolManager()
@@ -127,7 +123,7 @@ class ESP32CameraNode(BaseNode[ESP32CameraInput, ESP32CameraOutput]):
         
         try:
             # 3. Gửi lệnh chụp qua Session giữ kết nối (Keep-Alive)
-            async with session.get(url, timeout=3.0) as response:
+            async with session.get(url, timeout=5.0) as response:
                 if response.status == 200:
                     image_bytes = await response.read()
                     
@@ -137,14 +133,6 @@ class ESP32CameraNode(BaseNode[ESP32CameraInput, ESP32CameraOutput]):
                     
                     if img is None:
                         raise ValueError("Dữ liệu ảnh bị hỏng hoặc giải mã thất bại.")
-                    
-                    # 5. Xử lý Crop ảnh trực tiếp trên PC (Cực kỳ nhanh)
-                    if do_crop:
-                        h, w = img.shape[:2]
-                        # Cắt bỏ 20% mỗi cạnh
-                        y1, y2 = int(h * 0.2), int(h * 0.8)
-                        x1, x2 = int(w * 0.2), int(w * 0.8)
-                        img = img[y1:y2, x1:x2].copy()
                         
                     # 6. Trả kết quả thành công ra cổng xuất
                     img = cv2_to_base64(img)

@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 import asyncio
 from app.services.DatabaseManager import DatabaseManager
 import sys
-from app.services.Nodes.GigeCameraNodes import BaslerCameraManager
+# from app.services.Nodes.GigeCameraNodes import BaslerCameraManager
 
 def load_all_nodes():
     """Scann all .py file in the services/Nodes AND storage/pluggins to activate the @registry_node mechanism"""
@@ -77,8 +77,8 @@ async def lifespan(app: FastAPI):
     task_device.cancel()
     task_server.cancel()
     task_plugins.cancel()
-    basler_mgr = BaslerCameraManager()
-    basler_mgr._release_all()
+    # basler_mgr = BaslerCameraManager()
+    # basler_mgr._release_all()
 
 app = FastAPI(title=settings.PROJECT_NAME, lifespan=lifespan)
 

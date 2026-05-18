@@ -111,7 +111,7 @@ class YoloClassification(BaseNode[ClassificationInput, ClassificationOutput]):
             # ==========================================
             color = (0, 255, 0) if is_ok else (0, 0, 255) # Xanh lá cho OK, Đỏ cho NG
 
-            text = f"{annotation_name}"
+            text = f"{annotation_name} {conf:.2f}"
             
             # Vẽ Box trên ảnh tổng
             cv2.rectangle(annotated_img, (x1, y1), (x2, y2), color, 3)
@@ -146,7 +146,7 @@ class YoloClassification(BaseNode[ClassificationInput, ClassificationOutput]):
             return
 
         # 5. Ghép ảnh (Concat) thành Grid
-        cols = 8
+        cols = 4
         rows = math.ceil(len(cropped_rois) / cols)
         total_cells = cols * rows
         blank_img = np.zeros((128, 128, 3), dtype=np.uint8)

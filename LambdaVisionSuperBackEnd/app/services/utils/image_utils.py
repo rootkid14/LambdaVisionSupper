@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import base64
+from typing import Any
 
 def bytes_to_cv2(image_bytes: bytes) -> np.ndarray:
     """
@@ -55,3 +56,12 @@ def base64_to_cv2(base64_string: str) -> np.ndarray:
         
     except Exception as e:
         raise ValueError(f"Dữ liệu Base64 không hợp lệ hoặc bị lỗi: {str(e)}")
+    
+def extract_cv2_image(image_input: Any) -> np.ndarray:
+    """Helper để tự động nhận diện đầu vào là Numpy hay Base64 string"""
+    if isinstance(image_input, np.ndarray):
+        return image_input.copy()
+    elif isinstance(image_input, str):
+        return base64_to_cv2(image_input)
+    else:
+        raise ValueError("Đầu vào không phải là Numpy Array hoặc Base64 String hợp lệ.")
