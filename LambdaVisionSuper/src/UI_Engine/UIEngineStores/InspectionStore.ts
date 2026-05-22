@@ -238,6 +238,11 @@ export interface UIEngineStore {
     // Binding
     bindTagToProperty: (nodeId: string, propName: string, globalTagKey: string) => void;
     unbindTag: (nodeId: string, propName: string) => void;
+
+    fileManagerContext: { isOpen: boolean; mode: 'load' | 'save' } | null;
+    openFileManager: (mode: 'load' | 'save') => void;
+    closeFileManager: () => void;
+
 }
 
 export const useUIEngine = create<UIEngineStore>((set, get) => ({
@@ -586,6 +591,10 @@ export const useUIEngine = create<UIEngineStore>((set, get) => ({
     closeCreateButtonModal: () => set(state => ({ 
         createButtonModal: { ...state.createButtonModal, isOpen: false } 
     })),
+    
+    fileManagerContext: null,
+    openFileManager: (mode) => set({ fileManagerContext: { isOpen: true, mode } }),
+    closeFileManager: () => set({ fileManagerContext: null }),
 }));
 
 export const useDataBinding = (bindings: DataBinding[] = [], propName: string, localValue: any) => {

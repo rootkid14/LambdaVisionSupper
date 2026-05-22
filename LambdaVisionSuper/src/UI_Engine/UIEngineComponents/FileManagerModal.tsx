@@ -25,7 +25,7 @@ export function FileManagerModal({ isOpen, onClose, folder, mode, onFileSelect, 
   const fetchFiles = async () => {
     setIsLoading(true);
     try {
-      const res = await axios.get(`/api/infra/files/${folder}`);
+      const res = await axios.get(`/resources/status`);
       setFiles(res.data.files || []);
     } catch (error) {
       console.error(`Lỗi tải danh sách ${folder}:`, error);
@@ -37,7 +37,7 @@ export function FileManagerModal({ isOpen, onClose, folder, mode, onFileSelect, 
   const handleDelete = async (filename: string) => {
     if (!confirm(`Bạn có chắc muốn xóa file ${filename}?`)) return;
     try {
-      await axios.delete(`/api/infra/files/${folder}/${filename}`);
+      await axios.delete(`/resources/delete/${folder}/${filename}`);
       fetchFiles(); // Refresh lại list
     } catch (error) {
       console.error("Lỗi khi xóa file:", error);
@@ -52,7 +52,7 @@ export function FileManagerModal({ isOpen, onClose, folder, mode, onFileSelect, 
         if (folder === 'projects') {
           // Bạn cần thêm endpoint get file content trên infra_api (nếu chưa có)
           // Hoặc API trả về URL file để fetch
-          const res = await axios.get(`/api/infra/files/${folder}/content/${filename}`);
+          const res = await axios.get(`/resources/files/${folder}/${filename}/content`);
           onFileSelect(filename, res.data);
         } else {
           onFileSelect(filename); // Chỉ cần tên file (cho Model/Plugin)

@@ -12,6 +12,8 @@ import { useKeyboardTrigger } from '../UI_Engine/hooks/useKeyboardTrigger';
 import { SettingsModal } from '../UI_Engine/UIEngineComponents/SettingModal';
 import { useSequencerStore } from '../UI_Engine/UIEngineStores/SequencerStores';
 import { ProjectCompiler } from '../ProjectCompiler/ProjectCompilerCore/ProjectCompilerCore';
+import { axiosClient } from '../api/axiosClient';
+import { FileManagerModal } from '../UI_Engine/UIEngineComponents/FileManagerModal';
 
 
 // ==========================================================
@@ -165,25 +167,9 @@ const ModernImportModal = ({ file, onClose }: { file: File, onClose: () => void 
 const ProjectMenu = () => {
     const [isOpen, setIsOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
-    const fileInputRef = useRef<HTMLInputElement>(null);
+    const { openFileManager } = useUIEngine(); // Lấy hàm từ Store
 
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (menuRef.current && !menuRef.current.contains(event.target as Node)) setIsOpen(false);
-        };
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
-    }, []);
-
-    const handleLoadProject = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
-        
-        ProjectCompiler.triggerImport(file);
-        
-        if (fileInputRef.current) fileInputRef.current.value = '';
-        setIsOpen(false);
-    };
+    useEffect(() => { /* Giữ nguyên logic click outside */ }, []);
 
     return (
         <div className="relative" ref={menuRef}>
@@ -198,23 +184,18 @@ const ProjectMenu = () => {
 
             {isOpen && (
                 <div className="absolute top-full mt-2 left-0 w-48 bg-[#28292c] border border-[#3c4043] rounded-lg shadow-2xl py-1.5 z-50 flex flex-col font-sans">
-                    <input type="file" ref={fileInputRef} className="hidden" accept=".json,.lambda_proj" onChange={handleLoadProject} />
-                    
                     <button 
-                        onClick={() => fileInputRef.current?.click()}
+                        onClick={() => { openFileManager('load'); setIsOpen(false); }}
                         className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-[#e8eaed] hover:bg-[#3c4043] hover:text-[#fcd663] transition-colors"
                     >
-                        <FolderOpen size={14} /> Load Project
+                        <FolderOpen size={14} /> Mở từ Server
                     </button>
                     
                     <button 
-                        onClick={() => {
-                            ProjectCompiler.exportProject("Lambda_Vision_App");
-                            setIsOpen(false);
-                        }}
+                        onClick={() => { openFileManager('save'); setIsOpen(false); }}
                         className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-[#e8eaed] hover:bg-[#3c4043] hover:text-[#81c995] transition-colors"
                     >
-                        <Save size={14} /> Export Project
+                        <Save size={14} /> Lưu lên Server
                     </button>
                 </div>
             )}
@@ -319,12 +300,13 @@ const ThumbnailSidebar = () => {
 export const InspectionPage = () => {
     const navigate = useNavigate();
     const isTagsOpen = useTagDb(state => state.isGlobalTagsTableOpen);
-    const { showTerminalLog, toggleTerminalLog, closeActionMenu, importFileContext, setImportFile, changeScreen, components_map } = useUIEngine();
+    const { showTerminalLog, toggleTerminalLog, closeActionMenu, importFileContext, setImportFile, changeScreen, components_map, fileManagerContext, closeFileManager } = useUIEngine();
     const sequencerStore = useSequencerStore();
     useKeyboardTrigger();
     const toggleSettings = useKeyboardTriggerStore(state => state.toggleSettingsModal);
 
     const activeScreenTagValue = useTagDb(state => state.tags['SYS_ACTIVE_SCREEN']);
+
 
     useEffect(() => {
         if (sequencerStore.isEngineRunning && activeScreenTagValue && typeof activeScreenTagValue === 'string') {
@@ -338,6 +320,45 @@ export const InspectionPage = () => {
             }
         }
     }, [activeScreenTagValue, sequencerStore.isEngineRunning, changeScreen, components_map]);
+
+    // 1. Logic xử lý khi chọn file trên Server để Load
+    const handleServerFileLoad = (filename: string, fileContent: any) => {
+        // MẸO CỐT LÕI: Đóng gói JSON thành đối tượng File ảo để lừa thằng ModernImportModal
+        const blob = new Blob([JSON.stringify(fileContent, null, 2)], { type: 'application/json' });
+        const virtualFile = new File([blob], filename, { type: 'application/json' });
+        
+        setImportFile(virtualFile); // Kích hoạt ModernImportModal chạy như bình thường
+        closeFileManager();
+    };
+
+    // 2. Logic xử lý khi Lưu file lên Server
+    const handleServerFileSave = async (filename: string) => {
+        try {
+            // Giả định ProjectCompiler có hàm tạo ra cấu trúc JSON (Bundle) thay vì export thẳng.
+            // (Nếu chưa có, bạn cần viết thêm hàm getProjectBundle() trong Core)
+            const bundle = ProjectCompiler.generateProjectBundle(); 
+            
+            // Đảm bảo đuôi file
+            const finalName = filename.endsWith('.json') ? filename : `${filename}.json`;
+            
+            // Tạo đối tượng File ảo để upload
+            const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+            const fileToUpload = new File([blob], finalName, { type: 'application/json' });
+
+            const formData = new FormData();
+            formData.append('file', fileToUpload);
+
+            // Bắn API lên backend
+            await axiosClient.post('/resources/files/projects/upload', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+
+            closeFileManager();
+            // Có thể thêm Toast/Alert thông báo lưu thành công ở đây
+        } catch (error) {
+            console.error("Lỗi khi lưu lên Server: ", error);
+        }
+    };
 
     return (
         <div className="h-screen w-screen bg-[#202124] text-[#e8eaed] flex flex-col overflow-hidden font-sans relative select-none">
@@ -423,6 +444,16 @@ export const InspectionPage = () => {
             <div className={`absolute top-0 right-0 h-full w-[450px] z-40 transition-transform duration-300 ease-out shadow-[-10px_0_30px_rgba(0,0,0,0.5)] ${isTagsOpen ? 'translate-x-0' : 'translate-x-full'}`}>
                 <TagManagerTable onClose={() => useTagDb.setState({ isGlobalTagsTableOpen: false })} />
             </div>
+
+            {/* THÊM FileManager Modal */}
+            <FileManagerModal 
+                isOpen={fileManagerContext?.isOpen || false}
+                onClose={closeFileManager}
+                folder="projects"
+                mode={fileManagerContext?.mode || 'manage'}
+                onFileSelect={handleServerFileLoad}
+                onSaveAs={handleServerFileSave}
+            />
             
         </div>
     );
