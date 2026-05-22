@@ -142,4 +142,8 @@ export const FleetAPI = {
         const resp = await axiosClient.post(`/proxy/${server_id}${api_version}/infra/resources/files/unload-from-ram/${filename}`);
         return resp.data;
     },
+    master_getFileContent: async (filename: string, filetype: string): Promise<any> => {
+        const resp = await axiosClient.get(`${api_version}/infra/resources/files/${filetype}/${filename}/content`);
+        return resp.data;
+    },
 }; 

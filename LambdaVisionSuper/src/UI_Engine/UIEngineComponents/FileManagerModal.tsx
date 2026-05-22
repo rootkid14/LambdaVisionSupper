@@ -4,7 +4,7 @@ import {
   Database, Cpu, Blocks, Play, Square, Zap, ZapOff, Activity, Workflow, HardDrive
 } from 'lucide-react';
 import { useFleetStore } from '../../Stores/FleetDashboardStores';
-import { axiosClient, api_version } from '../../api/axiosClient';
+import { FleetAPI } from '../../api/fleetApi'; // <--- ĐỔI SANG IMPORT THẰNG NÀY
 
 interface FileManagerModalProps {
   isOpen: boolean;
@@ -16,7 +16,6 @@ interface FileManagerModalProps {
 }
 
 export function FileManagerModal({ isOpen, onClose, defaultTab = 'projects', mode, onFileSelect, onSaveAs }: FileManagerModalProps) {
-  // --- STATES ---
   const [activeTab, setActiveTab] = useState(defaultTab);
   const [searchQuery, setSearchQuery] = useState('');
   const [saveName, setSaveName] = useState('');
@@ -25,13 +24,11 @@ export function FileManagerModal({ isOpen, onClose, defaultTab = 'projects', mod
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // --- ACTIONS TỪ FLEET STORE ---
   const deployGraph = useFleetStore(state => state.deployGraph);
   const undeployLogic = useFleetStore(state => state.undeployLogic);
   const toggleFileRamStatus = useFleetStore(state => state.toggleFileRamStatus);
   const uploadResourceToNode = useFleetStore(state => state.uploadResource);
 
-  // Fetch dữ liệu mỗi khi mở Modal hoặc đổi Tab
   useEffect(() => {
     if (isOpen) {
       if (mode === 'load' || mode === 'save') setActiveTab('projects');
@@ -39,12 +36,12 @@ export function FileManagerModal({ isOpen, onClose, defaultTab = 'projects', mod
     }
   }, [isOpen, mode]);
 
+  // CHUYỂN ĐỔI 1: Lấy thông tin tài nguyên hệ thống
   const fetchResources = async () => {
     setIsLoading(true);
     try {
-      // ĐÃ SỬA API: Thêm prefix api_version/infra
-      const res = await axiosClient.get(`${api_version}/infra/resources/status`);
-      setLocalResources(res.data);
+      const data = await FleetAPI.getMasterLocalResource();
+      setLocalResources(data);
     } catch (error) {
       console.error(`Lỗi tải danh sách tài nguyên:`, error);
     } finally {
@@ -52,34 +49,32 @@ export function FileManagerModal({ isOpen, onClose, defaultTab = 'projects', mod
     }
   };
 
-  // --- HANDLERS ---
   const getFileTypeString = (tab: string) => {
-      // Map đúng từ tab name sang keyword mà Backend xử lý
       if (tab === 'models') return 'file';
       if (tab === 'graphs') return 'graph';
       if (tab === 'plugins') return 'plugin';
       return 'projects';
   }
 
+  // CHUYỂN ĐỔI 2: Xóa tài nguyên
   const handleDelete = async (filename: string) => {
     if (!confirm(`Xóa file ${filename}? Hành động này không thể hoàn tác.`)) return;
     try {
-      const fileType = getFileTypeString(activeTab);
-      // ĐÃ SỬA API: Thêm prefix
-      await axiosClient.delete(`${api_version}/infra/resources/delete/${fileType}/${filename}`);
+      const fileType = getFileTypeString(activeTab) as any;
+      await FleetAPI.master_removeResource(filename, fileType);
       fetchResources(); 
     } catch (error) {
       console.error("Lỗi xóa file:", error);
     }
   };
 
+  // CHUYỂN ĐỔI 3: Load nội dung Project online
   const handleAction = async (filename: string) => {
     if (mode === 'load' && onFileSelect && activeTab === 'projects') {
       setIsLoading(true);
       try {
-        // ĐÃ SỬA API: Đọc Project từ Disk
-        const res = await axiosClient.get(`${api_version}/infra/resources/files/projects/${filename}/content`);
-        onFileSelect(filename, res.data);
+        const data = await FleetAPI.master_getFileContent(filename, 'projects');
+        onFileSelect(filename, data);
       } catch (error) {
         console.error("Lỗi đọc Project:", error);
       } finally {

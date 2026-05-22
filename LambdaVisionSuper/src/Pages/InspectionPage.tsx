@@ -12,7 +12,7 @@ import { useKeyboardTrigger } from '../UI_Engine/hooks/useKeyboardTrigger';
 import { SettingsModal } from '../UI_Engine/UIEngineComponents/SettingModal';
 import { useSequencerStore } from '../UI_Engine/UIEngineStores/SequencerStores';
 import { ProjectCompiler } from '../ProjectCompiler/ProjectCompilerCore/ProjectCompilerCore';
-import { axiosClient } from '../api/axiosClient';
+import { FleetAPI } from '../api/fleetApi';
 import { FileManagerModal } from '../UI_Engine/UIEngineComponents/FileManagerModal';
 
 
@@ -334,24 +334,24 @@ export const InspectionPage = () => {
     // 2. Logic xử lý khi Lưu file lên Server
     const handleServerFileSave = async (filename: string) => {
         try {
+            // 1. Thu thập dữ liệu hệ thống từ các Zustand Stores
             const bundle = await ProjectCompiler.generateProjectBundle(); 
             
+            // 2. Format chuẩn hóa tên file
             const finalName = filename.endsWith('.json') ? filename : `${filename}.json`;
             
+            // 3. Đóng gói thành File Object ảo
             const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
             const fileToUpload = new File([blob], finalName, { type: 'application/json' });
 
-            const formData = new FormData();
-            formData.append('file', fileToUpload);
+            // 4. GỌI API CHUẨN LAYER: Không dùng axiosClient.post() trực tiếp nữa
+            await FleetAPI.master_uploadFile(fileToUpload, 'projects');
 
-            // ĐÃ SỬA: Bổ sung ${api_version}/infra
-            await axiosClient.post(`${api_version}/infra/resources/files/projects/upload`, formData, {
-                headers: { 'Content-Type': 'multipart/form-data' }
-            });
-
+            // 5. Đóng Modal sau khi thành công
             closeFileManager();
         } catch (error) {
             console.error("Lỗi khi lưu lên Server: ", error);
+            alert("Lưu thất bại, vui lòng kiểm tra kết nối!");
         }
     };
 
@@ -444,7 +444,7 @@ export const InspectionPage = () => {
             <FileManagerModal 
                 isOpen={fileManagerContext?.isOpen || false}
                 onClose={closeFileManager}
-                folder="projects"
+                defaultTab="projects" // <--- Sửa chữ "folder" thành "defaultTab" ở dòng này
                 mode={fileManagerContext?.mode || 'manage'}
                 onFileSelect={handleServerFileLoad}
                 onSaveAs={handleServerFileSave}
