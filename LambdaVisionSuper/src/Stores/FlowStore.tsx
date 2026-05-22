@@ -14,6 +14,9 @@ import {
 import { WorkerDetails } from "../Stores/FleetDashboardStores";
 import { NodeAPI } from "../api/nodeApi";
 import { persist, createJSONStorage } from "zustand/middleware";
+
+import { save } from '@tauri-apps/plugin-dialog'; // THÊM IMPORT NÀY
+import { writeTextFile } from '@tauri-apps/plugin-fs'; // THÊM IMPORT NÀY
 /* =========================================================
    I. MANIFEST TYPES
 ========================================================= */
@@ -175,7 +178,7 @@ interface FlowState {
 
   loadGraphfromFile: (json_content: unknown) => void;
 
-  saveGraphtoFile: (filename: string) => void;
+  saveGraphtoFile: (filename: string) => Promise<void>;
 
   addNode: (node: Node) => void;
 
@@ -451,12 +454,12 @@ export const useFlowStore = create<FlowState>()(
         setWorkerEnvironment: (worker) => {
           set({
             this_worker_infor: worker,
-            // RESET các biến này để buộc ProgrammingPage phải load lại Catalogue của Worker mới
             isCatalogueLoaded: false,
             nodeCatalogueList: [],
             nodeCatalogueMap: {},
-            nodes: [], // Clear luôn nodes cũ để tránh rác dữ liệu
-            edges: []
+            nodes: [], 
+            edges: [],
+            editing_remote_graph_name: null // FIX LỖI GHI ĐÈ GRAPH: Tự động clear tên cũ khi đổi môi trường
           });
         },
 
@@ -578,36 +581,49 @@ export const useFlowStore = create<FlowState>()(
           set(initialState)
         },
 
-        saveGraphtoFile: (filename : string) => {
+        saveGraphtoFile: async (filename : string) => {
           try {
-
             const { nodes, edges, timeout } = get();
-
-            const payload = {
-              timeout,
-              nodes,
-              edges
-            };
-
+            const payload = { timeout, nodes, edges };
             const json = JSON.stringify(payload, null, 2);
 
-            const blob = new Blob(
-              [json],
-              { type: "application/json" }
-            );
-
-            const url = URL.createObjectURL(blob);
-
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = filename;
-            a.click();
-
-            URL.revokeObjectURL(url);
+            // 1. KIỂM TRA MÔI TRƯỜNG TAURI (DESKTOP APP)
+            if ((window as any).__TAURI__) {
+                const filePath = await save({
+                    defaultPath: filename,
+                    filters: [{ name: 'JSON', extensions: ['json'] }]
+                });
+                if (filePath) {
+                    await writeTextFile(filePath, json);
+                }
+            } 
+            // 2. NẾU LÀ TRÌNH DUYỆT HỖ TRỢ FILE SYSTEM ACCESS API (Chrome, Edge...)
+            else if ('showSaveFilePicker' in window) {
+                try {
+                    const handle = await (window as any).showSaveFilePicker({
+                        suggestedName: filename,
+                        types: [{ description: 'JSON File', accept: { 'application/json': ['.json'] } }],
+                    });
+                    const writable = await handle.createWritable();
+                    await writable.write(json);
+                    await writable.close();
+                } catch (err: any) {
+                    if (err.name !== 'AbortError') throw err; // Bỏ qua nếu người dùng bấm Cancel
+                }
+            } 
+            // 3. FALLBACK CHO CÁC TRÌNH DUYỆT CŨ (Tự động tải xuống Downloads)
+            else {
+                const blob = new Blob([json], { type: "application/json" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = filename;
+                a.click();
+                URL.revokeObjectURL(url);
+            }
           } catch (error: any) {
             set({
-              errorMessage:
-                error.message || "Save graph failed",
+              errorMessage: error.message || "Save graph failed",
               isErrorModalOpen: true
             });
           }

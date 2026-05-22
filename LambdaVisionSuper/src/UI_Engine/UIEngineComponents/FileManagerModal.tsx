@@ -230,7 +230,7 @@ export function FileManagerModal({ isOpen, onClose, defaultTab = 'projects', onF
   const filteredItems = items.filter((item: any) => item.name.toLowerCase().includes(searchQuery.toLowerCase()));
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-6 font-sans">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6 font-sans">
       <input type="file" ref={fileInputRef} onChange={handleUploadFile} className="hidden" />
       
       <div className="bg-[#1e1e1e] w-full max-w-6xl h-[85vh] rounded-2xl shadow-2xl border border-[#3c4043] flex overflow-hidden animate-in zoom-in-95 duration-200">
@@ -291,14 +291,14 @@ export function FileManagerModal({ isOpen, onClose, defaultTab = 'projects', onF
               {activeTab === 'projects' && (
                 <div className="flex items-center gap-2 bg-[#171717] p-1 border border-[#3c4043] rounded-lg">
                   <input type="text" placeholder="New Project Name..." value={saveName} onChange={(e) => setSaveName(e.target.value)} className="bg-transparent px-3 py-1 text-sm text-[#e8eaed] focus:outline-none w-48 font-mono"/>
-                  <button onClick={() => { onSaveAs?.(saveName); setSaveName(''); }} disabled={!saveName} className="bg-[#81c995] hover:bg-[#a8dab5] disabled:opacity-50 text-[#202124] px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1.5 transition"><Save size={14}/> SAVE UI STATE</button>
+                  <button onClick={() => { onSaveAs?.(saveName); setSaveName(''); }} disabled={!saveName} className="bg-[#81c995] hover:bg-[#a8dab5] disabled:opacity-50 text-[#202124] px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1.5 transition"><Save size={14}/> SAVE PROJECT</button>
                 </div>
               )}
 
               {activeTab === 'graphs' ? (
                 <div className="flex items-center gap-2">
                     <button onClick={() => fileInputRef.current?.click()} className="bg-[#3c4043] hover:bg-[#5f6368] text-[#e8eaed] px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-2 transition">
-                        <UploadCloud size={16}/> Upload
+                        <UploadCloud size={16}/> UPLOAD
                     </button>
                     <button onClick={handleCreateLogic} className="bg-[#81c995] hover:bg-[#a8dab5] text-[#202124] px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-2 transition shadow-md">
                         <Plus size={16} className="stroke-[3]"/> CREATE GRAPH
@@ -318,7 +318,7 @@ export function FileManagerModal({ isOpen, onClose, defaultTab = 'projects', onF
           {/* Table Container */}
           <div className="flex-1 overflow-y-auto custom-scrollbar relative">
             {isLoading && (
-               <div className="absolute inset-0 bg-[#1e1e1e]/80 z-20 flex items-center justify-center backdrop-blur-sm">
+               <div className="absolute inset-0 bg-[#1e1e1e]/80 z-20 flex items-center justify-center">
                   <div className="text-[#8ab4f8] animate-pulse font-mono flex items-center gap-2"><Activity size={18}/> SYNCING WITH {targetNode.toUpperCase()}...</div>
                </div>
             )}

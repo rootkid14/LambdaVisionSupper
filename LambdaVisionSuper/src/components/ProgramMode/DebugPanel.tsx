@@ -178,7 +178,7 @@ export const DebugPanel = () => {
           <div className="flex items-center gap-3">
             {/* NÚT EXIT VỀ FLEET */}
             <button
-              onClick={() => navigate('/fleet')}
+              onClick={() => navigate(-1)}
               className="p-1.5 bg-[#202124] hover:bg-slate-700 rounded-md transition-colors border border-slate-700 text-slate-300"
               title="Exit to Fleet Dashboard"
             >

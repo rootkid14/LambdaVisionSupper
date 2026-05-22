@@ -157,7 +157,7 @@ const ModernImportModal = ({ file, onClose }: { file: File, onClose: () => void 
 // ==========================================================
 // DROP DOWN QUẢN LÝ LABEL CONFIG
 // ==========================================================
-const NameConfigDropdown = () => {
+export const NameConfigDropdown = () => {
     const { nameLabelConfig, updateNameLabelConfig } = useUIEngine();
     const [isOpen, setIsOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
@@ -322,7 +322,7 @@ export const InspectionPage = () => {
                     <div className="w-px h-8 bg-[#3c4043]"></div>
                     <div className="flex flex-col justify-center">
                         <h1 className="font-extrabold text-[#e8eaed] text-[13px] tracking-wide leading-tight flex items-baseline gap-1">
-                            LAMBDA VISION SUPER
+                            LAMBDA AGENTIC
                         </h1>
                         <div className="flex items-center gap-1.5 mt-0.5">
                             <span className={`w-2.5 h-2.5 rounded-full ${sequencerStore.isEngineRunning ? 'bg-[#81c995] animate-pulse shadow-[0_0_4px_#81c995]' : 'bg-[#f28b82]'}`}></span>

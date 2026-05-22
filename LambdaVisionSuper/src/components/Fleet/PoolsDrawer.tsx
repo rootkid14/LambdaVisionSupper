@@ -52,13 +52,13 @@ export const PoolsDrawer = () => {
   return (
     <div className="fixed inset-0 z-50 overflow-hidden flex justify-end font-sans">
       {/* Backdrop */}
-      <div className={`absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity duration-300 ${slideIn ? 'opacity-100' : 'opacity-0'}`} onClick={closeDrawer}></div>
+      <div className={`absolute inset-0 transition-opacity duration-300 ${slideIn ? 'opacity-100' : 'opacity-0'}`} onClick={closeDrawer}></div>
 
       {/* Drawer Panel */}
       <div className={`relative w-full max-w-[500px] bg-[#28292c] border-l border-[#3c4043] h-full shadow-[-20px_0_60px_rgba(0,0,0,0.5)] flex flex-col transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${slideIn ? 'translate-x-0' : 'translate-x-full'}`}>
         
         {isUploading && (
-          <div className="absolute inset-0 bg-[#202124]/80 z-50 flex flex-col items-center justify-center backdrop-blur-md">
+          <div className="absolute inset-0 z-50 flex flex-col items-center justify-center">
             <Loader2 className="animate-spin text-[#8ab4f8] mb-4" size={40} />
             <div className="text-[#e8eaed] font-bold text-lg">{uploadProgress}%</div>
             <div className="text-[#9aa0a6] text-xs mt-2 uppercase tracking-widest">Uploading Resource</div>

@@ -11,7 +11,9 @@ const TypewriterMessage = () => {
   const [text, setText] = useState('');
   
   // Dòng chữ hệ thống sẽ tự động gõ
-  const fullText = "> Welcome to Lambda Super - An IOT Engine that elevates distributed resources and is universal for CV | Agentic AI | Automation tasks < ";
+  const fullText = 
+  "> LAMBDA AGENTIC READY\n\n" + 
+  "> Orchestrating Distributed | Agentic AI | Computer Vision | Industrial Automation";
 
   useEffect(() => {
     let i = 0;
@@ -50,7 +52,7 @@ export const MainScreen = () => {
       {/* ========================================= */}
       <div className="absolute top-6 right-8 flex flex-col items-end opacity-40 hover:opacity-100 transition-opacity duration-500 font-mono text-xs text-[#9aa0a6] z-50 cursor-default">
          <span className="text-[#d08ef7] font-bold mb-1.5 uppercase tracking-widest flex items-center gap-2 drop-shadow-[0_0_10px_rgba(176,38,255,0.5)]">
-           <User size={14}/> Developer Contact
+           <User size={18}/> Developer Contact
          </span>
          <span className="text-[#e8eaed] font-bold text-sm tracking-wider">Harry - Hieu Do</span>
          <span className="mt-0.5">Tel: 84 366971242</span>
@@ -89,14 +91,14 @@ export const MainScreen = () => {
             filter: 'drop-shadow(0 0 15px rgba(217,70,239,0.9)) drop-shadow(0 0 40px rgba(138,180,248,0.6))'
           }}
         >
-          LAMBDA VISION SUPER
+          LAMBDA AGENTIC
         </h1>
 
         {/* Cụm Phiên Bản: Text to hơn (text-sm sm:text-base) */}
         <div className="mt-6 flex items-center gap-4 opacity-70">
           <div className="h-[1px] w-20 bg-gradient-to-r from-transparent to-[#9aa0a6]"></div>
           <span className="flex items-center gap-2 text-[#9aa0a6] font-mono tracking-[0.4em] uppercase text-sm sm:text-base font-bold select-none">
-            <Network size={22} className="text-[#8ab4f8]" /> IOT & AGENTIC AI ENGINE
+            <Network size={22} className="text-[#8ab4f8]" /> AGENTIC AI ENGINE
           </span>
           <div className="h-[1px] w-20 bg-gradient-to-l from-transparent to-[#9aa0a6]"></div>
         </div>
@@ -113,26 +115,8 @@ export const MainScreen = () => {
       {/* ========================================= */}
       <div className="group absolute bottom-0 left-0 w-full h-56 flex flex-col items-center justify-end pb-8 z-20 cursor-pointer">
         
-        {/* Tia sáng quét ở đáy */}
-        <div className="absolute bottom-0 w-1/3 h-[2px] bg-gradient-to-r from-transparent via-[#8ab4f8]/50 to-transparent blur-[1px] transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:w-full group-hover:h-32 group-hover:via-[#b026ff]/15 group-hover:-translate-y-6 group-hover:blur-2xl -z-10"></div>
 
-        {/* Hướng dẫn tương tác */}
-        <div className="absolute bottom-8 flex flex-col items-center justify-center transition-all duration-500 group-hover:opacity-0 group-hover:translate-y-8 pointer-events-none">
-          <div className="flex items-center gap-3 mb-3">
-             <div className="w-2 h-2 rounded-full bg-[#81c995] animate-pulse shadow-[0_0_10px_#81c995]"></div>
-             <span className="text-[#8ab4f8] text-[10px] font-mono uppercase tracking-[0.4em] font-bold opacity-80">
-               SYSTEM READY // HOVER TO DEPLOY
-             </span>
-             <div className="w-2 h-2 rounded-full bg-[#81c995] animate-pulse shadow-[0_0_10px_#81c995]"></div>
-          </div>
-          
-          <div className="flex flex-col items-center animate-bounce opacity-50">
-            <ChevronUp size={24} className="text-[#8ab4f8] -mb-4" />
-            <ChevronUp size={24} className="text-[#b026ff]" />
-          </div>
-        </div>
-
-        <div className="opacity-0 translate-y-16 scale-95 transition-all duration-700 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:opacity-100 group-hover:translate-y-0 group-hover:scale-100 mb-2">
+        <div className=" scale-95 transition-all duration-700 group-hover:translate-y-0 mb-2">
           <NeonActionBar items={homeActions} activeId={null} />
         </div>
 

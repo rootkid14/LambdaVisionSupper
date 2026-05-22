@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { ReactFlow, Background, SelectionMode, ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Play, Square, Wrench, AlertTriangle, Cpu, Split, Combine, Shuffle, PlayCircle, StopCircle, ArrowBigLeft, Wifi, Radio,Activity } from 'lucide-react';
+import { Play, Square, Wrench, AlertTriangle, Cpu, Split, Combine, Shuffle, PlayCircle, StopCircle, ArrowBigLeft, Wifi, Radio,Activity, FolderOpen } from 'lucide-react';
 import { useSequencerStore } from '../UI_Engine/UIEngineStores/SequencerStores';
 import { nodeTypes } from '../UI_Engine/SequencerComponents/SequencerNodes';
 import { TerminalLog } from '../UI_Engine/SequencerComponents/TerminalLog';
@@ -11,7 +11,10 @@ import { useFleetStore } from '../Stores/FleetDashboardStores';
 import { useNavigate } from 'react-router-dom';
 import { TagManagerTable } from '../UI_Engine/UIEngineComponents/GlobalTagsTable';
 import { TokenBlackboard } from '../UI_Engine/SequencerComponents/TokenBlackboard';
-
+import { useUIEngine } from '../UI_Engine/UIEngineStores/InspectionStore';
+import { FileManagerModal } from '../UI_Engine/UIEngineComponents/FileManagerModal';
+import { ProjectCompiler } from '../ProjectCompiler/ProjectCompilerCore/ProjectCompilerCore';
+import { FleetAPI } from '../api/fleetApi';
 
 const nodeIcons: Record<string, React.ReactNode> = {
   start: <PlayCircle size={16} className="text-[#81c995]" />,
@@ -29,6 +32,8 @@ export const SequencerPage = () => {
   const store = useSequencerStore();
   const fleetStore = useFleetStore()
   const [rfInstance, setRfInstance] = useState<any>(null);
+
+  const { setImportFile, fileManagerContext, openFileManager, closeFileManager } = useUIEngine();
 
   const lastMousePos = useRef({ x: 0, y: 0 });
   
@@ -123,6 +128,33 @@ export const SequencerPage = () => {
     data: { ...n.data, onEdit: (id: string) => setEditingNodeId(id) }
   }));
 
+  // Luồng xử lý khi chọn một Project File trên Server để nạp vào RAM ảo của hệ thống
+    const handleServerFileLoad = (filename: string, fileContent: any) => {
+        const blob = new Blob([JSON.stringify(fileContent, null, 2)], { type: 'application/json' });
+        const virtualFile = new File([blob], filename, { type: 'application/json' });
+        
+        setImportFile(virtualFile); 
+        closeFileManager();
+    };
+
+    // Luồng đóng gói Bundle của Project và đẩy lên Server lưu trữ thông qua FleetAPI công nghiệp
+    const handleServerFileSave = async (filename: string) => {
+        try {
+            const bundle = await ProjectCompiler.generateProjectBundle(); 
+            const finalName = filename.endsWith('.json') ? filename : `${filename}.json`;
+            
+            const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+            const fileToUpload = new File([blob], finalName, { type: 'application/json' });
+
+            await FleetAPI.master_uploadFile(fileToUpload, 'projects');
+            closeFileManager();
+        } catch (error) {
+            console.error("Lỗi khi lưu lên Server: ", error);
+            alert("Lưu thất bại, vui lòng kiểm tra kết nối với Master Node!");
+        }
+    };
+  
+
   return (
     <div className="h-screen w-screen bg-[#202124] flex flex-col overflow-hidden text-[#e8eaed] font-sans selection:bg-[#8ab4f8]/30 relative">
       
@@ -141,14 +173,20 @@ export const SequencerPage = () => {
           <div className="flex flex-col">
              <span className="text-[px] font-bold text-[#d9d0da] tracking-widest uppercase">LAMBDA SEQUENCER EDITOR</span>
              <div className="flex items-center gap-2">
-                <span className="font-bold text-sm">System_Main.graph</span>
-                {store.isGraphDirty && <span className="text-[#fcd663] text-[10px] flex items-center gap-1"><AlertTriangle size={12}/> Uncompiled Changes</span>}
+                {store.isGraphDirty && <span className="text-[#fcd663] text-[14px] flex items-center gap-1"><AlertTriangle size={16}/> Uncompiled Changes</span>}
              </div>
           </div>
         </div>
 
+
         <div className="flex items-center gap-2">
           {/* NÚT TÍCH HỢP MỚI: MỞ BLACKBOARD */}
+          <button 
+                onClick={() => openFileManager('manage')} 
+                className="flex items-center gap-2 px-4 py-1.5 rounded-md hover:bg-[#3c4043] text-[11px] font-bold text-[#8ab4f8] bg-[#8ab4f8]/20 transition-colors"
+            >
+                <FolderOpen size={14} /> ASSET MANAGER
+          </button>
           <button 
             onClick={() => store.toggleTokenBlackboard()} 
             className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded transition-colors ${store.isTokenBlackboardOpen ? 'bg-[#8ab4f8]/20 text-[#8ab4f8] border border-[#8ab4f8]/30' : 'bg-[#171717] text-[#9aa0a6] border border-[#3c4043] hover:text-[#e8eaed]'}`}
@@ -241,6 +279,14 @@ export const SequencerPage = () => {
           </div>
           <TerminalLog />
           <TokenBlackboard />
+          <FileManagerModal 
+              isOpen={fileManagerContext?.isOpen || false}
+              onClose={closeFileManager}
+              defaultTab="projects"
+              mode={fileManagerContext?.mode || 'manage'}
+              onFileSelect={handleServerFileLoad}
+              onSaveAs={handleServerFileSave}
+          />
         </main>
 
         {/* =============================================== */}
@@ -262,7 +308,7 @@ export const SequencerPage = () => {
         )}
 
       </div>
-      {/* (Xóa bỏ hoàn toàn lớp BACKDROP cũ ở cuối file) */}
+      
     </div>
   );
 };

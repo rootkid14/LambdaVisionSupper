@@ -1,3 +1,4 @@
 !LambdaVisionSuper/
 !LambdaVisionSuperBackEnd/
 !.gitignore
+/nginx

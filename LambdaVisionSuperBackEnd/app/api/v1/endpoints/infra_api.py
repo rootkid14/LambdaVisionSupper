@@ -92,6 +92,8 @@ def delete_file( file_type: str, file_name : str):
             resp = logic_pool.delete_file_from_disk(file_name, file_type="graph")
         elif file_type == "plugin":
             resp = logic_pool.delete_file_from_disk(file_name, file_type="plugins")
+        elif file_type == "projects":
+            resp = logic_pool.delete_file_from_disk(file_name, file_type="projects")
         else:
             raise HTTPException(status_code=400, detail=f"UNKNOWN FILE TYPE {e}")    
         return resp
