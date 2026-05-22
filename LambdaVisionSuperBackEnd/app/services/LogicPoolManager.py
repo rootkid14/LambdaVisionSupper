@@ -30,6 +30,7 @@ class LogicPoolManager:
     GRAPH_DIR = BASE_STORAGE_DIR / "graph_storage"
     FILE_DIR = BASE_STORAGE_DIR / "file_storage"
     PLUGIN_DIR = BASE_STORAGE_DIR / "pluggins"
+    PROJECT_DIR = BASE_STORAGE_DIR / "project_storage"
 
     def __new__(cls):
         if cls._instance is None:
@@ -42,6 +43,7 @@ class LogicPoolManager:
         self.GRAPH_DIR.mkdir(parents=True, exist_ok=True)
         self.FILE_DIR.mkdir(parents=True, exist_ok=True)
         self.PLUGIN_DIR.mkdir(parents=True, exist_ok=True)
+        self.PROJECT_DIR.mkdir(parents=True, exist_ok=True)
         
     def deploy_graph_to_ram(self, graph_file_name : str) -> dict:
         """Load a logic object file (graph_json) in to ram and give it a unique ID in RAM"""
@@ -169,13 +171,12 @@ class LogicPoolManager:
         
     #DISK MANAGEMENT:
     def delete_file_from_disk(self, file_name: str, file_type: str = "file") -> dict:
-        """DELETE A FILE FROM THE PERSISTEN STORAGE OF THIS SERVER
-            filetype: "file", "graph", "plugins"
-        """
         if file_type == "file":
             file_path = self.FILE_DIR / f"{file_name}"
         elif file_type == "graph":
             file_path = self.GRAPH_DIR / f"{file_name}"
+        elif file_type == "projects": # THÊM DÒNG NÀY
+            file_path = self.PROJECT_DIR / f"{file_name}"
         else:
             file_path = self.PLUGIN_DIR / f"{file_name}"
 
@@ -212,10 +213,13 @@ class LogicPoolManager:
         #4. Quét danh sách active Logic Objects:
         active_logics_data = [{"name": logic_id, "graph_file": value.get("graph_json_name")} for logic_id, value in self._logic_pool.items()]
 
+        projects_data = [f.name for f in self.PROJECT_DIR.iterdir() if f.is_file() and f.suffix in [".json", ".lambda_proj"]]
+
         return {
             "files": files_data,
             "graphs": graphs_data,
             "plugins": plugins_data,
+            "projects": projects_data,
             "active_logics": active_logics_data
         }
     
@@ -254,15 +258,14 @@ class LogicPoolManager:
         return {"success": False, "error_message": "File không nằm trong RAM"}
     
     async def save_heavy_file(self, file: UploadFile, filename: str, filetype: str = FileType.FILE.value) -> dict:
-        """Save heavy files safely by taking small chunks from httpx stream than save chunks by chunks to disk
-            using thread so that the system is not blocked
-        """
-        if filetype == FileType.FILE.value:
+        if filetype == FileType.FILE.value or filetype == "file":
             file_path = self.FILE_DIR/ filename
-        elif filetype == FileType.GRAPH.value:
+        elif filetype == FileType.GRAPH.value or filetype == "graph":
             file_path = self.GRAPH_DIR / filename
-        elif filetype == FileType.PLUGIN.value:
+        elif filetype == FileType.PLUGIN.value or filetype == "plugin":
             file_path = self.PLUGIN_DIR / filename
+        elif filetype == "projects": # THÊM DÒNG NÀY
+            file_path = self.PROJECT_DIR / filename
         else:
             return {"success": False, "message": f"UKNOWN FILE TYPE {filetype}"}
         try:
@@ -280,15 +283,17 @@ class LogicPoolManager:
   
         
     def get_file_path(self, filename: str, filetype: str) -> Path:
-        """Trả về đường dẫn vật lý để API tự xử lý Streaming Download"""
-        if filetype == FileType.FILE.value:
+        if filetype == FileType.FILE.value or filetype == "file":
             file_path = self.FILE_DIR / filename
-        elif filetype == FileType.GRAPH.value:
+        elif filetype == FileType.GRAPH.value or filetype == "graph":
             file_path = self.GRAPH_DIR / filename
-        elif filetype == FileType.PLUGIN.value:
+        elif filetype == FileType.PLUGIN.value or filetype == "plugin":
             file_path = self.PLUGIN_DIR / filename
+        elif filetype == "projects": # THÊM DÒNG NÀY
+            file_path = self.PROJECT_DIR / filename
         else:
             raise TypeError(f"UNKOWN FILE TYPE: {filetype}")
+        
         if not file_path.exists():
             raise FileNotFoundError(f"File {filename} không tồn tại trên hệ thống")
         return file_path

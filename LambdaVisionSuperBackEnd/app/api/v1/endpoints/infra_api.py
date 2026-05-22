@@ -32,11 +32,10 @@ def get_server_info(server_id: str):
 
 @router.post("/resources/files/{filetype}/upload", summary="Upload Model/File nặng lên Disk")
 async def upload_file(filetype : str ,file: UploadFile = File(...)):
-    """
-        UPLOAD A FILE TO A SERVER'S DISK
-    """
+    # ĐÃ SỬA: Bypass cho 'projects'
     try:
-        FileType(filetype)
+        if filetype != "projects":
+            FileType(filetype)
     except ValueError:
         raise HTTPException(status_code=400, detail=f"File Type {filetype} is not valid")
 
@@ -52,23 +51,20 @@ async def upload_file(filetype : str ,file: UploadFile = File(...)):
 
 @router.get("/resources/files/{filetype}/{filename}/download", summary="Download File từ Disk")
 async def download_file(filetype:str, filename: str):
-    """
-        DOWNLOAD A FILE FROM A SERVER'S DISK
-    """
+    # ĐÃ SỬA: Bypass cho 'projects'
     try:
-        FileType(filetype)
+        if filetype != "projects":
+            FileType(filetype)
     except ValueError:
         raise HTTPException(status_code=400, detail=f"File Type {filetype} is not valid")
 
     try:
-        # Nhờ Manager cung cấp đường dẫn vật lý (Đảm bảo an toàn, không lộ logic path)
         file_path = logic_pool.get_file_path(filename, filetype)
-        
         return FileResponse(
             path=file_path,
             filename=filename,
             media_type="application/octet-stream",
-            content_disposition_type="attachment" # Ép trình duyệt tải về thay vì mở xem
+            content_disposition_type="attachment"
         )
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -232,24 +228,17 @@ def unload_file_from_memory(filename: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Lỗi khi giải phóng file: {str(e)}")
     
-
 @router.get("/resources/files/{filetype}/{filename}/content", summary="Đọc nội dung file (JSON) từ Disk")
 async def get_file_content(filetype: str, filename: str):
-    """
-    ĐỌC VÀ TRẢ VỀ NỘI DUNG FILE DƯỚI DẠNG JSON OBJECT
-    Dùng để load trực tiếp các file projects, graphs, cấu hình... vào UI
-    """
-    # 1. Kiểm tra tính hợp lệ của thư mục (Dùng chung Enum như hàm download)
+    # ĐÃ SỬA: Bypass cho 'projects'
     try:
-        FileType(filetype)
+        if filetype != "projects":
+            FileType(filetype)
     except ValueError:
         raise HTTPException(status_code=400, detail=f"Loại file '{filetype}' không hợp lệ")
 
     try:
-        # 2. Lấy đường dẫn vật lý an toàn từ Manager
         file_path = logic_pool.get_file_path(filename, filetype)
-        
-        # 3. Đọc và parse JSON trả về
         with open(file_path, "r", encoding="utf-8") as f:
             return JSONResponse(content=json.load(f))
             
