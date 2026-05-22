@@ -47,7 +47,7 @@ export interface NodeProcessConfig {
   next_node_id: string;
   node_title: string;
   logic_object_info : NodeProcessServerData;
-  payload_formation_map: Record<string, any>; //json path : get from tag
+  payload_formation_map: Record<string, string | { type: 'tag' | 'const', value: any }>;
   response_receive_map: Record<string, string>;  //json path : write to tag
 }
 
@@ -87,7 +87,9 @@ export interface NodeOrConfig {
 
 export interface NodeDelayConfig {
   next_node_id: string;
-  delay_duration: number;
+  delay_duration: number; // Mặc định là số
+  is_dynamic?: boolean;   // Cờ đánh dấu dùng Tag
+  delay_tag_id?: string;  // ID của Tag nếu is_dynamic = true
 }
 
 export interface NodeTagOvwrByValConfig {
@@ -180,10 +182,15 @@ export interface SequencerNodeData {
 
 export interface TokenValue {
     node_uuid: string;
-    status: 'READY' | 'PROCESSING' |'WAITING'
+    status: 'READY' | 'PROCESSING' | 'WAITING' | 'HIJACKED';
     x: number;
     y: number;
     color: string;
+    
+    // --- NGỮ CẢNH ĐIỀU HƯỚNG ---
+    history: string[];       // Nhật ký hành trình (Cực kỳ quan trọng)
+    spawnedAt: number;       // Thời gian sống
+    labels: string[];        // Các nhãn dán được thu thập trên đường đi (Dynamic Labels)
 }
 
 
@@ -197,6 +204,9 @@ export interface SequencerState {
 
   nodes_lookup_map: Record<string, Node>; //for performance look up, để cập nhật UI biểu diễn token trên graph khi chạy runtime
   run_time_token_list: Record<string, TokenValue>; //lưu trữ thông tin token để engine dùng và cho cập nhật UI biểu diễn token khi chạy runtime
+
+  isTokenBlackboardOpen: boolean; 
+  toggleTokenBlackboard: () => void;
 
   isSequencerErrorModalOpen: boolean; // báo lỗi
   SequencerErrorMessage: string; // báo lỗi
@@ -253,6 +263,9 @@ export const useSequencerStore =
 
     nodes_lookup_map: {},
     run_time_token_list: {},
+
+    isTokenBlackboardOpen: false,
+    toggleTokenBlackboard: () => set((state) => ({ isTokenBlackboardOpen: !state.isTokenBlackboardOpen })),
 
     isSequencerErrorModalOpen: false,
     SequencerErrorMessage: "",

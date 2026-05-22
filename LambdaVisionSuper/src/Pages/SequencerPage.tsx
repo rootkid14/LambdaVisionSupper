@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { ReactFlow, Background, SelectionMode, ReactFlowInstance } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Play, Square, Wrench, AlertTriangle, Cpu, Split, Combine, Shuffle, PlayCircle, StopCircle, ArrowBigLeft, Wifi, Radio } from 'lucide-react';
+import { Play, Square, Wrench, AlertTriangle, Cpu, Split, Combine, Shuffle, PlayCircle, StopCircle, ArrowBigLeft, Wifi, Radio,Activity } from 'lucide-react';
 import { useSequencerStore } from '../UI_Engine/UIEngineStores/SequencerStores';
 import { nodeTypes } from '../UI_Engine/SequencerComponents/SequencerNodes';
 import { TerminalLog } from '../UI_Engine/SequencerComponents/TerminalLog';
@@ -10,6 +10,7 @@ import { TokenLayer } from '../UI_Engine/SequencerComponents/TokenLayer';
 import { useFleetStore } from '../Stores/FleetDashboardStores';
 import { useNavigate } from 'react-router-dom';
 import { TagManagerTable } from '../UI_Engine/UIEngineComponents/GlobalTagsTable';
+import { TokenBlackboard } from '../UI_Engine/SequencerComponents/TokenBlackboard';
 
 
 const nodeIcons: Record<string, React.ReactNode> = {
@@ -147,6 +148,17 @@ export const SequencerPage = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* NÚT TÍCH HỢP MỚI: MỞ BLACKBOARD */}
+          <button 
+            onClick={() => store.toggleTokenBlackboard()} 
+            className={`flex items-center gap-2 px-3 py-1.5 text-xs font-bold rounded transition-colors ${store.isTokenBlackboardOpen ? 'bg-[#8ab4f8]/20 text-[#8ab4f8] border border-[#8ab4f8]/30' : 'bg-[#171717] text-[#9aa0a6] border border-[#3c4043] hover:text-[#e8eaed]'}`}
+          >
+            <Activity size={14} className={store.isEngineRunning ? 'animate-pulse text-[#81c995]' : ''} /> 
+            TOKEN TRACKER
+          </button>
+
+          <div className="w-px h-6 bg-[#5f6368] mx-1"></div>
+
           {/* NÚT COMPILE */}
           <button 
             onClick={handleCompile} 
@@ -228,6 +240,7 @@ export const SequencerPage = () => {
             </ReactFlow>
           </div>
           <TerminalLog />
+          <TokenBlackboard />
         </main>
 
         {/* =============================================== */}

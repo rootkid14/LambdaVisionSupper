@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings2, X, Database, Trash2, Plus, Cpu, Network, HelpCircle, Info, Braces, TerminalSquare, ArrowRight, ArrowLeft, Server, Layout } from 'lucide-react';
+import { Settings2, X, Database, Trash2, Plus, Cpu, Network, HelpCircle, Info, Braces, TerminalSquare, ArrowRight, ArrowLeft, Server, Layout, Download } from 'lucide-react';
 import { useSequencerStore, NodeProcessConfig } from '../UIEngineStores/SequencerStores';
 import { useTagDb } from '../UIEngineStores/GlobalTagsStore';
 import { useFleetStore } from '../../Stores/FleetDashboardStores';
@@ -8,6 +8,7 @@ import Editor from 'react-simple-code-editor';
 import Prism from 'prismjs';
 import 'prismjs/components/prism-javascript';
 import 'prismjs/themes/prism-tomorrow.css';
+import { SCRIPT_API_DOCS_MD } from './ScriptApiDocs';
 
 // ĐỒNG BỘ: Cập nhật hàm inferType khớp với GlobalTagsStore
 const inferType = (value: any): string => {
@@ -33,15 +34,16 @@ const NodeNameHeader = ({ nodeId, currentName }: { nodeId: string, currentName: 
     
     return (
         <div className="p-4 border-b border-[#3c4043] bg-[#28292c]">
-            <label className="text-[10px] font-bold text-[#9aa0a6] uppercase tracking-widest mb-2 block">
-                Node Identity Name
+            <label className="text-[10px] font-bold text-[#4fd1c5] uppercase tracking-widest mb-1 block">
+                Scripting Identity (Node Address)
             </label>
             <input 
                 value={currentName || ""} 
-                onChange={(e) => updateNodeData(nodeId, { name: e.target.value })}
-                placeholder="Enter Node Name"
-                className="w-full bg-[#171717] border border-[#3c4043] focus:border-[#4fd1c5] text-[#e8eaed] text-sm p-2 rounded outline-none transition-colors"
+                onChange={(e) => updateNodeData(nodeId, { name: e.target.value.replace(/\s+/g, '_') })}
+                placeholder="e.g. TRAM_CAN_1, KHO_A..."
+                className="w-full bg-[#171717] border border-[#3c4043] focus:border-[#4fd1c5] text-[#e8eaed] text-sm p-2 rounded outline-none font-mono"
             />
+            <p className="text-[8px] text-[#9aa0a6] mt-1 italic">* Dùng tên này để gọi lệnh ENGINE.spawnAt("{currentName || '...'}")</p>
         </div>
     );
 };
@@ -101,116 +103,184 @@ const GuideModal = ({ onClose }: { onClose: () => void }) => (
   </div>
 );
 
-const ScriptGuideModal = ({ onClose }: { onClose: () => void }) => (
-  <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center font-sans">
-    <div className="bg-[#28292c] w-full max-w-4xl rounded-xl border border-[#3c4043] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-      <div className="px-6 py-4 bg-[#303134] border-b border-[#3c4043] flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-3 text-[#4fd1c5]">
-          <TerminalSquare size={20} />
-          <h2 className="font-bold text-base uppercase tracking-wider">Tài liệu API Javascript</h2>
+const ScriptGuideModal = ({ onClose }: { onClose: () => void }) => {
+  
+  // Hàm tải file cực kỳ gọn gàng nhờ tách biến
+  const handleDownloadDocs = () => {
+    const blob = new Blob([SCRIPT_API_DOCS_MD], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'Lambda_Script_API_Docs.md'; 
+    document.body.appendChild(link);
+    link.click();
+    
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center font-sans">
+      <div className="bg-[#28292c] w-full max-w-5xl rounded-xl border border-[#3c4043] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="px-6 py-4 bg-[#303134] border-b border-[#3c4043] flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-3 text-[#4fd1c5]">
+            <TerminalSquare size={20} />
+            <h2 className="font-bold text-base uppercase tracking-wider">Tài liệu API Javascript & Agentic</h2>
+          </div>
+          <button onClick={onClose} className="text-[#9aa0a6] hover:text-[#f28b82] transition-colors"><X size={20}/></button>
         </div>
-        <button onClick={onClose} className="text-[#9aa0a6] hover:text-[#f28b82] transition-colors"><X size={20}/></button>
-      </div>
-      
-      <div className="p-6 overflow-y-auto custom-scrollbar flex flex-col gap-8 text-[#e8eaed] text-sm">
         
-        {/* KHU VỰC 1: GIỚI THIỆU CHUNG */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="bg-[#171717] p-4 rounded-lg border border-[#3c4043]">
-            <h3 className="text-[#4fd1c5] font-bold mb-2 flex items-center gap-2"><ArrowRight size={14}/> 1. Đọc dữ liệu (IN)</h3>
-            <p className="text-[#9aa0a6] text-xs">Đọc giá trị từ các Global Tags đã map.<br/><code className="text-[#e8eaed] bg-[#202124] px-1 py-0.5 rounded mt-1 inline-block">let val = IN.my_var;</code></p>
+        <div className="p-6 overflow-y-auto custom-scrollbar flex flex-col gap-8 text-[#e8eaed] text-sm">
+          
+          {/* KHU VỰC 1: GIỚI THIỆU CHUNG */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-[#171717] p-4 rounded-lg border border-[#3c4043]">
+              <h3 className="text-[#4fd1c5] font-bold mb-2 flex items-center gap-2"><ArrowRight size={14}/> 1. Đọc Data (IN)</h3>
+              <p className="text-[#9aa0a6] text-xs">Đọc giá trị từ Global Tags.<br/><code className="text-[#e8eaed] bg-[#202124] px-1 py-0.5 rounded mt-1 inline-block">let v = IN.my_var;</code></p>
+            </div>
+            <div className="bg-[#171717] p-4 rounded-lg border border-[#3c4043]">
+              <h3 className="text-[#c58af9] font-bold mb-2 flex items-center gap-2"><ArrowLeft size={14}/> 2. Ghi Data (OUT)</h3>
+              <p className="text-[#9aa0a6] text-xs">Xuất giá trị ra Global Tags.<br/><code className="text-[#e8eaed] bg-[#202124] px-1 py-0.5 rounded mt-1 inline-block">OUT.result = 100;</code></p>
+            </div>
+            <div className="bg-[#171717] p-4 rounded-lg border border-[#3c4043]">
+              <h3 className="text-[#8ab4f8] font-bold mb-2 flex items-center gap-2"><Layout size={14}/> 3. Thao tác UI</h3>
+              <p className="text-[#9aa0a6] text-xs">Can thiệp Component trực tiếp.<br/><code className="text-[#e8eaed] bg-[#202124] px-1 py-0.5 rounded mt-1 inline-block">UI.set("Box1", {"{w: 10}"})</code></p>
+            </div>
+            <div className="bg-[#171717] p-4 rounded-lg border border-[#fcd663]/50 relative overflow-hidden shadow-[0_0_15px_rgba(252,214,99,0.05)]">
+              <div className="absolute top-0 right-0 w-16 h-16 bg-[#fcd663] opacity-10 rounded-bl-full"></div>
+              <h3 className="text-[#fcd663] font-bold mb-2 flex items-center gap-2"><Network size={14}/> 4. Token Engine</h3>
+              <p className="text-[#9aa0a6] text-xs">Điều phối luồng Agentic.<br/><code className="text-[#e8eaed] bg-[#202124] px-1 py-0.5 rounded mt-1 inline-block">ENGINE.addLabel("A")</code></p>
+            </div>
           </div>
-          <div className="bg-[#171717] p-4 rounded-lg border border-[#3c4043]">
-            <h3 className="text-[#c58af9] font-bold mb-2 flex items-center gap-2"><ArrowLeft size={14}/> 2. Ghi dữ liệu (OUT)</h3>
-            <p className="text-[#9aa0a6] text-xs">Xuất giá trị ra Global Tags.<br/><code className="text-[#e8eaed] bg-[#202124] px-1 py-0.5 rounded mt-1 inline-block">OUT.result = 100;</code></p>
+  
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              {/* KHU VỰC 2A: TỪ ĐIỂN UI */}
+              <div>
+                <h3 className="text-[#8ab4f8] font-bold mb-3 text-base flex items-center gap-2">
+                  <Database size={18}/> Thuộc tính UI (UI Properties)
+                </h3>
+                <div className="overflow-x-auto border border-[#3c4043] rounded-lg">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-[#202124] text-[#9aa0a6] border-b border-[#3c4043]">
+                      <tr>
+                        <th className="p-3 font-bold w-[35%]">Nhóm Component</th>
+                        <th className="p-3 font-bold">Các Key (Props) có thể Get / Set</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#3c4043] text-[#e8eaed] bg-[#171717]">
+                      <tr className="hover:bg-[#202124] transition-colors">
+                        <td className="p-3 font-bold text-[#e8eaed]">Tất cả (Common)</td>
+                        <td className="p-3 font-mono text-[11px] leading-relaxed">
+                          <span className="text-[#fcd663]">x, y, w, h, rotation, isVisible</span>
+                        </td>
+                      </tr>
+                      <tr className="hover:bg-[#202124] transition-colors">
+                        <td className="p-3 font-bold text-[#81c995]">Style (Màu, Viền)</td>
+                        <td className="p-3 font-mono text-[11px] leading-relaxed text-[#fcd663]">
+                          {"style: { strokeColor, fillColor, fontColor... }"}
+                        </td>
+                      </tr>
+                      <tr className="hover:bg-[#202124] transition-colors">
+                        <td className="p-3 font-bold text-[#4fd1c5]">Text / Button</td>
+                        <td className="p-3 font-mono text-[11px] leading-relaxed text-[#fcd663]">content</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+  
+              {/* KHU VỰC 2B: TỪ ĐIỂN ENGINE API */}
+              <div>
+                <h3 className="text-[#fcd663] font-bold mb-3 text-base flex items-center gap-2">
+                  <Cpu size={18}/> Thao tác Token (Engine API)
+                </h3>
+                <div className="overflow-x-auto border border-[#fcd663]/30 rounded-lg">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-[#202124] text-[#fcd663] border-b border-[#fcd663]/30">
+                      <tr>
+                        <th className="p-3 font-bold w-[35%]">Nhóm Lệnh</th>
+                        <th className="p-3 font-bold">Cú pháp & Chức năng</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#3c4043] text-[#e8eaed] bg-[#171717]">
+                      <tr className="hover:bg-[#202124] transition-colors">
+                        <td className="p-3 font-bold text-[#e8eaed]">Nhãn dán (Label)</td>
+                        <td className="p-3 font-mono text-[11px] leading-relaxed">
+                          ENGINE.addLabel("Tên"); <br/>
+                          ENGINE.removeLabel("Tên"); <br/>
+                          <span className="text-[#9aa0a6]">{"// bool = ENGINE.hasLabel(\"Tên\")"}</span>
+                        </td>
+                      </tr>
+                      <tr className="hover:bg-[#202124] transition-colors">
+                        <td className="p-3 font-bold text-[#81c995]">Truy vấn (Query)</td>
+                        <td className="p-3 font-mono text-[11px] leading-relaxed">
+                          ENGINE.queryByLabel("Tên"); <br/>
+                          ENGINE.queryByHistory("Node_ID");<br/>
+                          <span className="text-[#9aa0a6]">{"// Trả về mảng string [Token_IDs]"}</span>
+                        </td>
+                      </tr>
+                      <tr className="hover:bg-[#202124] transition-colors">
+                        <td className="p-3 font-bold text-[#f28b82]">Can thiệp (Action)</td>
+                        <td className="p-3 font-mono text-[11px] leading-relaxed">
+                          ENGINE.kill(id); <br/>
+                          ENGINE.killAllByLabel("Tên"); <br/>
+                          ENGINE.hijack(id, "Target_Node_ID");
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
           </div>
-          <div className="bg-[#171717] p-4 rounded-lg border border-[#3c4043] relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-16 h-16 bg-[#8ab4f8] opacity-5 rounded-bl-full"></div>
-            <h3 className="text-[#8ab4f8] font-bold mb-2 flex items-center gap-2"><Layout size={14}/> 3. Thao tác Canvas (UI)</h3>
-            <p className="text-[#9aa0a6] text-xs">Đọc/Ghi thuộc tính của Component trực tiếp.<br/><code className="text-[#e8eaed] bg-[#202124] px-1 py-0.5 rounded mt-1 inline-block">UI.set("Box_1", {"{x: 10}"})</code></p>
-          </div>
-        </div>
-
-        {/* KHU VỰC 2: CHEAT SHEET (TỪ ĐIỂN THUỘC TÍNH) */}
-        <div>
-          <h3 className="text-[#8ab4f8] font-bold mb-3 text-base flex items-center gap-2">
-            <Database size={18}/> Từ điển Thuộc tính UI (Properties Cheat Sheet)
-          </h3>
-          <div className="overflow-x-auto border border-[#3c4043] rounded-lg">
-            <table className="w-full text-xs text-left">
-              <thead className="bg-[#202124] text-[#9aa0a6] border-b border-[#3c4043]">
-                <tr>
-                  <th className="p-3 font-bold w-[25%]">Nhóm Component</th>
-                  <th className="p-3 font-bold">Các Key (Props) có thể Get / Set</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#3c4043] text-[#e8eaed] bg-[#171717]">
-                <tr className="hover:bg-[#202124] transition-colors">
-                  <td className="p-3 font-bold text-[#e8eaed]"> Tất cả (Common)</td>
-                  <td className="p-3 font-mono text-[11px] leading-relaxed">
-                    <span className="text-[#fcd663]">x, y, w, h, rotation, isVisible</span> <br/>
-                    <span className="text-[#9aa0a6]">{"// Lưu ý: w và h sẽ tự động chuyển thành size_x, size_y bên dưới hệ thống"}</span>
-                  </td>
-                </tr>
-                <tr className="hover:bg-[#202124] transition-colors">
-                  <td className="p-3 font-bold text-[#81c995]"> Style (Màu sắc, Viền)</td>
-                  <td className="p-3 font-mono text-[11px] leading-relaxed text-[#fcd663]">
-                    {"style: { strokeColor, fillColor, fontColor, fontSize, border_thickness, activeColor, cornerRadius }"}
-                  </td>
-                </tr>
-                <tr className="hover:bg-[#202124] transition-colors">
-                  <td className="p-3 font-bold text-[#4fd1c5]">Aa Text / Button / Checkbox</td>
-                  <td className="p-3 font-mono text-[11px] leading-relaxed text-[#fcd663]">content <span className="text-[#9aa0a6]">{"// Thay đổi chữ hiển thị"}</span></td>
-                </tr>
-                <tr className="hover:bg-[#202124] transition-colors">
-                  <td className="p-3 font-bold text-[#c58af9]"> Bounding Circle</td>
-                  <td className="p-3 font-mono text-[11px] leading-relaxed text-[#fcd663]">radius <span className="text-[#9aa0a6]">{"// Thay cho w và h"}</span></td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          {/* MẸO PRO-TIP */}
-          <div className="mt-4 bg-[#fcd663]/10 border border-[#fcd663]/30 p-3 rounded-lg flex gap-3 text-[#fc9363]">
-            <Info size={18} className="shrink-0 mt-0.5" />
-            <div className="text-xs">
-              <strong className="block mb-1 tracking-wider uppercase">💡 Mẹo Debug (Khám phá cấu trúc):</strong>
-              Nếu bạn không chắc một Component có những thuộc tính gì, hãy ép nó ra một biến OUT và xem ở bảng Global Tags:
-              <code className="block text-[#e8eaed] bg-[#202124] px-2 py-1 rounded mt-1.5 border border-[#3c4043]">
-                <span className="text-[#c58af9]">OUT</span>.my_debug_data = <span className="text-[#8ab4f8]">UI.get</span>(<span className="text-[#fcd663]">"Tên_Component"</span>);
-              </code>
+  
+          {/* KHU VỰC 3: CODE MẪU */}
+          <div>
+            <h3 className="text-[#e8eaed] font-bold mb-3 text-base">Code Mẫu (Snippets)</h3>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <div className="bg-[#171717] border border-[#3c4043] rounded-lg p-4 font-mono text-xs leading-relaxed text-[#e8eaed]">
+                <span className="text-[#5f6368]">{"// 1. Tính toán & Xuất Tag"}</span><br/>
+                <span className="text-[#4fd1c5]">{"let "}</span>{"cnt = IN.arr ? IN.arr.length : "}<span className="text-[#fcd663]">{"0"}</span>{";"}<br/>
+                <span className="text-[#c58af9]">{"OUT"}</span>{".status = (cnt > "}<span className="text-[#fcd663]">{"10"}</span>{") ? "}<span className="text-[#fcd663]">{"\"ERR\""}</span>{" : "}<span className="text-[#fcd663]">{"\"OK\""}</span>{";"}
+              </div>
+              <div className="bg-[#171717] border border-[#3c4043] rounded-lg p-4 font-mono text-xs leading-relaxed text-[#e8eaed]">
+                <span className="text-[#5f6368]">{"// 2. Can thiệp UI Component"}</span><br/>
+                <span className="text-[#4fd1c5]">{"let "}</span>{"box = "}<span className="text-[#8ab4f8]">{"UI.get"}</span>{"("}<span className="text-[#fcd663]">{"\"Face_Box\""}</span>{");"}<br/>
+                <span className="text-[#4fd1c5]">{"if "}</span>{"(box) {"}<br/>
+                &nbsp;&nbsp;<span className="text-[#8ab4f8]">{"UI.set"}</span>{"("}<span className="text-[#fcd663]">{"\"Face_Box\""}</span>{", { style: { strokeColor: "}<span className="text-[#fcd663]">{"'#ff0000'"}</span>{" } });"}<br/>
+                {"}"}
+              </div>
+              <div className="bg-[#171717] border border-[#fcd663]/30 rounded-lg p-4 font-mono text-xs leading-relaxed text-[#e8eaed]">
+                <span className="text-[#5f6368]">{"// 3. Giải cứu Token (Agentic)"}</span><br/>
+                <span className="text-[#fcd663]">{"ENGINE"}</span>{".addLabel("}<span className="text-[#fcd663]">{"\"Tracked\""}</span>{");"}<br/>
+                <span className="text-[#4fd1c5]">{"let "}</span>{"errs = "}<span className="text-[#fcd663]">{"ENGINE"}</span>{".queryByLabel("}<span className="text-[#fcd663]">{"\"Error\""}</span>{");"}<br/>
+                <span className="text-[#4fd1c5]">{"for "}</span>{"(let id of errs) {"}<br/>
+                &nbsp;&nbsp;<span className="text-[#fcd663]">{"ENGINE"}</span>{".hijack(id, "}<span className="text-[#fcd663]">{"\"Node_Alarm_1\""}</span>{");"}<br/>
+                {"}"}
+              </div>
             </div>
           </div>
         </div>
-
-        {/* KHU VỰC 3: CODE MẪU */}
-        <div>
-          <h3 className="text-[#e8eaed] font-bold mb-3 text-base">Code Mẫu (Snippets)</h3>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div className="bg-[#171717] border border-[#3c4043] rounded-lg p-4 font-mono text-xs leading-relaxed text-[#e8eaed]">
-              <span className="text-[#5f6368]">{"// 1. Tính toán logic và xuất ra Tag"}</span><br/>
-              <span className="text-[#4fd1c5]">{"let "}</span>{"count = IN.boxes ? IN.boxes.length : "}<span className="text-[#fcd663]">{"0"}</span>{";"}<br/>
-              <span className="text-[#c58af9]">{"OUT"}</span>{".status = (count > "}<span className="text-[#fcd663]">{"10"}</span>{") ? "}<span className="text-[#fcd663]">{"\"OVERLOAD\""}</span>{" : "}<span className="text-[#fcd663]">{"\"NORMAL\""}</span>{";"}
-            </div>
-            <div className="bg-[#171717] border border-[#3c4043] rounded-lg p-4 font-mono text-xs leading-relaxed text-[#e8eaed]">
-              <span className="text-[#5f6368]">{"// 2. Lấy tọa độ Box và đổi màu viền"}</span><br/>
-              <span className="text-[#4fd1c5]">{"let "}</span>{"box = "}<span className="text-[#8ab4f8]">{"UI.get"}</span>{"("}<span className="text-[#fcd663]">{"\"Face_Box\""}</span>{");"}<br/>
-              <span className="text-[#4fd1c5]">{"if "}</span>{"(box) {"}<br/>
-              &nbsp;&nbsp;<span className="text-[#c58af9]">{"OUT"}</span>{".crop_area = {x: box.x, y: box.y, w: box.w, h: box.h};"}<br/>
-              &nbsp;&nbsp;<span className="text-[#8ab4f8]">{"UI.set"}</span>{"("}<span className="text-[#fcd663]">{"\"Face_Box\""}</span>{", { style: { strokeColor: "}<span className="text-[#fcd663]">{"'#ff0000'"}</span>{" } });"}<br/>
-              {"}"}
-            </div>
-          </div>
+  
+        <div className="p-4 border-t border-[#3c4043] bg-[#202124] flex justify-between items-center shrink-0">
+          <button 
+            onClick={handleDownloadDocs} 
+            className="flex items-center gap-2 px-4 py-2 bg-[#8ab4f8]/10 text-[#8ab4f8] font-bold text-xs rounded hover:bg-[#8ab4f8]/20 border border-[#8ab4f8]/30 transition-colors"
+          >
+            <Download size={14} /> DOWNLOAD FULL DOCS (.MD)
+          </button>
+          
+          <button 
+            onClick={onClose} 
+            className="px-6 py-2 bg-[#4fd1c5] text-[#202124] font-bold rounded hover:bg-[#81e6d9] transition-colors shadow-lg"
+          >
+            ĐÃ HIỂU
+          </button>
         </div>
-
-      </div>
-
-      <div className="p-4 border-t border-[#3c4043] bg-[#202124] flex justify-end shrink-0">
-        <button onClick={onClose} className="px-6 py-2 bg-[#4fd1c5] text-[#202124] font-bold rounded hover:bg-[#81e6d9] transition-colors">ĐÃ HIỂU</button>
       </div>
     </div>
-  </div>
-);
+  );
+};
 
 export const PropertiesSidebar = ({ nodeId, onClose }: { nodeId: string, onClose: () => void }) => {
   const store = useSequencerStore();
@@ -234,16 +304,7 @@ export const PropertiesSidebar = ({ nodeId, onClose }: { nodeId: string, onClose
       case 'buildjson':
         return <JsonScriptPanel nodeId={nodeId} config={config} isExtract={false} />;
       case 'script':
-        return (
-        <div className="flex flex-col h-full">
-            {/* Header đổi tên luôn nằm trên cùng */}
-            <NodeNameHeader nodeId={nodeId} currentName={node.data.name as any} />
-            
-            <div className="flex-1 overflow-y-auto custom-scrollbar">
-                <ScriptPanel nodeId={nodeId} config={config} />
-            </div>
-        </div>
-    );
+        return <ScriptPanel nodeId={nodeId} config={config} />; // Đã rút NodeNameHeader ra
       case 'writedb':
         return <WriteDbPanel nodeId={nodeId} config={config} />
       default:
@@ -256,7 +317,6 @@ export const PropertiesSidebar = ({ nodeId, onClose }: { nodeId: string, onClose
   };
 
   return (
-    // FIX TĂNG SIZE: w-[400px] -> w-[480px]
     <aside className="flex flex-col h-full w-[480px] bg-[#28292c] border-l border-[#3c4043] shadow-2xl transition-all z-40">
       <div className="p-4 bg-[#303134] border-b border-[#3c4043] flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2 font-bold text-[#e8eaed]">
@@ -264,14 +324,11 @@ export const PropertiesSidebar = ({ nodeId, onClose }: { nodeId: string, onClose
           <span className="uppercase tracking-wider text-xs text-[#9aa0a6] mt-0.5">
             {node.type || 'Node'} Properties
           </span>
-          {/* Nút Guide cho JSON */}
             {(node.type === 'exjson' || node.type === 'buildjson') && (
               <button onClick={() => setShowGuide(true)} className="ml-2 text-[#8ab4f8] hover:text-[#a8c7fa] bg-[#8ab4f8]/10 p-1 rounded transition-colors">
                 <HelpCircle size={16} />
               </button>
             )}
-
-            {/* Nút Guide cho SCRIPT (Thêm mới) */}
             {node.type === 'script' && (
               <button onClick={() => setShowScriptGuide(true)} className="ml-2 text-[#4fd1c5] hover:text-[#81e6d9] bg-[#4fd1c5]/10 p-1 rounded transition-colors">
                 <HelpCircle size={16} />
@@ -282,6 +339,10 @@ export const PropertiesSidebar = ({ nodeId, onClose }: { nodeId: string, onClose
           <X size={18} />
         </button>
       </div>
+
+      {/* ĐÂY LÀ CHÌA KHÓA: Đặt thẻ NameHeader ở đây để Node nào cũng có thể đặt tên Identity */}
+      <NodeNameHeader nodeId={nodeId} currentName={node.data.name as any} />
+
       <div className="flex-1 overflow-y-auto custom-scrollbar">
         {renderPanel()}
       </div>
@@ -450,11 +511,30 @@ const ProcessPanel = ({ nodeId, config }: { nodeId: string, config: NodeProcessC
     setFieldValue(nodeId, 'logic_object_info', { worker_id: workerId, logic_object_id: newLogic });
   };
 
-  const handleMappingChange = (type: 'begin' | 'end', path: string, tag: string) => {
+  const handleMappingChange = (type: 'begin' | 'end', path: string, val: any, inputMode: 'tag' | 'const' = 'tag') => {
      const targetField = type === 'begin' ? 'payload_formation_map' : 'response_receive_map';
      const currentMap = { ...(config[targetField] || {}) };
-     if (tag) currentMap[path] = tag;
-     else delete currentMap[path]; 
+     
+     if (type === 'begin') {
+         // --- ĐÃ SỬA LỖI Ở ĐÂY ---
+         if (val !== undefined && val !== '') {
+             // Có giá trị thì lưu bình thường
+             currentMap[path] = { type: inputMode, value: val };
+         } else {
+             if (inputMode === 'const') {
+                 // Nếu user vừa bấm sang nút C (Const) nhưng chưa gõ gì, 
+                 // BẮT BUỘC phải lưu object này để UI giữ được trạng thái nút màu vàng
+                 currentMap[path] = { type: 'const', value: '' };
+             } else {
+                 // Nếu là Tag và bị bỏ trống thì xóa khỏi map cho sạch bộ nhớ
+                 delete currentMap[path];
+             }
+         }
+     } else {
+         if (val) currentMap[path] = val;
+         else delete currentMap[path];
+     }
+     
      setFieldValue(nodeId, targetField, currentMap);
   };
 
@@ -489,24 +569,80 @@ const ProcessPanel = ({ nodeId, config }: { nodeId: string, config: NodeProcessC
                 });
 
                 return (
-                  <div key={path} className="flex gap-3 items-center bg-[#202124] p-2.5 rounded border border-[#3c4043] hover:border-[#5f6368] transition-colors">
-                      <div className="w-[45%] flex flex-col overflow-hidden">
-                          {/* TĂNG SIZE: text-[11px] -> text-sm */}
+                  <div key={path} className="flex gap-2 items-center bg-[#202124] p-2.5 rounded border border-[#3c4043] hover:border-[#5f6368] transition-colors">
+                      <div className="w-[40%] flex flex-col overflow-hidden shrink-0">
                           <span className="text-sm text-[#fcd663] font-mono truncate" title={path}>{path}</span>
                           <span className="text-[10px] text-[#9aa0a6] uppercase font-bold tracking-widest mt-0.5">{feType as string}</span>
                       </div>
                       
-                      <span className="text-[#5f6368] text-sm px-1">{type === 'begin' ? '⟵' : '⟶'}</span>
+                      <span className="text-[#5f6368] text-sm px-1 shrink-0">{type === 'begin' ? '⟵' : '⟶'}</span>
                       
-                      {/* TĂNG SIZE: text-[10px] p-2 -> text-xs p-2.5 */}
-                      <select 
-                          value={currentMap[path] || ''} 
-                          onChange={(e) => handleMappingChange(type, path, e.target.value)}
-                          className="flex-1 bg-[#171717] border border-[#3c4043] focus:border-[#8ab4f8] text-[#8ab4f8] text-sm p-2.5 rounded outline-none cursor-pointer min-w-0 transition-colors"
-                      >
-                          <option value="">-- Ignored / Empty --</option>
-                          {validTags.map(t => <option key={t} value={t}>{t}</option>)}
-                      </select>
+                      {type === 'end' ? (
+                          // ==========================================
+                          // LUỒNG ON END (Nhận từ Backend -> Ép buộc lưu vào Tag)
+                          // ==========================================
+                          <select 
+                              value={currentMap[path] as any|| ''}
+                              onChange={(e) => handleMappingChange(type, path, e.target.value)}
+                              className="flex-1 bg-[#171717] border border-[#3c4043] focus:border-[#8ab4f8] text-[#8ab4f8] text-sm p-2.5 rounded outline-none cursor-pointer min-w-0 transition-colors"
+                          >
+                              <option value="">-- Ignored / Empty --</option>
+                              {validTags.map(t => <option key={t} value={t}>{t}</option>)}
+                          </select>
+                      ) : (
+                          // ==========================================
+                          // LUỒNG ON BEGIN (Gửi lên Backend -> Dual Mode: Tag / Const)
+                          // ==========================================
+                          <div className="flex-1 flex gap-1.5 items-center min-w-0">
+                              {(() => {
+                                  // Đọc config hiện tại xem người dùng đang lưu dạng gì
+                                  const mapData = currentMap[path];
+                                  const isConst = (mapData as any)?.type === 'const';
+                                  
+                                  // Xử lý tương thích ngược: Nếu dữ liệu cũ là string trơn -> coi như là Tag
+                                  const val = (mapData as any)?.value !== undefined 
+                                      ? (mapData as any).value 
+                                      : (typeof mapData === 'string' ? mapData : '');
+
+                                  return (
+                                      <>
+                                          {/* Nút Toggle C (Constant) và T (Tag) */}
+                                          <button 
+                                              onClick={() => handleMappingChange(type, path, '', isConst ? 'tag' : 'const')}
+                                              className={`p-1.5 rounded border shrink-0 text-[10px] font-bold w-8 text-center transition-colors ${
+                                                  isConst 
+                                                  ? 'bg-[#fcd663]/20 text-[#fcd663] border-[#fcd663]/50 hover:bg-[#fcd663]/30' 
+                                                  : 'bg-[#8ab4f8]/20 text-[#8ab4f8] border-[#8ab4f8]/50 hover:bg-[#8ab4f8]/30'
+                                              }`}
+                                              title={isConst ? "Nhập Hằng số cố định" : "Lấy giá trị động từ Tag"}
+                                          >
+                                              {isConst ? 'C' : 'T'}
+                                          </button>
+                                          
+                                          {/* Hiển thị Input hoặc Select tùy theo Mode */}
+                                          {isConst ? (
+                                              <input 
+                                                  type={feType === 'number' ? 'number' : 'text'}
+                                                  value={val}
+                                                  onChange={(e) => handleMappingChange(type, path, feType === 'number' ? Number(e.target.value) : e.target.value, 'const')}
+                                                  placeholder={feType === 'number' ? "0" : "Enter value..."}
+                                                  className="w-full bg-[#171717] border border-[#3c4043] focus:border-[#fcd663] text-[#fcd663] text-sm p-2 rounded outline-none min-w-0 transition-colors"
+                                              />
+                                          ) : (
+                                              <select 
+                                                  value={val} 
+                                                  onChange={(e) => handleMappingChange(type, path, e.target.value, 'tag')}
+                                                  className="w-full bg-[#171717] border border-[#3c4043] focus:border-[#8ab4f8] text-[#8ab4f8] text-sm p-2 rounded outline-none cursor-pointer min-w-0 transition-colors"
+                                              >
+                                                  <option value="">-- Select Tag --</option>
+                                                  {validTags.map(t => <option key={t} value={t}>{t}</option>)}
+                                              </select>
+                                          )}
+                                      </>
+                                  );
+                              })()}
+                          </div>
+                      )}
                   </div>
                 );
             })}
@@ -699,7 +835,6 @@ const ScriptPanel = ({ nodeId, config }: { nodeId: string, config: any }) => {
     
     const newAliases: Record<string, string> = {};
     newList.forEach(item => {
-      // Chỉ lấy các tên hợp lệ (không chứa ký tự đặc biệt, không bắt đầu bằng số)
       const validName = item.name.replace(/[^a-zA-Z0-9_]/g, '');
       if (validName && item.tag) newAliases[validName] = item.tag;
     });
@@ -719,7 +854,6 @@ const ScriptPanel = ({ nodeId, config }: { nodeId: string, config: any }) => {
   const updateVar = (type: 'in' | 'out', idx: number, field: 'name'|'tag', val: string) => {
     const list = type === 'in' ? [...inList] : [...outList];
     if (field === 'name') {
-        // Tự động format tên biến: xóa ký tự đặc biệt, không có dấu cách
         list[idx][field] = val.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_]/g, '');
     } else {
         list[idx][field] = val;
@@ -783,15 +917,15 @@ const ScriptPanel = ({ nodeId, config }: { nodeId: string, config: any }) => {
           <TerminalSquare size={16} /> Javascript Sandbox
         </label>
         
-        {/* KHU VỰC CHEATSHEET HƯỚNG DẪN */}
-        <div className="text-[10px] text-[#9aa0a6] bg-[#171717] border border-[#3c4043] rounded p-2 mb-2 font-mono flex flex-col gap-1 shrink-0">
+        {/* KHU VỰC CHEATSHEET HƯỚNG DẪN ĐÃ ĐƯỢC BỔ SUNG ENGINE */}
+        <div className="text-[12px] text-[#9aa0a6] bg-[#171717] border border-[#3c4043] rounded p-2 mb-2 font-mono flex flex-col gap-1 shrink-0">
             <span><b className="text-[#4fd14f]">IN.var</b> : Đọc dữ liệu từ biến đầu vào</span>
             <span><b className="text-[#9230e7]">OUT.var</b> : Ghi dữ liệu ra biến đầu ra</span>
-            <span><b className="text-[#8ab4f8]">UI.get(name_or_id)</b> : Lấy {`{x, y, w, h, style...}`} của component</span>
-            <span><b className="text-[#0058e6]">UI.set(name_or_id, props)</b> : Đổi thuộc tính component</span>
+            <span><b className="text-[#8ab4f8]">UI.get(name_or_id)</b> / <b className="text-[#0058e6]">UI.set(...)</b> : Can thiệp UI Component</span>
+            <span className="mt-1 pt-1 border-t border-[#3c4043]"><b className="text-[#fcd663]">ENGINE</b> : .addLabel(), .queryByLabel(), .kill(), .hijack(), <b className="text-[#81c995]">.log(msg)</b></span>
+            
         </div>
 
-        {/* BỌC EDITOR VÀO TRONG MỘT DIV CÓ SCROLL ĐỂ GIAO DIỆN KHÔNG BỊ TRÀN */}
         <div className="flex-1 w-full bg-[#1d1f21] border border-[#3c4043] focus-within:border-[#4fd1c5] transition-colors rounded overflow-y-auto custom-scrollbar relative">
           <Editor
             value={scriptContent}
@@ -800,11 +934,11 @@ const ScriptPanel = ({ nodeId, config }: { nodeId: string, config: any }) => {
             padding={16}
             tabSize={4}
             textareaClassName="focus:outline-none"
-            className="min-h-full font-mono text-sm"
+            className="min-h-full font-mono text-sm leading-relaxed"
             style={{
               fontFamily: '"Fira Code", "Consolas", monospace',
               backgroundColor: 'transparent',
-              color: '#e8eaed', // Màu chữ mặc định nếu Prism không highlight
+              color: '#e8eaed',
             }}
           />
         </div>

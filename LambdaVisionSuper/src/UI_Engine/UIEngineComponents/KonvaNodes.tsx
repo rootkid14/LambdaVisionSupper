@@ -4,6 +4,7 @@ import { useUIEngine, useDataBinding } from '../UIEngineStores/InspectionStore';
 import { useSequencerStore } from '../UIEngineStores/SequencerStores';
 import { useTagDb } from '../UIEngineStores/GlobalTagsStore';
 import { Html } from 'react-konva-utils';
+import { SequencerEngine } from '../UIEngineStores/SequencerEngine';
 
 const useFrameBgImage = (runtimeSource?: string | Blob | File, defaultSource?: string) => {
     const [image, setImage] = useState<HTMLImageElement | undefined>(undefined);
@@ -49,13 +50,149 @@ export const SceneNodeRenderer = ({ id }: { id: string }) => {
 const SoftButtonInner = ({ node, commonProps, isEngineRunning, shapeRef }: any) => {
     const writeTag = useTagDb(state => state.writeTag);
     const readTag = useTagDb(state => state.readTag);
-    const isTagActive = useTagDb(state => state.tags[node.targetTag] === true);
+    
+    // Nếu nút không có targetTag (như trường hợp chạy Script độc lập) thì isTagActive sẽ là false
+    const isTagActive = useTagDb(state => node.targetTag ? state.tags[node.targetTag] === true : false);
     
     const activeColor = isTagActive ? (node.style.activeColor || '#81c995') : (node.style.fillColor || '#3c4043');
 
-    const handleInteractionStart = (e: any) => {
+    // 1. CHUYỂN HÀM THÀNH BẤT ĐỒNG BỘ (ASYNC) ĐỂ CHỜ SCRIPT CHẠY
+    const handleInteractionStart = async (e: any) => {
         if (!isEngineRunning) return;
         e.cancelBubble = true; 
+
+        // ==========================================
+        // KHỐI LOGIC MỚI: THỰC THI SCRIPT (SOFT BUTTON)
+        // ==========================================
+        if (node.actionType === 'script' && node.script_content) {
+            try {
+                const tagStore = useTagDb.getState();
+                const uiStore = useUIEngine.getState();
+                
+                // 1. ÁNH XẠ BIẾN IN TỪ ALIAS
+                const IN: any = {};
+                const inputAliases = node.input_aliases || {};
+                for (const [alias, tagId] of Object.entries(inputAliases)) {
+                    IN[alias] = tagStore.readTag(tagId as string);
+                }
+
+                // 2. KHỞI TẠO BIẾN OUT
+                const OUT: Record<string, any> = {}; 
+                
+                // 3. ĐỐI TƯỢNG UI HELPER
+                const UI = {
+                    get: (query: string) => {
+                        const uiMap = uiStore.components_map;
+                        let comp = uiMap[query];
+                        if (!comp) comp = Object.values(uiMap).find((c: any) => c.name === query);
+                        if (!comp) return null;
+                        
+                        return {
+                            id: comp.id, name: comp.name, type: comp.type,
+                            x: comp.x, y: comp.y, w: comp.size_x, h: comp.size_y,
+                            isVisible: comp.isVisible, style: { ...comp.style }
+                        };
+                    },
+                    set: (query: string, props: any) => {
+                        const uiMap = uiStore.components_map;
+                        let comp = uiMap[query];
+                        if (!comp) comp = Object.values(uiMap).find((c: any) => c.name === query);
+                        if (!comp) return false;
+                        
+                        const updatePayload: any = { ...props };
+                        if (updatePayload.w !== undefined) { updatePayload.size_x = updatePayload.w; delete updatePayload.w; }
+                        if (updatePayload.h !== undefined) { updatePayload.size_y = updatePayload.h; delete updatePayload.h; }
+                        if (updatePayload.style) updatePayload.style = { ...(comp.style || {}), ...updatePayload.style };
+                        
+                        uiStore.updateComponentProps(comp.id, updatePayload);
+                        return true;
+                    }
+                };
+
+                // 4. ĐỐI TƯỢNG "ENGINE" (Phiên bản dành cho Nút Bấm - Không có Token cục bộ)
+                const seqEngine = SequencerEngine.getInstance();
+                const ENGINE = {
+                    log: (msg: any) => {
+                        const strMsg = typeof msg === 'object' ? JSON.stringify(msg) : String(msg);
+                        useSequencerStore.getState().appendCompilerLog(`[UI Button: ${node.content || 'Script'}] ${strMsg}`);
+                    },
+                    
+                    spawnAt: (nodeName: string) => {
+                        const uuid = seqEngine.getUuidByIdentity(nodeName);
+                        if (uuid) return seqEngine.spawnToken(uuid);
+                        console.error(`Không tìm thấy Node có tên: ${nodeName}`);
+                    },
+
+                    // 2. Di chuyển toàn bộ Token từ Node A sang Node B
+                    moveAll: (fromNodeName: string, toNodeName: string) => {
+                        const fromUuid = seqEngine.getUuidByIdentity(fromNodeName);
+                        const toUuid = seqEngine.getUuidByIdentity(toNodeName);
+                        if (fromUuid && toUuid) {
+                            const tokensAtNode = Object.entries(seqEngine.token_list)
+                                .filter(([_, t]) => t.node_uuid === fromUuid)
+                                .map(([id, _]) => id);
+                            
+                            tokensAtNode.forEach(id => seqEngine.hijackToken(id, toUuid));
+                            return tokensAtNode.length;
+                        }
+                    },
+
+                    // 3. Tiêu diệt toàn bộ Token đang đứng tại một Node cụ thể
+                    killAt: (nodeName: string) => {
+                        const uuid = seqEngine.getUuidByIdentity(nodeName);
+                        if (uuid) {
+                            let count = 0;
+                            for (const id in seqEngine.token_list) {
+                                if (seqEngine.token_list[id].node_uuid === uuid) {
+                                    seqEngine.killToken(id);
+                                    count++;
+                                }
+                            }
+                            return count;
+                        }
+                    },
+
+                    // 4. Lấy danh sách ID của các Token đang đứng tại Node này (để xử lý nâng cao)
+                    getTokensAt: (nodeName: string) => {
+                        const uuid = seqEngine.getUuidByIdentity(nodeName);
+                        return uuid ? Object.entries(seqEngine.token_list)
+                            .filter(([_, t]) => t.node_uuid === uuid)
+                            .map(([id, _]) => id) : [];
+                    },
+                    // Cấp quyền đẻ Token mới để UI có thể kích hoạt 1 luồng Logic
+                    spawn: (targetNodeId: string) => seqEngine.spawnToken(targetNodeId),
+
+                    // Quyền năng Query & Điều phối diện rộng
+                    queryByLabel: (label: string) => seqEngine.getTokensByLabel(label),
+                    queryByHistory: (node_uuid: string) => seqEngine.getTokensByHistory(node_uuid),
+                    
+                    kill: (id: string) => seqEngine.killToken(id),
+                    killAllByLabel: (label: string) => seqEngine.killTokensByLabel(label),
+                    hijack: (id: string, targetNodeId: string) => seqEngine.hijackToken(id, targetNodeId)
+                };
+
+                // 5. THỰC THI JIT COMPILER
+                const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor as any;
+                const userScript = new AsyncFunction('IN', 'OUT', 'UI', 'ENGINE', node.script_content);
+                await userScript(IN, OUT, UI, ENGINE);
+                
+                // 6. ĐẨY BIẾN OUT RA GLOBAL TAGS (Theo Alias)
+                const outputAliases = node.output_aliases || {};
+                for (const [alias, tagId] of Object.entries(outputAliases)) {
+                    if (OUT[alias] !== undefined) {
+                        tagStore.writeTag(tagId as string, OUT[alias]);
+                    }
+                }
+
+            } catch (error) {
+                console.error(`[Soft Button: ${node.name}] Script Execution Error:`, error);
+            }
+            return; // Quan trọng: Return ngay để không chạy xuống khối logic cũ bên dưới
+        }
+
+        // ==========================================
+        // KHỐI LOGIC CŨ (Dành cho các Action: Toggle, Pulse...)
+        // ==========================================
         if (!node.targetTag) return;
         
         if (node.actionType === 'pulse') writeTag(node.targetTag, true);
@@ -67,6 +204,7 @@ const SoftButtonInner = ({ node, commonProps, isEngineRunning, shapeRef }: any) 
     const handleInteractionEnd = (e: any) => {
         if (!isEngineRunning) return;
         e.cancelBubble = true;
+        // Pulse nhả chuột ra thì tắt
         if (node.targetTag && node.actionType === 'pulse') writeTag(node.targetTag, false);
     };
 
@@ -266,63 +404,77 @@ const CheckboxInner = ({ node, commonProps, isEngineRunning, shapeRef }: any) =>
 };
 
 const DynamicBBoxGroup = ({ node, commonProps, isEngineRunning, shapeRef }: any) => {
-    // 1. SỬA LỖI ĐỌC DATA: 
-    // Kiểm tra xem node.data đang là String (Tên Tag) hay là Array (Mảng mẫu mặc định)
-    // Nếu là tên Tag, gọi thẳng vào hook useTagDb để lấy mảng dữ liệu thật.
-    const tagData = useTagDb(state => typeof node.data === 'string' ? state.tags[node.data] : undefined);
+    const writeTag = useTagDb(state => state.writeTag);
+    // Kiểm tra xem data đang liên kết với biến Tag nào
+    const isBoundToTag = typeof node.data === 'string';
+    const tagData = useTagDb(state => isBoundToTag ? state.tags[node.data] : undefined);
     
-    // Nếu tagData có dữ liệu thì dùng, nếu không thì dùng node.data (mảng mẫu)
     const bboxesArray = tagData || node.data;
     const safeArray = Array.isArray(bboxesArray) ? bboxesArray : [];
-
-    // 2. TẤM NỀN ẢO (VIEWPORT) CHỐNG SỤP ĐỔ
     const vpWidth = node.size_x || 100;
     const vpHeight = node.size_y || 100;
 
+    // LƯU LẠI VỊ TRÍ MỚI KHI KÉO THẢ BOX
+    const handleBoxDragEnd = (e: any, idx: number) => {
+        if (!isEngineRunning || !isBoundToTag) return;
+        e.cancelBubble = true;
+        
+        const newX = parseFloat(e.target.x().toFixed(2));
+        const newY = parseFloat(e.target.y().toFixed(2));
+        
+        const newArray = [...safeArray];
+        newArray[idx] = { ...newArray[idx], x: newX, y: newY };
+        writeTag(node.data, newArray);
+    };
+
     return (
         <Group ref={shapeRef} {...commonProps}>
-            
-            {/* TẤM NỀN: Hứng trọn sự kiện click/drag, ngăn Transformer tính toán sai */}
-            <Rect
-                width={vpWidth}
-                height={vpHeight}
-                fill={!isEngineRunning ? "rgba(138, 180, 248, 0.05)" : "transparent"} 
-                stroke={!isEngineRunning ? "#5f6368" : "transparent"} 
-                strokeWidth={1}
-                dash={[4, 4]}
-            />
+            <Rect width={vpWidth} height={vpHeight} fill={!isEngineRunning ? "rgba(138, 180, 248, 0.05)" : "transparent"} stroke={!isEngineRunning ? "#5f6368" : "transparent"} strokeWidth={1} dash={[4, 4]} />
+            {!isEngineRunning && <Text x={4} y={4} text={`[BBox Area: ${safeArray.length} items]`} fill="#5f6368" fontSize={10} fontStyle="italic" listening={false} />}
 
-            {/* NHÃN HIỂN THỊ KHI ĐANG EDIT */}
-            {!isEngineRunning && (
-                <Text
-                    x={4} y={4}
-                    text={`[BBox Area: ${safeArray.length} items]`}
-                    fill="#5f6368" fontSize={10} fontStyle="italic" listening={false}
-                />
-            )}
-
-            {/* 3. VẼ CÁC BOUNDING BOX TỪ DỮ LIỆU */}
             {safeArray.map((box: any, idx: number) => {
-                // Ép kiểu sang Number để tránh lỗi khi JSON lỡ lưu String
                 const bx = Number(box.x) || 0;
                 const by = Number(box.y) || 0;
                 const bw = Number(box.w) || 0;
                 const bh = Number(box.h) || 0;
 
                 return (
-                    <Group key={box.id || idx} x={bx} y={by} listening={false}> 
-                        <Rect
-                            width={bw} height={bh}
-                            stroke={box.color || '#ff0000'}
-                            strokeWidth={2}
-                            dash={!isEngineRunning ? [5, 5] : undefined}
-                        />
-                        {box.label && (
-                            <Text
-                                text={box.label} y={-14} fill={box.color || '#ff0000'}
-                                fontSize={!isEngineRunning ? 11 : 14} 
-                                fontStyle="bold" shadowColor="black"
-                                shadowBlur={2} shadowOffsetX={1} shadowOffsetY={1}
+                    <Group 
+                        key={box.id || idx} 
+                        x={bx} y={by} 
+                        draggable={isEngineRunning && isBoundToTag} // CHỈ ĐƯỢC KÉO KHI ĐANG CHẠY & CÓ BINDING
+                        onDragEnd={(e) => handleBoxDragEnd(e, idx)}
+                        onMouseEnter={(e) => { if (isEngineRunning && isBoundToTag) { const c = e.target.getStage()?.container(); if(c) c.style.cursor = 'move'; } }}
+                        onMouseLeave={(e) => { if (isEngineRunning && isBoundToTag) { const c = e.target.getStage()?.container(); if(c) c.style.cursor = 'default'; } }}
+                    > 
+                        <Rect name="bbox-rect" width={bw} height={bh} stroke={box.color || '#ff0000'} strokeWidth={2} dash={!isEngineRunning ? [5, 5] : undefined} />
+                        {box.label && <Text text={box.label} y={-14} fill={box.color || '#ff0000'} fontSize={!isEngineRunning ? 11 : 14} fontStyle="bold" shadowColor="black" shadowBlur={2} shadowOffsetX={1} shadowOffsetY={1} />}
+                        
+                        {/* TÍNH NĂNG MỚI: NÚM KÉO RESIZE */}
+                        {isEngineRunning && isBoundToTag && (
+                            <Rect 
+                                x={bw - 6} y={bh - 6} width={12} height={12} 
+                                fill={box.color || '#ff0000'}
+                                draggable
+                                onDragMove={(e) => {
+                                    e.cancelBubble = true;
+                                    // Bóp méo giao diện (UI) ngay lập tức để đạt 60FPS
+                                    const newW = Math.max(10, e.target.x() + 6);
+                                    const newH = Math.max(10, e.target.y() + 6);
+                                    const rect = (e.target as any).getParent().findOne('.bbox-rect');
+                                    if (rect) { rect.width(newW); rect.height(newH); }
+                                }}
+                                onDragEnd={(e) => {
+                                    e.cancelBubble = true;
+                                    // Khi thả chuột ra thì mới tiến hành ghi đè vào Tag Database
+                                    const newW = parseFloat(Math.max(10, e.target.x() + 6).toFixed(2));
+                                    const newH = parseFloat(Math.max(10, e.target.y() + 6).toFixed(2));
+                                    const newArray = [...safeArray];
+                                    newArray[idx] = { ...newArray[idx], w: newW, h: newH };
+                                    writeTag(node.data, newArray);
+                                }}
+                                onMouseEnter={(e) => { const c = e.target.getStage()?.container(); if(c) c.style.cursor = 'nwse-resize'; e.cancelBubble = true; }}
+                                onMouseLeave={(e) => { const c = e.target.getStage()?.container(); if(c) c.style.cursor = 'move'; e.cancelBubble = true; }}
                             />
                         )}
                     </Group>
@@ -336,6 +488,7 @@ const StandardNodeWrapper = ({ id, node }: { id: string, node: any }) => {
     const { nameLabelConfig, selectedNodeIds, updateComponentProps, selectComponents, openActionMenu } = useUIEngine();
     const isEngineRunning = useSequencerStore(state => state.isEngineRunning);
     const isSelected = !isEngineRunning && selectedNodeIds.includes(id); 
+    const writeTag = useTagDb(state => state.writeTag);
 
     const shapeRef = useRef<any>(null);
     const trRef = useRef<any>(null);
@@ -355,8 +508,12 @@ const StandardNodeWrapper = ({ id, node }: { id: string, node: any }) => {
         }
     }, [isSelected]);
 
+    // CẤP QUYỀN KÉO THẢ TRONG LÚC RUNTIME CHO BBOX VÀ CIRCLE
+    const isDraggableType = node.type === 'bounding_box' || node.type === 'bounding_circle';
+    const canDrag = !isEngineRunning || isDraggableType;
+
     const commonProps = {
-        x, y, width, height, rotation: node.rotation, draggable: !isEngineRunning, 
+        x, y, width, height, rotation: node.rotation, draggable: canDrag, 
         onClick: (e: any) => { if (isEngineRunning) return; e.cancelBubble = true; selectComponents([id]); },
         onContextMenu: (e: any) => {
             if (isEngineRunning) return;
@@ -364,11 +521,42 @@ const StandardNodeWrapper = ({ id, node }: { id: string, node: any }) => {
             const pos = e.target.getStage().getRelativePointerPosition();
             openActionMenu(id, node.type, e.evt.clientX, e.evt.clientY, pos.x, pos.y);
         },
-        onDragEnd: (e: any) => { if (!isEngineRunning && e.target === shapeRef.current) updateComponentProps(id, { x: e.target.x(), y: e.target.y() }); }
+        onDragEnd: (e: any) => { 
+            if (e.target !== shapeRef.current) return;
+            const newX = parseFloat(e.target.x().toFixed(2));
+            const newY = parseFloat(e.target.y().toFixed(2));
+
+            if (!isEngineRunning) {
+                updateComponentProps(id, { x: newX, y: newY });
+            } else {
+                // ENGINE ĐANG CHẠY: Cập nhật ngược lại vào Global Tag (nếu có bind) hoặc Component
+                const xBinding = node.bindings?.find((b: any) => b.prop === 'x');
+                const yBinding = node.bindings?.find((b: any) => b.prop === 'y');
+                
+                if (xBinding) writeTag(xBinding.tag, newX);
+                else updateComponentProps(id, { x: newX });
+
+                if (yBinding) writeTag(yBinding.tag, newY);
+                else updateComponentProps(id, { y: newY });
+            }
+        },
+        onMouseEnter: (e: any) => { 
+             if (isEngineRunning && isDraggableType) { 
+                 const c = e.target.getStage()?.container(); 
+                 if(c) c.style.cursor = 'move'; 
+             } 
+        },
+        onMouseLeave: (e: any) => { 
+             if (isEngineRunning && isDraggableType) { 
+                 const c = e.target.getStage()?.container(); 
+                 if(c) c.style.cursor = 'default'; 
+             } 
+        }
     };
 
     let InnerShape = null;
     if (node.type === 'frame') {
+        // ... (Giữ nguyên khối code frame)
         const rawBgImage = useDataBinding(node.bindings, 'style.bgImage', node.style?.bgImage);
         const rawDefaultImage = useDataBinding(node.bindings, 'style.default_image', node.style?.default_image);
         const bgImage = useFrameBgImage((rawBgImage && rawBgImage !== "") ? rawBgImage : rawDefaultImage, undefined);
@@ -382,12 +570,73 @@ const StandardNodeWrapper = ({ id, node }: { id: string, node: any }) => {
         );
     } 
     else if (node.type === 'bounding_box') {
-        InnerShape = <Rect ref={shapeRef} {...commonProps} stroke={strokeColor} strokeWidth={borderThickness} fill={fillColor} />;
+        InnerShape = (
+            <Group ref={shapeRef} {...commonProps}>
+                <Rect name="bbox-rect" width={width} height={height} stroke={strokeColor} strokeWidth={borderThickness} fill={fillColor} />
+                {isEngineRunning && (
+                    <Rect 
+                        x={width - 6} y={height - 6} width={12} height={12} 
+                        fill={strokeColor || '#ff0000'}
+                        draggable
+                        onDragMove={(e) => {
+                            e.cancelBubble = true;
+                            const newW = Math.max(10, e.target.x() + 6);
+                            const newH = Math.max(10, e.target.y() + 6);
+                            const rect = (e.target as any).getParent().findOne('.bbox-rect');
+                            if (rect) { rect.width(newW); rect.height(newH); }
+                        }}
+                        onDragEnd={(e) => {
+                            e.cancelBubble = true;
+                            const newW = parseFloat(Math.max(10, e.target.x() + 6).toFixed(2));
+                            const newH = parseFloat(Math.max(10, e.target.y() + 6).toFixed(2));
+                            
+                            const wBinding = node.bindings?.find((b: any) => b.prop === 'size_x');
+                            const hBinding = node.bindings?.find((b: any) => b.prop === 'size_y');
+                            
+                            if (wBinding) writeTag(wBinding.tag, newW);
+                            else updateComponentProps(id, { size_x: newW });
+
+                            if (hBinding) writeTag(hBinding.tag, newH);
+                            else updateComponentProps(id, { size_y: newH });
+                        }}
+                        onMouseEnter={(e) => { const c = e.target.getStage()?.container(); if(c) c.style.cursor = 'nwse-resize'; e.cancelBubble = true; }}
+                        onMouseLeave={(e) => { const c = e.target.getStage()?.container(); if(c) c.style.cursor = 'move'; e.cancelBubble = true; }}
+                    />
+                )}
+            </Group>
+        );
     } 
     else if (node.type === 'bounding_circle') {
         const radius = useDataBinding(node.bindings, 'radius', node.radius);
-        InnerShape = <Circle ref={shapeRef} {...commonProps} radius={radius} stroke={strokeColor} strokeWidth={borderThickness} fill={fillColor} />;
-    } 
+        InnerShape = (
+            <Group ref={shapeRef} {...commonProps}>
+                <Circle name="bbox-circle" radius={radius} stroke={strokeColor} strokeWidth={borderThickness} fill={fillColor} />
+                {isEngineRunning && (
+                    <Rect 
+                        x={radius - 6} y={-6} width={12} height={12} 
+                        fill={strokeColor || '#ff0000'}
+                        draggable
+                        onDragMove={(e) => {
+                            e.cancelBubble = true;
+                            const newR = Math.max(5, e.target.x() + 6);
+                            e.target.y(-6); // Khoá cứng trục Y
+                            const circle = (e.target as any).getParent().findOne('.bbox-circle');
+                            if (circle) circle.radius(newR);
+                        }}
+                        onDragEnd={(e) => {
+                            e.cancelBubble = true;
+                            const newR = parseFloat(Math.max(5, e.target.x() + 6).toFixed(2));
+                            const rBinding = node.bindings?.find((b: any) => b.prop === 'radius');
+                            if (rBinding) writeTag(rBinding.tag, newR);
+                            else updateComponentProps(id, { radius: newR });
+                        }}
+                        onMouseEnter={(e) => { const c = e.target.getStage()?.container(); if(c) c.style.cursor = 'ew-resize'; e.cancelBubble = true; }}
+                        onMouseLeave={(e) => { const c = e.target.getStage()?.container(); if(c) c.style.cursor = 'move'; e.cancelBubble = true; }}
+                    />
+                )}
+            </Group>
+        );
+    }
     else if (node.type === 'text') {
         const textContent = useDataBinding(node.bindings, 'content', node.content);
         const fontColor = useDataBinding(node.bindings, 'style.fontColor', node.style?.fontColor);

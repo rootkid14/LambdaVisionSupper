@@ -21,7 +21,27 @@ export const TokenLayer = () => {
               transformOrigin: 'center center',
             }}
           >
+            {/* Đốm sáng lõi của Token */}
             <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
+
+            {/* ========================================================= */}
+            {/* TÍNH NĂNG MỚI: HOLOGRAPHIC LABELS (HIỂN THỊ NHÃN DÁN ĐỘNG) */}
+            {/* ========================================================= */}
+            {token.labels && token.labels.length > 0 && (
+              <div className="absolute bottom-6 flex flex-col items-center gap-0.5 whitespace-nowrap">
+                {token.labels.map((label, idx) => (
+                  <span 
+                    key={idx} 
+                    className="px-1.5 py-[2px] bg-[#171717]/80 backdrop-blur-md border border-[#3c4043] rounded text-[6px] font-bold text-[#e8eaed] font-mono shadow-sm tracking-wider uppercase"
+                    // Hiệu ứng viền phát sáng nhẹ trùng màu với token
+                    style={{ borderColor: 'currentColor', opacity: 0.9 }}
+                  >
+                    {label}
+                  </span>
+                ))}
+              </div>
+            )}
+            
           </div>
         );
       })}

@@ -914,6 +914,7 @@ type FleetStore = {
     undeployLogic: (logic_obj_id : string) => Promise<any>;
     silentRefreshFleet: () => Promise<void>;
     toggleFileRamStatus: (filename: string, isCurrentlyInRam: boolean) => Promise<void>;
+    fetchGraphContent: (filename: string) => Promise<any>;
 };
 export const useFleetStore = create<FleetStore>()(persist(
     (set,get) => ({
@@ -1373,6 +1374,18 @@ export const useFleetStore = create<FleetStore>()(persist(
                 set({ errorMessage: error?.response?.data?.detail || error.message || "Lỗi mạng", isErrorModalOpen: true });
             }
         },
+    fetchGraphContent: async (filename: string) => {
+        const selected_worker_id = get().selected_worker?.selected_worker_id;
+        if (!selected_worker_id) throw new Error("Chưa chọn Worker");
+        const isMaster = selected_worker_id === "master_gateway";
+        let blob: Blob;
+        // Gọi API đã có sẵn
+        if (isMaster) blob = await FleetAPI.master_downloadFile(filename, 'graph');
+        else blob = await FleetAPI.proxy_downloadFile(selected_worker_id, filename, 'graph');
+        // Convert Blob nhị phân thành Text, rồi Parse sang JSON Object
+        const text = await blob.text();
+        return JSON.parse(text);
+    },
 }),
 {
     name: "fleet-storage", // Tên bộ nhớ lưu IP Server
@@ -1426,6 +1439,56 @@ export const useKeyboardTrigger = () => {
         };
     }, [shortcuts, isEngineRunning]); // Trigger re-render hook khi Engine đổi trạng thái
 };
+
+### FILE: UI_Engine/SequencerComponents/ScriptApiDocs.ts ###
+// File: src/UI_Engine/SequencerComponents/ScriptApiDocs.ts
+export const SCRIPT_API_DOCS_MD = `
+Hệ thống Lambda Vision sử dụng JIT (Just-In-Time) Compiler để thực thi mã Javascript tại Runtime.
+Môi trường Sandbox cung cấp 4 đối tượng cốt lõi: \`IN\`, \`OUT\`, \`UI\`, và \`ENGINE\`.
+---
+Dùng để giao tiếp với Global Tags thông qua cơ chế Alias (Ánh xạ biến).
+- **Mục đích:** Đọc giá trị từ Tag vào kịch bản.
+- **Ví dụ:**
+  \`\`\`javascript
+  let speed = IN.motor_speed;
+  if (speed > 100) { /* ... */ }
+  \`\`\`
+- **Mục đích:** Đẩy kết quả tính toán ra Global Tags. Chỉ những biến được khai báo bên cột Output mới được ghi đè.
+- **Ví dụ:**
+  \`\`\`javascript
+  OUT.alert_status = "WARNING";
+  \`\`\`
+---
+Cho phép Script can thiệp, thay đổi thuộc tính của các Component trên màn hình theo thời gian thực.
+- **Mục đích:** Lấy thông tin hiện tại của một Component.
+- **Ví dụ:** \`let box = UI.get("BBOX_1");\`
+- **Mục đích:** Cập nhật thuộc tính (x, y, w, h, style...).
+- **Ví dụ:**
+  \`\`\`javascript
+  UI.set("Text_Status", {
+      content: "SYSTEM HALTED",
+      style: { fontColor: "
+  });
+  \`\`\`
+---
+Cung cấp quyền năng Multi-Agent, thao túng trực tiếp các Token đang chạy trên Sequencer Graph.
+*Lưu ý: Bạn phải đặt tên (Identity) cho các Node để sử dụng bộ API này.*
+Dùng để phân loại Token theo luồng nghiệp vụ.
+- \`ENGINE.addLabel(label_name: string)\`: Dán nhãn cho Token hiện tại.
+- \`ENGINE.removeLabel(label_name: string)\`: Gỡ nhãn.
+- \`ENGINE.hasLabel(label_name: string) -> boolean\`: Kiểm tra nhãn.
+Quét toàn hệ thống để tìm các Token thỏa mãn điều kiện. Trả về mảng các UUID của Token.
+- \`ENGINE.queryByLabel(label_name: string) -> string[]\`
+- \`ENGINE.queryByHistory(node_identity: string) -> string[]\`
+- \`ENGINE.spawnAt(node_identity: string)\`: Tạo một Token mới tinh xuất hiện tại Node được chỉ định.
+- \`ENGINE.moveAll(from_node_identity: string, to_node_identity: string)\`: Ép toàn bộ Token đang kẹt ở Node A bay thẳng sang Node B.
+- \`ENGINE.hijack(token_id: string, target_node_identity: string)\`: Bắt cóc 1 Token cụ thể và ném sang Node khác (Token sẽ đổi sang màu Đỏ).
+- \`ENGINE.kill(token_id: string)\`
+- \`ENGINE.killAt(node_identity: string) -> number\`: Xóa sổ mọi Token đang đứng tại Node này. Trả về số lượng đã giết.
+- \`ENGINE.killAllByLabel(label_name: string) -> number\`: Xóa sổ toàn bộ Token mang nhãn này trên toàn hệ thống.
+---
+*Tài liệu được sinh tự động từ hệ thống Lambda Vision UI Editor.*
+`;
 
 ### FILE: UI_Engine/UIEngineHelper/useTagHelper.ts ###
 import { useTagDb } from "../UIEngineStores/GlobalTagsStore";
@@ -1497,7 +1560,7 @@ export const useTagDb = create<TagDBStore>((set, get) => ({
 import { create } from "zustand";
 import { useTagDb } from './GlobalTagsStore';
 import { COLOR_PALETTE } from "../../utils/ColorConst";
-export type DrawType = 'screen' | 'thumbnail' | 'frame' | 'bounding_box' | 'text' | 'line' | 'bounding_circle' | 'soft_button' | 'dynamic_bboxes';
+export type DrawType = 'screen' | 'thumbnail' | 'frame' | 'bounding_box' | 'text' | 'line' | 'bounding_circle' | 'soft_button' | 'dynamic_bboxes' | 'text_input' | 'combobox' | 'slider' | 'checkbox';
 export interface DataBinding {
     propName: string;
     globalTagKey: string;
@@ -1923,6 +1986,34 @@ export const useUIEngine = create<UIEngineStore>((set, get) => ({
                 { id: "sample_2", x: 60, y: 50, w: 90, h: 60, label: "Example", color: "
             ];
         }
+        if (type === 'text_input') {
+            newNode.size_x = 180;
+            newNode.size_y = 32;
+            newNode.targetTag = ""; // Tag đích để lưu text
+            newNode.style = { fontSize: 13, strokeColor: '
+        }
+        if (type === 'combobox') {
+            newNode.size_x = 180;
+            newNode.size_y = 32;
+            newNode.sourceTag = ""; // Tag chứa mảng options
+            newNode.targetTag = ""; // Tag để lưu lựa chọn
+            newNode.style = { fontSize: 13, strokeColor: '
+        }
+        if (type === 'slider') {
+            newNode.size_x = 200;
+            newNode.size_y = 20;
+            newNode.targetTag = "";
+            newNode.min = 0;
+            newNode.max = 100;
+            newNode.style = { fillColor: '
+        }
+        if (type === 'checkbox') {
+            newNode.size_x = 20;
+            newNode.size_y = 20;
+            newNode.content = "Checkbox Label";
+            newNode.targetTag = "";
+            newNode.style = { fontSize: 14, strokeColor: '
+        }
         // 4. CẬP NHẬT STATE: Lưu vào map và đăng ký ID vào con của thằng cha
         const updatedComponents = { ...state.components_map, [newId]: newNode };
         // Cập nhật danh sách con cho thằng cha (Frame hoặc Screen)
@@ -2076,6 +2167,7 @@ import { useSequencerStore,
     TokenValue} from "./SequencerStores";
 import { NodeAPI } from "../../api/nodeApi";
 import { DBEngineAPI } from "../../api/dbEngineApi";
+import { useUIEngine } from '../UIEngineStores/InspectionStore';
 interface BaseSequenceNode {
     execute(token_id: string) : Promise<void>;
     reset?(): void;
@@ -2303,17 +2395,25 @@ class NodeOR implements BaseSequenceNode {
     }
 }
 class NodeDelay implements BaseSequenceNode {
-    private next_node_id : string;
-    private delay_duration: number;
+    private next_node_id: string;
+    private config: NodeDelayConfig; // Đổi sang lấy nguyên cục config
     private engine: SequencerEngine;
     constructor(config: NodeDelayConfig){
         this.next_node_id = config.next_node_id;
-        this.delay_duration = config.delay_duration;
+        this.config = config;
         this.engine = SequencerEngine.getInstance();
     }
     async execute(token_id : string): Promise<void> {
         this.engine.changeTokenStatus(token_id, "PROCESSING");
-        this.engine.schedule_move_token(token_id, this.delay_duration, this.next_node_id);
+        let delayTime = this.config.delay_duration; // Mặc định tĩnh
+        // NẾU LÀ ĐỘNG, ĐỌC TỪ TAG
+        if (this.config.is_dynamic && this.config.delay_tag_id) {
+            const tagVal = Number(useTagDb.getState().readTag(this.config.delay_tag_id));
+            if (!isNaN(tagVal) && tagVal >= 0) {
+                delayTime = tagVal;
+            }
+        }
+        this.engine.schedule_move_token(token_id, delayTime, this.next_node_id);
     }
 }
 class NodeTagOvwrByVal implements BaseSequenceNode {
@@ -2427,22 +2527,32 @@ class NodeExtractJSON implements BaseSequenceNode {
         }
     }
 }
+// Sửa hàm buildJSONFromPathMap (khoảng dòng 353)
 function buildJSONFromPathMap(map: Record<string, any>, tagStore: any): any {
     const result: any = {};
     for (const path in map) {
-        const tag_id = map[path];
-        // Đọc GIÁ TRỊ THỰC TẾ từ Tag DB thay vì lấy tên tag
-        const actual_value = tagStore.readTag(tag_id);
-        // Bỏ qua nếu giá trị không tồn tại (undefined)
+        const mapData = map[path];
+        let actual_value;
+        // XỬ LÝ DUAL-MODE
+        if (typeof mapData === 'string') {
+            // Tương thích ngược: Nếu dữ liệu cũ là string, mặc định là Tag
+            actual_value = tagStore.readTag(mapData);
+        } else if (mapData && typeof mapData === 'object') {
+            // Định dạng mới
+            if (mapData.type === 'const') {
+                actual_value = mapData.value;
+            } else {
+                actual_value = tagStore.readTag(mapData.value);
+            }
+        }
         if (actual_value === undefined) continue;
-        // Chuẩn hóa path: cắt bỏ dấu '.' ở đầu (ví dụ: ".innum" -> "innum")
         const cleanPath = path.replace(/^\.+/, '');
         const keys = cleanPath.split('.');
         let current = result;
         for (let i = 0; i < keys.length; i++) {
             const key = keys[i];
             if (i === keys.length - 1) {
-                current[key] = actual_value; // Nhét giá trị thực tế vào
+                current[key] = actual_value;
             } else {
                 if (!current[key] || typeof current[key] !== "object") {
                     current[key] = {};
@@ -2523,22 +2633,26 @@ class NodeProcess implements BaseSequenceNode {
         const tagStore = useTagDb.getState();
         const payload = buildJSONFromPathMap(this.payload_formation_map, tagStore);
         const isMaster = this.worker_id === "master_gateway";
+        // CHỐNG GHI ĐÈ
+        const original_uuid = this.engine.token_list[token_id]?.node_uuid;
         try{
-            //Require Worker to execute the logic object with payload
             this.engine.changeTokenStatus(token_id, "PROCESSING");
             const resp = await (
                 isMaster
                 ?NodeAPI.master_execute_logic(this.logic_object_id, payload)
                 :NodeAPI.proxy_execute_logic(this.worker_id, this.logic_object_id, payload)
             )
-            //If receive the good response => write results to tags table
             if(resp.success){
                 const response_data = resp.data ?? {};
                 for(const [path, tag] of Object.entries(this.response_receive_map)){
                     const extracted_data = resolveJSONPath(response_data, path)
                     tagStore.writeTag(tag, extracted_data);
                 }
-                this.engine.moveToken(token_id, this.next_node_id);
+                // KIỂM TRA QUYỀN ĐI TIẾP
+                const currentToken = this.engine.token_list[token_id];
+                if (currentToken && currentToken.node_uuid === original_uuid) {
+                    this.engine.moveToken(token_id, this.next_node_id);
+                }
             }
             else {
                 const error_message = `${this.logic_object_id} of ${this.worker_id} Error: faile at node ${resp.failed_node_id}, details: ${resp.error_message}`;
@@ -2591,32 +2705,102 @@ class NodeScript implements BaseSequenceNode {
         this.engine = SequencerEngine.getInstance();
     }
     async execute(token_id: string): Promise<void> {
-        const tagStore = useTagDb.getState();
-        const IN: any = {};
-        const OUT: any = {};
+        this.engine.changeTokenStatus(token_id, "PROCESSING");
+        const original_uuid = this.engine.token_list[token_id]?.node_uuid;
         try {
-            // 1. Nhặt dữ liệu từ Tag đổ vào object IN
-            for (const [alias, tagId] of Object.entries(this.input_aliases)) {
-                IN[alias] = tagStore.readTag(tagId);
+            const tagStore = useTagDb.getState();
+            const uiStore = useUIEngine.getState();
+            // 1. ÁNH XẠ BIẾN IN TỪ ALIAS (Nếu có)
+            const IN: any = {};
+            const inputAliases = this.input_aliases || {};
+            for (const [alias, tagId] of Object.entries(inputAliases)) {
+                IN[alias] = tagStore.readTag(tagId as string);
             }
-            // 2. Ép kiểu tạo AsyncFunction một cách an toàn
-            const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor as any;
-            const userCode = new AsyncFunction('IN', 'OUT', this.script_content);
-            // 3. Thực thi kịch bản của người dùng (Token sẽ chờ lệnh await nếu có)
-            await userCode(IN, OUT);
-            // 4. Lấy kết quả từ object OUT đổ ngược vào Tag
-            for (const [alias, tagId] of Object.entries(this.output_aliases)) {
-                if (OUT[alias] !== undefined) {
-                    tagStore.writeTag(tagId, OUT[alias]);
+            // 2. KHỞI TẠO BIẾN OUT
+            const OUT: Record<string, any> = {};
+            const UI = {
+                get: (query: string) => {
+                    const uiMap = uiStore.components_map;
+                    let comp = uiMap[query];
+                    if (!comp) comp = Object.values(uiMap).find((c: any) => c.name === query);
+                    if (!comp) return null;
+                    return {
+                        id: comp.id, name: comp.name, type: comp.type,
+                        x: comp.x, y: comp.y, w: comp.size_x, h: comp.size_y,
+                        isVisible: comp.isVisible, style: { ...comp.style }
+                    };
+                },
+                set: (query: string, props: any) => {
+                    const uiMap = uiStore.components_map;
+                    let comp = uiMap[query];
+                    if (!comp) comp = Object.values(uiMap).find((c: any) => c.name === query);
+                    if (!comp) return false;
+                    const updatePayload: any = { ...props };
+                    if (updatePayload.w !== undefined) { updatePayload.size_x = updatePayload.w; delete updatePayload.w; }
+                    if (updatePayload.h !== undefined) { updatePayload.size_y = updatePayload.h; delete updatePayload.h; }
+                    if (updatePayload.style) updatePayload.style = { ...(comp.style || {}), ...updatePayload.style };
+                    uiStore.updateComponentProps(comp.id, updatePayload);
+                    return true;
                 }
+            };
+            const seqEngine = SequencerEngine.getInstance();
+            const ENGINE = {
+                log: (msg: any) => {
+                    const strMsg = typeof msg === 'object' ? JSON.stringify(msg) : String(msg);
+                    useSequencerStore.getState().appendCompilerLog(`[Node: ${this.script_content ? "Script" : "Unknown"}] ${strMsg}`);
+                },
+                spawnAt: (nodeName: string) => {
+                    const uuid = seqEngine.getUuidByIdentity(nodeName);
+                    if (uuid) return seqEngine.spawnToken(uuid);
+                    console.error(`Không tìm thấy Node có tên: ${nodeName}`);
+                },
+                moveAll: (fromNodeName: string, toNodeName: string) => {
+                    const fromUuid = seqEngine.getUuidByIdentity(fromNodeName);
+                    const toUuid = seqEngine.getUuidByIdentity(toNodeName);
+                    if (fromUuid && toUuid) {
+                        const tokensAtNode = Object.entries(seqEngine.token_list).filter(([_, t]) => t.node_uuid === fromUuid).map(([id, _]) => id);
+                        tokensAtNode.forEach(id => seqEngine.hijackToken(id, toUuid));
+                        return tokensAtNode.length;
+                    }
+                },
+                killAt: (nodeName: string) => {
+                    const uuid = seqEngine.getUuidByIdentity(nodeName);
+                    if (uuid) {
+                        let count = 0;
+                        for (const id in seqEngine.token_list) {
+                            if (seqEngine.token_list[id].node_uuid === uuid) { seqEngine.killToken(id); count++; }
+                        }
+                        return count;
+                    }
+                },
+                getTokensAt: (nodeName: string) => {
+                    const uuid = seqEngine.getUuidByIdentity(nodeName);
+                    return uuid ? Object.entries(seqEngine.token_list).filter(([_, t]) => t.node_uuid === uuid).map(([id, _]) => id) : [];
+                },
+                addLabel: (label: string) => seqEngine.addTokenLabel(token_id, label),
+                removeLabel: (label: string) => seqEngine.removeTokenLabel(token_id, label),
+                hasLabel: (label: string) => seqEngine.token_list[token_id]?.labels?.includes(label),
+                queryByLabel: (label: string) => seqEngine.getTokensByLabel(label),
+                queryByHistory: (node_uuid: string) => seqEngine.getTokensByHistory(node_uuid),
+                kill: (id: string) => seqEngine.killToken(id),
+                killAllByLabel: (label: string) => seqEngine.killTokensByLabel(label),
+                hijack: (id: string, targetNodeId: string) => seqEngine.hijackToken(id, targetNodeId)
+            };
+            const AsyncFunction = Object.getPrototypeOf(async function(){}).constructor as any;
+            const userCode = new AsyncFunction('IN', 'OUT', 'UI', 'ENGINE', this.script_content);
+            await userCode(IN, OUT, UI, ENGINE);
+            const outputAliases = this.output_aliases || {};
+            for (const [alias, tagId] of Object.entries(outputAliases)) {
+                if (OUT[alias] !== undefined) tagStore.writeTag(tagId as string, OUT[alias]);
             }
-            this.engine.moveToken(token_id, this.next_node_id);
-        } catch (error: any) {
-            // Bắt cú pháp/Lỗi Runtime cực đỉnh để báo cho người dùng
-            const errorMsg = `JS Script Error: ${error.message}`;
-            useSequencerStore.setState({ isSequencerErrorModalOpen: true, SequencerErrorMessage: errorMsg});
-            useSequencerStore.getState().appendCompilerLog(`[RUNTIME ERROR] ${errorMsg}`);
-            this.engine.changeTokenStatus(token_id, "PROCESSING");
+            // KIỂM TRA QUYỀN ĐI TIẾP: Chỉ đi tiếp nếu Token chưa bị cướp quyền
+            const currentToken = seqEngine.token_list[token_id];
+            if (currentToken && currentToken.node_uuid === original_uuid) {
+                seqEngine.schedule_move_token(token_id, 0, this.next_node_id);
+            }
+        } catch (error) {
+            console.error(`Script Execution Error in NodeScript:`, error);
+            this.engine.changeTokenStatus(token_id, "WAITING");
         }
     }
 }
@@ -2662,41 +2846,30 @@ class NodeWriteDB implements BaseSequenceNode {
         const payloadData: Record<string, any> = {};
         const isMaster = this.config.worker_id === "master_gateway";
         this.engine.changeTokenStatus(token_id, "PROCESSING");
+        // CHỐNG GHI ĐÈ
+        const original_uuid = this.engine.token_list[token_id]?.node_uuid;
         try {
             for (const [colName, tagId] of Object.entries(this.config.mapping)) {
                 let val;
-                // ============================================
-                // KIỂM TRA TỪ KHÓA AUTO THỜI GIAN
-                // ============================================
-                if (tagId === '__AUTO_TIME__') {
-                    // Tạo chuỗi thời gian chuẩn ISO 8601 (Backend SQLAlchemy tự hiểu)
-                    val = new Date().toISOString();
-                } else {
-                    // Đọc từ Global Tags như bình thường
-                    val = tagStore.readTag(tagId as string);
-                }
-                // --- PHÉP THUẬT XỬ LÝ ẢNH ---
+                if (tagId === '__AUTO_TIME__') { val = new Date().toISOString(); }
+                else { val = tagStore.readTag(tagId as string); }
                 if (this.config.image_columns[colName] && val && typeof val === 'string' && val.startsWith('data:image')) {
                     const filename = `img_${Date.now()}_${crypto.randomUUID().substring(0, 5)}.jpg`;
-                    // 1. Chỉ tạo File object
                     const fileObj = dataURItoFile(val, filename);
-                    // 2. Truyền thẳng fileObj vào API (Bỏ luôn đoạn tạo FormData ở đây)
-                    const uploadRes = await (isMaster
-                        ? DBEngineAPI.master_uploadImage(fileObj)
-                        : DBEngineAPI.proxy_uploadImage(this.config.worker_id, fileObj));
+                    const uploadRes = await (isMaster ? DBEngineAPI.master_uploadImage(fileObj) : DBEngineAPI.proxy_uploadImage(this.config.worker_id, fileObj));
                     val = uploadRes.file_path;
                 }
-                // Đóng gói vào Payload
-                if (val !== undefined && val !== null && val !== "") {
-                    payloadData[colName] = val;
-                }
+                if (val !== undefined && val !== null && val !== "") { payloadData[colName] = val; }
             }
-            // GỌI API INSERT DATA
             const insertPayload = { table: this.config.table_name, data: payloadData };
             await (isMaster
                 ? DBEngineAPI.master_insertData(insertPayload)
                 : DBEngineAPI.proxy_insertData(this.config.worker_id, insertPayload));
-            this.engine.moveToken(token_id, this.next_node_id);
+            // KIỂM TRA QUYỀN ĐI TIẾP
+            const currentToken = this.engine.token_list[token_id];
+            if (currentToken && currentToken.node_uuid === original_uuid) {
+                this.engine.moveToken(token_id, this.next_node_id);
+            }
         } catch (error: any) {
             const errorMsg = `WriteDB Error: ${error.message}`;
             useSequencerStore.setState({ isSequencerErrorModalOpen: true, SequencerErrorMessage: errorMsg});
@@ -2726,6 +2899,7 @@ const NodeClassRegistry: Record<string, any> = {
 };
 export class SequencerEngine implements Sequencer {
     private static instance: SequencerEngine | null = null;
+    private identity_to_uuid_map: Record<string, string> = {};
     public static getInstance(): SequencerEngine {
         if (SequencerEngine.instance === null) {
             SequencerEngine.instance = new SequencerEngine();
@@ -2743,6 +2917,17 @@ export class SequencerEngine implements Sequencer {
         this.timer_queue = [];
         this.compiled = false;
         this.isRunning = false;
+    }
+    public getUuidByIdentity(name: string): string | undefined {
+        return this.identity_to_uuid_map[name];
+    }
+    public updateIdentityMap(nodes: Node[]) {
+        this.identity_to_uuid_map = {};
+        nodes.forEach(n => {
+            if (n.data?.name) {
+                this.identity_to_uuid_map[n.data.name as any] = n.id;
+            }
+        });
     }
     cleanUpEngineMemory(): void{
         this.compiled = false;
@@ -2794,6 +2979,58 @@ export class SequencerEngine implements Sequencer {
         // Đệ quy gọi lại chính nó sau x mili seccond
         setTimeout(() => this.tick(), useSequencerStore.getState().engine_tick_ms);
     }
+    addTokenLabel(token_id: string, label: string): void {
+        const token = this.token_list[token_id];
+        if (token && !token.labels.includes(label)) {
+            token.labels.push(label);
+        }
+    }
+    removeTokenLabel(token_id: string, label: string): void {
+        const token = this.token_list[token_id];
+        if (token) {
+            token.labels = token.labels.filter(l => l !== label);
+        }
+    }
+    // 2. Các hàm Truy vấn (Queries)
+    getTokensByLabel(label: string): string[] {
+        return Object.entries(this.token_list)
+            .filter(([_, t]) => t.labels.includes(label))
+            .map(([id, _]) => id);
+    }
+    getTokensByHistory(node_uuid: string): string[] {
+        return Object.entries(this.token_list)
+            .filter(([_, t]) => t.history.includes(node_uuid))
+            .map(([id, _]) => id);
+    }
+    killTokensByLabel(label: string): number {
+        let count = 0;
+        for (const [id, t] of Object.entries(this.token_list)) {
+            if (t.labels.includes(label)) {
+                delete this.token_list[id];
+                count++;
+            }
+        }
+        return count;
+    }
+    // Hàm Hijack (Đã bỏ tham số payload)
+    hijackToken(token_id: string, target_node_id: string): boolean {
+        const token = this.token_list[token_id];
+        if (!token) return false;
+        const targetNode = useSequencerStore.getState().nodes_lookup_map[target_node_id];
+        // BỊT LỖ HỔNG (Ghost Timer): Dọn dẹp các lịch trình di chuyển cũ đang nằm chờ trong hàng đợi Delay
+        this.timer_queue = this.timer_queue.filter(item => item.token_id !== token_id);
+        this.token_list[token_id] = {
+            ...token,
+            node_uuid: target_node_id,
+            // QUAN TRỌNG: Phải set về READY thì vòng lặp tick() mới cho phép Node mới chạy Token này
+            status: "READY",
+            color: "bg-red-500",
+            x: targetNode ? targetNode.position.x + 10 : 0,
+            y: targetNode ? targetNode.position.y - 15 : 0,
+            history: [...(token.history || []), `[HIJACK]->${target_node_id}`]
+        };
+        return true;
+    }
     moveToken(token_id: string, next_node_id: string): void {
         const token = this.token_list[token_id];
         if (!token) {
@@ -2807,9 +3044,11 @@ export class SequencerEngine implements Sequencer {
             ...token,
             node_uuid: next_node_id,
             status: "READY",
-            color: "bg-green-600", // Xanh lá khi vừa đến
+            color: "bg-green-600",
             x: targetNode ? targetNode.position.x + 10 : 0,
             y: targetNode ? targetNode.position.y - 15 : 0,
+            // --- GHI CHÉP LỊCH SỬ ---
+            history: [...(token.history || []), next_node_id]
         };
     }
     changeTokenStatus(token_id: string, new_status: 'READY' | 'PROCESSING' | 'WAITING' = "PROCESSING"): void {
@@ -2826,9 +3065,11 @@ export class SequencerEngine implements Sequencer {
         };
     }
     killToken(token_id: string): void {
-        delete this.token_list[token_id]
+        delete this.token_list[token_id];
+        // BỊT LỖ HỔNG: Xóa sạch mọi Timer đang chạy ngầm của Token này để tránh bị gọi lại
+        this.timer_queue = this.timer_queue.filter(item => item.token_id !== token_id);
     }
-    spawnToken(nodeId: string): string {
+    spawnToken(nodeId: string, initialPayload: Record<string, any> = {}, metadata: Record<string, any> = {}): string {
         const token_id = crypto.randomUUID();
         const targetNode = useSequencerStore.getState().nodes_lookup_map[nodeId];
         this.token_list[token_id] = {
@@ -2837,6 +3078,10 @@ export class SequencerEngine implements Sequencer {
             color: "bg-green-600",
             x: targetNode ? targetNode.position.x + 10 : 0,
             y: targetNode ? targetNode.position.y - 15 : 0,
+            // --- KHỞI TẠO DỮ LIỆU AGENTIC ---
+            history: [nodeId], // Vừa đẻ ra là đã ở Node này
+            spawnedAt: Date.now(),
+            labels: []
         };
         return token_id;
     }
@@ -3021,6 +3266,10 @@ export class SequencerCompiler {
             }
             store.appendCompilerLog(`====================COMPILED SUCCESSFULLY=================`);
             engine.setEngineCompiled();
+            // ========================================================
+            // CHÍNH LÀ DÒNG BỊ THIẾU NÀY: Cập nhật Danh bạ Identity!
+            // ========================================================
+            engine.updateIdentityMap(nodes);
             this.isCompiling = false;
             return true;
         } catch (error: any) {
@@ -3075,7 +3324,7 @@ export interface NodeProcessConfig {
   next_node_id: string;
   node_title: string;
   logic_object_info : NodeProcessServerData;
-  payload_formation_map: Record<string, any>; //json path : get from tag
+  payload_formation_map: Record<string, string | { type: 'tag' | 'const', value: any }>;
   response_receive_map: Record<string, string>;  //json path : write to tag
 }
 export interface NodeSplitConfig {
@@ -3108,7 +3357,9 @@ export interface NodeOrConfig {
 }
 export interface NodeDelayConfig {
   next_node_id: string;
-  delay_duration: number;
+  delay_duration: number; // Mặc định là số
+  is_dynamic?: boolean;   // Cờ đánh dấu dùng Tag
+  delay_tag_id?: string;  // ID của Tag nếu is_dynamic = true
 }
 export interface NodeTagOvwrByValConfig {
   next_node_id: string;
@@ -3180,16 +3431,21 @@ export interface NodeProcessServerData{
     logic_object_id: string,
 }
 export interface SequencerNodeData {
+  name?: string;
   type: SequencerNodeType;
   config: SequencerNodeConfig;
   ishighlighted: boolean;
 }
 export interface TokenValue {
     node_uuid: string;
-    status: 'READY' | 'PROCESSING' |'WAITING'
+    status: 'READY' | 'PROCESSING' | 'WAITING' | 'HIJACKED';
     x: number;
     y: number;
     color: string;
+    // --- NGỮ CẢNH ĐIỀU HƯỚNG ---
+    history: string[];       // Nhật ký hành trình (Cực kỳ quan trọng)
+    spawnedAt: number;       // Thời gian sống
+    labels: string[];        // Các nhãn dán được thu thập trên đường đi (Dynamic Labels)
 }
 /* =========================
    STORE
@@ -3199,6 +3455,8 @@ export interface SequencerState {
   edges: Edge[]; //render nodes, dùng compile graph
   nodes_lookup_map: Record<string, Node>; //for performance look up, để cập nhật UI biểu diễn token trên graph khi chạy runtime
   run_time_token_list: Record<string, TokenValue>; //lưu trữ thông tin token để engine dùng và cho cập nhật UI biểu diễn token khi chạy runtime
+  isTokenBlackboardOpen: boolean;
+  toggleTokenBlackboard: () => void;
   isSequencerErrorModalOpen: boolean; // báo lỗi
   SequencerErrorMessage: string; // báo lỗi
   engine_tick_ms: number; //làm một trường để cài đặt tần số quét của sequencer khi chạy
@@ -3212,6 +3470,7 @@ export interface SequencerState {
   setFieldValue: (node_id : string, field: string, value: any) => void; // Helper dùng đặt lại giá trị của một field dữ liệu bất kỳ trong một node (khi đang tạo graph)
   createDefaultConfig: (type: SequencerNodeType) => SequencerNodeData; //Helper dùng tạo node
   addNode: (type: SequencerNodeType,position?: { x: number; y: number }) => void; //Helper dùng tạo node
+  updateNodeData: (nodeId : string, newData : any) => void;
   onSelectWorker: (worker_id: string) => Promise<string[]>; // API helper dùng để hiện dữ liệu khi chọn vào worker tương ứng ở trong Process Node properties
   onSelectLogicObject: (worker_id: string, logic_object_id: string) => Promise<Record<string, any>> // API helper dùng để hiện dữ liệu schema đầu vào / ra của một logic object khi ở trong process node properties
   appendCompilerLog: (msg: string) => void; //Thêm thông tin vào log
@@ -3223,6 +3482,14 @@ export interface SequencerState {
   onEdgesChange: (changes: EdgeChange[]) => void;
   onConnect: (connection: Connection) => void;
   markGraphDirty: () => void;
+  past: { nodes: Node[]; edges: Edge[] }[];
+  future: { nodes: Node[]; edges: Edge[] }[];
+  clipboard: { nodes: Node[] } | null;
+  takeSnapshot: () => void;
+  undo: () => void;
+  redo: () => void;
+  copySelection: () => void;
+  pasteSelection: (mousePos?: { x: number; y: number }) => void;
 }
 /* =========================
    STORE
@@ -3234,6 +3501,8 @@ export const useSequencerStore =
     edges: [],
     nodes_lookup_map: {},
     run_time_token_list: {},
+    isTokenBlackboardOpen: false,
+    toggleTokenBlackboard: () => set((state) => ({ isTokenBlackboardOpen: !state.isTokenBlackboardOpen })),
     isSequencerErrorModalOpen: false,
     SequencerErrorMessage: "",
     engine_tick_ms : 25, //25ms = 10fps
@@ -3416,9 +3685,10 @@ export const useSequencerStore =
               next_node_id: "",
               input_aliases: {},
               output_aliases: {},
-              script_content: "// Write your JS logic here...\n// Ex: let len = IN.arr ? IN.arr.length : 0;\n// OUT.result = len * 2;\n",
+              script_content: "// Write your JS logic here...\n// Ex 1: let len = IN.arr ? IN.arr.length : 0;\n// OUT.result = len * 2;\n\n// Ex 2: let box = UI.get(\"BBox 1\");\n// if (box) UI.set(\"BBox 1\", { w: box.w + 10, style: { fillColor: '
             },
-            ishighlighted: false
+            ishighlighted: false,
+            name: "JS SCRIPT"
           };
         case "portal_in":
           return {
@@ -3457,6 +3727,15 @@ export const useSequencerStore =
       };
       set((state) => ({
         nodes: [...state.nodes, newNode],
+      }));
+    },
+    updateNodeData: (nodeId, newData) => {
+      set((state) => ({
+        nodes: state.nodes.map((node) =>
+          node.id === nodeId
+            ? { ...node, data: { ...node.data, ...newData } }
+            : node
+        ),
       }));
     },
     onSelectWorker : async (worker_id) => {
@@ -3546,6 +3825,87 @@ export const useSequencerStore =
       });
       get().markGraphDirty();
     },
+    past: [],
+  future: [],
+  clipboard: null,
+  takeSnapshot: () => {
+    const { nodes, edges, past } = get();
+    // Deep Clone trạng thái hiện tại và lưu tối đa 50 bước
+    const newPast = [
+      ...past,
+      {
+        nodes: JSON.parse(JSON.stringify(nodes)),
+        edges: JSON.parse(JSON.stringify(edges)),
+      },
+    ].slice(-50);
+    set({ past: newPast, future: [] });
+  },
+  undo: () => {
+    const { past, future, nodes, edges } = get();
+    if (past.length === 0) return;
+    const previousState = past[past.length - 1];
+    const newPast = past.slice(0, past.length - 1);
+    set({
+      past: newPast,
+      future: [{ nodes: JSON.parse(JSON.stringify(nodes)), edges: JSON.parse(JSON.stringify(edges)) }, ...future],
+      nodes: previousState.nodes,
+      edges: previousState.edges,
+      isGraphDirty: true, // Đánh dấu cần compile lại
+    });
+  },
+  redo: () => {
+    const { past, future, nodes, edges } = get();
+    if (future.length === 0) return;
+    const nextState = future[0];
+    const newFuture = future.slice(1);
+    set({
+      past: [...past, { nodes: JSON.parse(JSON.stringify(nodes)), edges: JSON.parse(JSON.stringify(edges)) }],
+      future: newFuture,
+      nodes: nextState.nodes,
+      edges: nextState.edges,
+      isGraphDirty: true,
+    });
+  },
+  copySelection: () => {
+    const { nodes } = get();
+    const selectedNodes = nodes.filter((n) => n.selected);
+    // CHẶN SINGLETONS: Không copy khối start và end
+    const copyableNodes = selectedNodes.filter(n => n.type !== 'start' && n.type !== 'end');
+    if (copyableNodes.length === 0) return;
+    set({ clipboard: { nodes: copyableNodes } });
+  },
+  pasteSelection: (mousePos) => {
+    const { clipboard, nodes, edges, takeSnapshot } = get();
+    if (!clipboard || clipboard.nodes.length === 0) return;
+    takeSnapshot();
+    // Thuật toán tìm tọa độ gốc cụm node đang copy
+    const minX = Math.min(...clipboard.nodes.map((n) => n.position.x));
+    const minY = Math.min(...clipboard.nodes.map((n) => n.position.y));
+    const deltaX = mousePos ? mousePos.x - minX : 50;
+    const deltaY = mousePos ? mousePos.y - minY : 50;
+    const pastedNodes = clipboard.nodes.map((node) => {
+      // Sinh ID mới dựa trên type của node sequencer
+      const newId = `${node.type}_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+      const newData = JSON.parse(JSON.stringify(node.data));
+      return {
+        ...node,
+        id: newId,
+        selected: true,
+        position: {
+          x: node.position.x + deltaX,
+          y: node.position.y + deltaY,
+        },
+        data: newData,
+      };
+    });
+    const unselectedOldNodes = nodes.map((n) => ({ ...n, selected: false }));
+    const unselectedOldEdges = edges.map((e) => ({ ...e, selected: false }));
+    set({
+      nodes: [...unselectedOldNodes, ...pastedNodes],
+      edges: unselectedOldEdges,
+      isGraphDirty: true,
+    });
+  },
   }));
 
 ### FILE: utils/ColorConst.ts ###
@@ -3582,7 +3942,10 @@ export const FlowCompiler = {
             const data = node.data as unknown as UniversalNodeData;
             // 1. KIỂM TRA KẾT NỐI BẮT BUỘC
             data.inputs?.forEach((input: PinData) => {
+                // Nếu backend đã báo đây là chân tuỳ chọn -> Bỏ qua
                 if (input.optional) return;
+                // [NÂNG CẤP] Đặc quyền cho PortalInNode: Chân payload được phép lơ lửng
+                if (data.className === 'PortalInNode' && input.id === 'payload') return;
                 const isConnected = edges.some(e => e.target === node.id && e.targetHandle === input.id);
                 if (!isConnected) nodeErrors[node.id] = `Cổng [${input.label}] yêu cầu kết nối.`;
             });
@@ -3630,7 +3993,7 @@ export const FlowCompiler = {
             success: true,
             data: {
                 timeout: graph_timeout,
-                node: formattedNodes,
+                nodes: formattedNodes, // Chú ý: Đã đổi 'node' thành 'nodes' cho chuẩn định dạng GraphFile
                 edges: formattedEdges
             }
         };

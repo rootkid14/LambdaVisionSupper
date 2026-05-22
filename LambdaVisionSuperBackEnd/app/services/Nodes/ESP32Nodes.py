@@ -97,7 +97,7 @@ class ESP32CameraNode(BaseNode[ESP32CameraInput, ESP32CameraOutput]):
     UI_LABEL = "ESP32-S3 Camera"
     UI_DESCRIPTION = "Thu thập hình ảnh từ ESP32 qua Device Bus"
     UI_COLOR = "#3b82f6" # Màu xanh dương
-    REQUIRE_TIMEOUT = False
+    REQUIRE_TIMEOUT = 10
     CONFIG_FIELDS = []
 
     async def execute(self) -> None:
@@ -123,7 +123,7 @@ class ESP32CameraNode(BaseNode[ESP32CameraInput, ESP32CameraOutput]):
         
         try:
             # 3. Gửi lệnh chụp qua Session giữ kết nối (Keep-Alive)
-            async with session.get(url, timeout=5.0) as response:
+            async with session.get(url, timeout=10.0) as response:
                 if response.status == 200:
                     image_bytes = await response.read()
                     

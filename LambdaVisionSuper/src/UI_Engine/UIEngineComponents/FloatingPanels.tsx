@@ -1,12 +1,177 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useUIEngine } from '../UIEngineStores/InspectionStore';
 import { useTagDb } from '../UIEngineStores/GlobalTagsStore';
 import { 
     Settings, Trash2, Box, Type, Circle, Edit2, Maximize, Layout, 
     Monitor, Unlink, KeyIcon, MousePointer2, 
-    List, Sliders, CheckSquare 
+    List, Sliders, CheckSquare , ArrowRight, ArrowLeft
 } from 'lucide-react';
 import { COLOR_PALETTE } from "../../utils/ColorConst";
+import Editor from 'react-simple-code-editor';
+import Prism from 'prismjs';
+import 'prismjs/components/prism-javascript';
+import 'prismjs/themes/prism-tomorrow.css';
+import { TerminalSquare } from 'lucide-react';
+
+
+interface UIScriptEditorModalProps {
+    isOpen: boolean;
+    title: string;
+    initialScript: string;
+    initialInAliases: Record<string, string>;
+    initialOutAliases: Record<string, string>;
+    globalTags: string[];
+    onClose: () => void;
+    onSave: (finalCode: string, inAliases: Record<string, string>, outAliases: Record<string, string>) => void;
+}
+
+export const UIScriptEditorModal = ({ isOpen, title, initialScript, initialInAliases, initialOutAliases, globalTags, onClose, onSave }: UIScriptEditorModalProps) => {
+    const [code, setCode] = useState("");
+    
+    // State quản lý Aliases
+    const [inList, setInList] = useState<{name: string, tag: string}[]>([]);
+    const [outList, setOutList] = useState<{name: string, tag: string}[]>([]);
+
+    useEffect(() => {
+        if (isOpen) {
+            setCode(initialScript || "");
+            setInList(Object.entries(initialInAliases || {}).map(([k, v]) => ({ name: k, tag: v })));
+            setOutList(Object.entries(initialOutAliases || {}).map(([k, v]) => ({ name: k, tag: v })));
+        }
+    }, [isOpen, initialScript, initialInAliases, initialOutAliases]);
+
+    if (!isOpen) return null;
+
+    // Helper functions cho Aliases
+    const addVar = (type: 'in' | 'out') => {
+        if (type === 'in') setInList([...inList, { name: '', tag: '' }]);
+        else setOutList([...outList, { name: '', tag: '' }]);
+    };
+
+    const removeVar = (type: 'in' | 'out', idx: number) => {
+        if (type === 'in') setInList(inList.filter((_, i) => i !== idx));
+        else setOutList(outList.filter((_, i) => i !== idx));
+    };
+
+    const updateVar = (type: 'in' | 'out', idx: number, field: 'name'|'tag', val: string) => {
+        const list = type === 'in' ? [...inList] : [...outList];
+        // Ràng buộc tên biến hợp lệ trong JS
+        list[idx][field] = field === 'name' ? val.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_]/g, '') : val;
+        if (type === 'in') setInList(list);
+        else setOutList(list);
+    };
+
+    const handleSave = () => {
+        const finalIn: Record<string, string> = {};
+        const finalOut: Record<string, string> = {};
+        inList.forEach(item => { if (item.name && item.tag) finalIn[item.name] = item.tag; });
+        outList.forEach(item => { if (item.name && item.tag) finalOut[item.name] = item.tag; });
+        
+        onSave(code, finalIn, finalOut);
+    };
+
+    return (
+        <div className="fixed inset-0 z-[150] bg-black/70 backdrop-blur-sm flex items-center justify-center font-sans">
+            <div className="bg-[#28292c] border border-[#3c4043] rounded-xl shadow-2xl w-[1000px] h-[85vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+                
+                {/* Header */}
+                <div className="bg-[#303134] px-4 py-3 border-b border-[#3c4043] flex justify-between items-center shrink-0">
+                    <div className="flex items-center gap-2 text-[#4fd1c5]">
+                        <TerminalSquare size={16} />
+                        <h3 className="font-bold text-sm tracking-wide">
+                            UI Script Editor — {title}
+                        </h3>
+                    </div>
+                    <button onClick={onClose} className="p-1.5 hover:bg-[#3c4043] rounded-md text-[#9aa0a6] hover:text-[#f28b82] transition-colors">✕</button>
+                </div>
+                
+                {/* Vùng Content 2 Cột */}
+                <div className="flex-1 flex overflow-hidden">
+                    
+                    {/* CỘT TRÁI: QUẢN LÝ ALIAS */}
+                    <div className="w-[360px] bg-[#202124] border-r border-[#3c4043] flex flex-col overflow-y-auto custom-scrollbar shrink-0">
+                        {/* INPUTS */}
+                        <div className="p-4 border-b border-[#3c4043]">
+                            <div className="flex items-center justify-between mb-3">
+                                <label className="text-xs font-bold text-[#4fd1c5] uppercase flex items-center gap-2">
+                                    <ArrowRight size={14} /> [ IN ] Read Tags
+                                </label>
+                                <button onClick={() => addVar('in')} className="text-[#4fd1c5] hover:bg-[#4fd1c5]/20 px-2 py-1 rounded transition-colors text-[10px] font-bold">+ ADD</button>
+                            </div>
+                            <div className="flex flex-col gap-2">
+                                {inList.map((al, idx) => (
+                                    <div key={idx} className="flex gap-1.5 items-center">
+                                        <span className="text-[#9aa0a6] font-mono text-[10px]">IN.</span>
+                                        <input type="text" value={al.name} onChange={(e) => updateVar('in', idx, 'name', e.target.value)} className="w-20 bg-[#171717] border border-[#3c4043] text-[#4fd1c5] text-xs p-1.5 rounded font-mono outline-none" placeholder="var" />
+                                        <span className="text-[#5f6368] text-xs">⟵</span>
+                                        <select value={al.tag} onChange={(e) => updateVar('in', idx, 'tag', e.target.value)} className="flex-1 bg-[#171717] border border-[#3c4043] text-[#e8eaed] text-[10px] p-1.5 rounded outline-none cursor-pointer min-w-0">
+                                            <option value="">Tag...</option>
+                                            {globalTags.map(t => <option key={t} value={t}>{t}</option>)}
+                                        </select>
+                                        <button onClick={() => removeVar('in', idx)} className="text-[#5f6368] hover:text-[#f28b82] p-1"><Trash2 size={14}/></button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* OUTPUTS */}
+                        <div className="p-4">
+                            <div className="flex items-center justify-between mb-3">
+                                <label className="text-xs font-bold text-[#c58af9] uppercase flex items-center gap-2">
+                                    <ArrowLeft size={14} /> [ OUT ] Write Tags
+                                </label>
+                                <button onClick={() => addVar('out')} className="text-[#c58af9] hover:bg-[#c58af9]/20 px-2 py-1 rounded transition-colors text-[10px] font-bold">+ ADD</button>
+                            </div>
+                            <div className="flex flex-col gap-2">
+                                {outList.map((al, idx) => (
+                                    <div key={idx} className="flex gap-1.5 items-center">
+                                        <span className="text-[#9aa0a6] font-mono text-[10px]">OUT.</span>
+                                        <input type="text" value={al.name} onChange={(e) => updateVar('out', idx, 'name', e.target.value)} className="w-20 bg-[#171717] border border-[#3c4043] text-[#c58af9] text-xs p-1.5 rounded font-mono outline-none" placeholder="var" />
+                                        <span className="text-[#5f6368] text-xs">⟶</span>
+                                        <select value={al.tag} onChange={(e) => updateVar('out', idx, 'tag', e.target.value)} className="flex-1 bg-[#171717] border border-[#3c4043] text-[#e8eaed] text-[10px] p-1.5 rounded outline-none cursor-pointer min-w-0">
+                                            <option value="">Tag...</option>
+                                            {globalTags.map(t => <option key={t} value={t}>{t}</option>)}
+                                        </select>
+                                        <button onClick={() => removeVar('out', idx)} className="text-[#5f6368] hover:text-[#f28b82] p-1"><Trash2 size={14}/></button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* CỘT PHẢI: SOẠN THẢO CODE */}
+                    <div className="flex-1 bg-[#1d1f21] flex flex-col relative">
+                        <div className="px-4 py-2 bg-[#171717] border-b border-[#3c4043] font-mono text-[16px] text-[#9aa0a6] flex gap-4 shrink-0 select-none">
+                            <span><b className="text-[#4fd14f]">IN.var</b> : Đọc</span>
+                            <span><b className="text-[#9230e7]">OUT.var = x</b> : Ghi</span>
+                            <span><b className="text-[#8ab4f8]">UI.get(id)</b> / <b className="text-[#0058e6]">UI.set(id, props)</b> : Đổi giao diện</span>
+                            <span><b className="text-[#fcd663]">ENGINE</b> : .addLabel(str), .queryByLabel(str), .hijack(id, nodeId), .killAllByLabel(str)</span>
+                        </div>
+                        <div className="flex-1 overflow-y-auto custom-scrollbar relative">
+                            <Editor
+                                value={code}
+                                onValueChange={(newCode) => setCode(newCode)}
+                                highlight={(newCode) => Prism.highlight(newCode, Prism.languages.javascript, 'javascript')}
+                                padding={16}
+                                tabSize={4}
+                                textareaClassName="focus:outline-none min-h-full"
+                                className="font-mono text-sm min-h-full leading-relaxed"
+                                style={{ fontFamily: '"Fira Code", "Consolas", monospace', backgroundColor: 'transparent', color: '#e8eaed' }}
+                            />
+                        </div>
+                    </div>
+                </div>
+
+                {/* Footer Toolbar */}
+                <div className="p-3 bg-[#303134] border-t border-[#3c4043] flex justify-end gap-2 shrink-0 select-none">
+                    <button onClick={onClose} className="px-4 py-1.5 rounded-lg text-xs font-bold text-[#9aa0a6] hover:bg-[#3c4043] hover:text-[#e8eaed] transition-colors">CANCEL</button>
+                    <button onClick={handleSave} className="px-5 py-1.5 rounded-lg text-xs font-bold bg-[#4fd1c5]/20 text-[#4fd1c5] hover:bg-[#4fd1c5]/30 border border-[#4fd1c5]/30 transition-colors">SAVE SCRIPT</button>
+                </div>
+
+            </div>
+        </div>
+    );
+};
 
 export const CreateButtonModal = () => {
     const { createButtonModal, closeCreateButtonModal, addComponent } = useUIEngine();
@@ -55,7 +220,8 @@ export const CreateButtonModal = () => {
                     <div className="flex flex-col gap-1.5">
                         <label className="text-[#9aa0a6] font-bold ml-1">ACTION TYPE</label>
                         <div className="grid grid-cols-2 gap-2">
-                            {['toggle', 'pulse', 'setToTrue', 'setToFalse'].map(type => (
+                            {/* SỬA DÒNG DƯỚI ĐÂY: Thêm 'script' vào mảng */}
+                            {['toggle', 'pulse', 'setToTrue', 'setToFalse', 'script'].map(type => (
                                 <button key={type} type="button" onClick={() => setConfig({...config, actionType: type as any})}
                                         className={`py-1.5 rounded border transition-all font-bold ${config.actionType === type ? 'bg-[#8ab4f8] text-[#202124] border-[#8ab4f8]' : 'bg-[#171717] text-[#9aa0a6] border-[#3c4043] hover:border-[#5f6368]'}`}>
                                     {type}
@@ -178,6 +344,8 @@ export const ActionMenu = () => {
 export const UIPropertiesPanel = () => {
     const { propertyPanel, components_map, closePropertiesPanel, updateComponentProps, renameComponent, bindTagToProperty, unbindTag } = useUIEngine();
     const globalTags = useTagDb(state => Object.keys(state.tags));
+
+    const [activeScriptPath, setActiveScriptPath] = useState<string | null>(null);
     
     if (!propertyPanel.isOpen || !propertyPanel.target_id) return null;
     const node = components_map[propertyPanel.target_id];
@@ -209,7 +377,15 @@ export const UIPropertiesPanel = () => {
             if (node.type === 'soft_button') {
                 fields.push({ path: 'content', label: 'Button Text', type: 'string' });
                 fields.push({ path: 'targetTag', label: 'Target Tag', type: 'tag_selector' }); 
-                fields.push({ path: 'actionType', label: 'Action Type', type: 'select', options: ['toggle', 'setToTrue', 'setToFalse', 'pulse'] });
+                
+                // SỬA: Thêm 'script' vào options
+                fields.push({ path: 'actionType', label: 'Action Type', type: 'select', options: ['toggle', 'setToTrue', 'setToFalse', 'pulse', 'script'] });
+                
+                // THÊM MỚI: Nếu chọn script, hiện ô nhập code
+                if (node.actionType === 'script') {
+                    fields.push({ path: 'script_content', label: 'JS Code', type: 'textarea' });
+                }
+                
                 fields.push({ path: 'style.fillColor', label: 'Normal Color', type: 'color' });
                 fields.push({ path: 'style.activeColor', label: 'Active Color', type: 'color' }); 
                 fields.push({ path: 'style.cornerRadius', label: 'Round Corner', type: 'number' });
@@ -354,6 +530,16 @@ export const UIPropertiesPanel = () => {
                                                             </select>
                                                         )}
 
+                                                        {field.type === 'textarea' && (
+                                                            <button 
+                                                                type="button"
+                                                                onClick={() => setActiveScriptPath(field.path)} // Đánh dấu mở modal cho field này
+                                                                className="w-full py-1.5 bg-[#4fd1c5]/10 border border-[#4fd1c5]/30 hover:bg-[#4fd1c5]/20 text-[#4fd1c5] font-bold rounded flex items-center justify-center gap-1.5 transition-all text-[11px] select-none"
+                                                            >
+                                                                <TerminalSquare size={12} /> SCRIPT
+                                                            </button>
+                                                        )}
+
                                                         {field.type === 'color' && (
                                                             <div className="flex items-center gap-2">
                                                                 <div className="relative w-5 h-5 rounded-full overflow-hidden border border-[#5f6368] cursor-pointer shrink-0">
@@ -417,6 +603,27 @@ export const UIPropertiesPanel = () => {
                     </div>
                 </div>
             </div>
+            {/* GỌI ĐỘC LẬP COMPONENT SCRIPT MODAL */}
+            <UIScriptEditorModal 
+                isOpen={activeScriptPath !== null}
+                title={node.name || "Soft Button"}
+                initialScript={activeScriptPath ? (getNestedValue(node, activeScriptPath) || "") : ""}
+                initialInAliases={(node as any).input_aliases || {}}   // Lấy config hiện tại
+                initialOutAliases={(node as any).output_aliases || {}} // Lấy config hiện tại
+                globalTags={globalTags}
+                onClose={() => setActiveScriptPath(null)}
+                onSave={(finalCode, inAliases, outAliases) => {
+                    if (activeScriptPath) {
+                        setNestedValue(activeScriptPath, finalCode); // Lưu code JS
+                        // Lưu mảng Aliases vào thẳng object Component
+                        updateComponentProps(node.id, { 
+                            input_aliases: inAliases, 
+                            output_aliases: outAliases 
+                        });
+                    }
+                    setActiveScriptPath(null);
+                }}
+            />
         </>
     );
 };

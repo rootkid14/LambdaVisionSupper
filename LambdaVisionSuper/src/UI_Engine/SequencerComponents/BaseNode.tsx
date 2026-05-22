@@ -12,12 +12,16 @@ interface BaseNodeProps {
   children?: React.ReactNode;
   inputs?: number;
   outputs?: number;
+  // CHÍNH LÀ DÒNG NÀY: Khai báo cho TypeScript biết BaseNode có nhận sự kiện Double Click
+  onDoubleClick?: (e: React.MouseEvent) => void; 
 }
 
-export const BaseNode = ({ selected, title, icon, headerColor, children, inputs = 1, outputs = 1 }: BaseNodeProps) => {
+export const BaseNode = ({ selected, title, icon, headerColor, children, inputs = 1, outputs = 1, onDoubleClick }: BaseNodeProps) => {
   return (
-    <div className={`
-      min-w-[180px] bg-[#606060] rounded-md border transition-all duration-200
+    <div 
+      onDoubleClick={onDoubleClick} 
+      className={`
+      relative min-w-[180px] bg-[#606060] rounded-md border transition-all duration-200
       ${selected ? 'border-blue-500 ring-2 ring-blue-500/20 shadow-lg' : 'border-slate-300 shadow-sm'}
       hover:shadow-md
     `}>
