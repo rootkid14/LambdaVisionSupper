@@ -146,4 +146,9 @@ export const FleetAPI = {
         const resp = await axiosClient.get(`${api_version}/infra/resources/files/${filetype}/${filename}/content`);
         return resp.data;
     },
+
+    proxy_getFileContent: async (server_id: string, filename: string, filetype: string): Promise<any> => {
+        const resp = await axiosClient.get(`/proxy/${server_id}${api_version}/infra/resources/files/${filetype}/${filename}/content`);
+        return resp.data;
+    },
 }; 

@@ -58,8 +58,8 @@ def check_server_health() -> Any:
 async def get_fleet_overview_status():
     """FE will call this API frequently to update the fleet dashboard, Master server act as the aggregator"""
     
-    if server_bus.ROLE != "master":
-        return {"error": "Only Master can aggregate fleet status"}
+    # if server_bus.ROLE != "master":
+    #     return {"error": "Only Master can aggregate fleet status"}
     
     # 1. Report status of the Master server itself
     master_cpu = psutil.cpu_percent(interval=0.1)
