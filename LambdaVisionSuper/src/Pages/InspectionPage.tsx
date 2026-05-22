@@ -334,27 +334,22 @@ export const InspectionPage = () => {
     // 2. Logic xử lý khi Lưu file lên Server
     const handleServerFileSave = async (filename: string) => {
         try {
-            // Giả định ProjectCompiler có hàm tạo ra cấu trúc JSON (Bundle) thay vì export thẳng.
-            // (Nếu chưa có, bạn cần viết thêm hàm getProjectBundle() trong Core)
-            const bundle = ProjectCompiler.generateProjectBundle(); 
+            const bundle = await ProjectCompiler.generateProjectBundle(); 
             
-            // Đảm bảo đuôi file
             const finalName = filename.endsWith('.json') ? filename : `${filename}.json`;
             
-            // Tạo đối tượng File ảo để upload
             const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
             const fileToUpload = new File([blob], finalName, { type: 'application/json' });
 
             const formData = new FormData();
             formData.append('file', fileToUpload);
 
-            // Bắn API lên backend
-            await axiosClient.post('/resources/files/projects/upload', formData, {
+            // ĐÃ SỬA: Bổ sung ${api_version}/infra
+            await axiosClient.post(`${api_version}/infra/resources/files/projects/upload`, formData, {
                 headers: { 'Content-Type': 'multipart/form-data' }
             });
 
             closeFileManager();
-            // Có thể thêm Toast/Alert thông báo lưu thành công ở đây
         } catch (error) {
             console.error("Lỗi khi lưu lên Server: ", error);
         }
