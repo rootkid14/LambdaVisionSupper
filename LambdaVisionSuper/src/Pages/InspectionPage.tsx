@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Database, TerminalSquare, Image as ImageIcon, Plus, ArrowLeft, GitMerge, Settings, Type, Eye, EyeOff, Play, Square, AlertTriangle, Briefcase, FolderOpen, Save, CheckCircle2, Loader2, XCircle, Terminal, ChevronDown, ChevronUp, FileJson, FolderDown } from 'lucide-react';
+import { Database, TerminalSquare, Image as ImageIcon, Plus, ArrowLeft, GitMerge, Settings, Type, Eye, EyeOff, Play, Square, AlertTriangle, FolderOpen, CheckCircle2, Loader2, XCircle, Terminal, ChevronDown, ChevronUp, FileJson } from 'lucide-react';
 import { useUIEngine } from '../UI_Engine/UIEngineStores/InspectionStore';
 import { useTagDb } from '../UI_Engine/UIEngineStores/GlobalTagsStore';
 import { InspectionCanvas } from '../UI_Engine/UIEngineComponents/InspectionCanvas';
@@ -12,12 +12,12 @@ import { useKeyboardTrigger } from '../UI_Engine/hooks/useKeyboardTrigger';
 import { SettingsModal } from '../UI_Engine/UIEngineComponents/SettingModal';
 import { useSequencerStore } from '../UI_Engine/UIEngineStores/SequencerStores';
 import { ProjectCompiler } from '../ProjectCompiler/ProjectCompilerCore/ProjectCompilerCore';
-import { FleetAPI } from '../api/fleetApi';
 import { FileManagerModal } from '../UI_Engine/UIEngineComponents/FileManagerModal';
+import { FleetAPI } from '../api/fleetApi';
 
 
 // ==========================================================
-// MỚI: COMPONENT IMPORT MODAL HIỆN ĐẠI (CHỐNG LỖI STRICT MODE)
+// COMPONENT IMPORT MODAL (GIỮ NGUYÊN HOẠT ĐỘNG THEO CORE)
 // ==========================================================
 const ModernImportModal = ({ file, onClose }: { file: File, onClose: () => void }) => {
     type BootStatus = 'reading' | 'restoring' | 'fleet' | 'logic' | 'compiling' | 'done' | 'failed';
@@ -25,7 +25,6 @@ const ModernImportModal = ({ file, onClose }: { file: File, onClose: () => void 
     const [logs, setLogs] = useState<{type: string, msg: string}[]>([]);
     const [showLogs, setShowLogs] = useState(true);
     
-    // Ổ KHÓA CHỐNG DOUBLE EXECUTION TỪ REACT STRICT MODE
     const hasStarted = useRef(false);
 
     const STEPS = [
@@ -37,7 +36,6 @@ const ModernImportModal = ({ file, onClose }: { file: File, onClose: () => void 
     ];
 
     useEffect(() => {
-        // Chặn đứng nếu useEffect cố chạy lần 2
         if (hasStarted.current) return;
         hasStarted.current = true;
 
@@ -49,7 +47,7 @@ const ModernImportModal = ({ file, onClose }: { file: File, onClose: () => void 
                     (newStatus) => setStatus(newStatus)
                 );
             } catch (error) {
-                // Nếu lỗi, Core đã tự gọi callback onStatus('failed') và onLog('error', ...)
+                // Core logic tự động throw trạng thái failed thông qua callback
             }
         };
 
@@ -70,7 +68,7 @@ const ModernImportModal = ({ file, onClose }: { file: File, onClose: () => void 
 
     return (
         <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center font-sans select-none">
-            <div className="bg-[#202124] border border-[#3c4043] rounded-2xl shadow-2xl w-[800px] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="bg-[#202124] border border-[#3c4043] rounded-2xl shadow-2xl w-[800px] flex flex-col overflow-hidden">
                 
                 {/* Header */}
                 <div className="px-6 py-5 border-b border-[#3c4043] bg-[#28292c] flex items-center gap-4">
@@ -83,7 +81,7 @@ const ModernImportModal = ({ file, onClose }: { file: File, onClose: () => void 
                     </div>
                 </div>
 
-                {/* Stepper (Thanh tiến trình) */}
+                {/* Stepper */}
                 <div className="p-6 flex flex-col gap-4">
                     {STEPS.map((step, idx) => {
                         const isDone = idx < stepIndex || status === 'done';
@@ -99,7 +97,6 @@ const ModernImportModal = ({ file, onClose }: { file: File, onClose: () => void 
                                     {isFailed && <XCircle size={20} className="text-[#f28b82]" />}
                                     {isWaiting && <div className="w-5 h-5 rounded-full border-2 border-[#5f6368]"></div>}
                                     
-                                    {/* Line connecting steps */}
                                     {idx !== STEPS.length - 1 && (
                                         <div className={`absolute top-6 left-1/2 -translate-x-1/2 w-0.5 h-4 ${isDone ? 'bg-[#81c995]' : 'bg-[#3c4043]'}`}></div>
                                     )}
@@ -112,9 +109,8 @@ const ModernImportModal = ({ file, onClose }: { file: File, onClose: () => void 
                     })}
                 </div>
 
-                {/* Kết quả & Nút bấm */}
+                {/* Kết quả & Log Terminal */}
                 <div className="px-6 py-4 bg-[#28292c] border-t border-[#3c4043] flex flex-col gap-3">
-                    {/* Nút Toggle Terminal Logs */}
                     <button 
                         onClick={() => setShowLogs(!showLogs)}
                         className="flex items-center gap-2 text-xs font-bold text-[#9aa0a6] hover:text-[#e8eaed] transition-colors self-start"
@@ -123,7 +119,6 @@ const ModernImportModal = ({ file, onClose }: { file: File, onClose: () => void 
                         {showLogs ? 'HIDE DETAILS' : 'SHOW DETAILS'}
                     </button>
 
-                    {/* Console Logs Ẩn/Hiện */}
                     {showLogs && (
                         <div className="h-40 bg-[#171717] rounded-lg border border-[#3c4043] p-3 overflow-y-auto flex flex-col gap-1.5 custom-scrollbar font-mono text-[14px]">
                             {logs.map((log, i) => (
@@ -139,7 +134,6 @@ const ModernImportModal = ({ file, onClose }: { file: File, onClose: () => void 
                         </div>
                     )}
 
-                    {/* Nút Hoàn Tất / Đóng */}
                     {(status === 'done' || status === 'failed') && (
                         <button 
                             onClick={onClose} 
@@ -161,50 +155,9 @@ const ModernImportModal = ({ file, onClose }: { file: File, onClose: () => void 
 
 
 // ==========================================================
-// CÁC COMPONENT CỦA INSPECTION PAGE
+// DROP DOWN QUẢN LÝ LABEL CONFIG
 // ==========================================================
-
-const ProjectMenu = () => {
-    const [isOpen, setIsOpen] = useState(false);
-    const menuRef = useRef<HTMLDivElement>(null);
-    const { openFileManager } = useUIEngine(); // Lấy hàm từ Store
-
-    useEffect(() => { /* Giữ nguyên logic click outside */ }, []);
-
-    return (
-        <div className="relative" ref={menuRef}>
-            <button
-                onClick={() => setIsOpen(!isOpen)}
-                className={`flex items-center gap-2 px-4 py-1.5 rounded-md transition-colors text-[11px] font-bold ${
-                    isOpen ? 'text-[#8ab4f8] bg-[#8ab4f8]/10' : 'text-[#9aa0a6] hover:bg-[#3c4043] hover:text-[#8ab4f8]'
-                }`}
-            >
-                <Briefcase size={14} /> PROJECT
-            </button>
-
-            {isOpen && (
-                <div className="absolute top-full mt-2 left-0 w-48 bg-[#28292c] border border-[#3c4043] rounded-lg shadow-2xl py-1.5 z-50 flex flex-col font-sans">
-                    <button 
-                        onClick={() => { openFileManager('load'); setIsOpen(false); }}
-                        className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-[#e8eaed] hover:bg-[#3c4043] hover:text-[#fcd663] transition-colors"
-                    >
-                        <FolderOpen size={14} /> Mở từ Server
-                    </button>
-                    
-                    <button 
-                        onClick={() => { openFileManager('save'); setIsOpen(false); }}
-                        className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-[#e8eaed] hover:bg-[#3c4043] hover:text-[#81c995] transition-colors"
-                    >
-                        <Save size={14} /> Lưu lên Server
-                    </button>
-                </div>
-            )}
-        </div>
-    );
-};
-
 const NameConfigDropdown = () => {
-    // ... Giữ nguyên toàn bộ logic cũ của component này
     const { nameLabelConfig, updateNameLabelConfig } = useUIEngine();
     const [isOpen, setIsOpen] = useState(false);
     const menuRef = useRef<HTMLDivElement>(null);
@@ -270,8 +223,11 @@ const NameConfigDropdown = () => {
     );
 };
 
+
+// ==========================================
+// THUMBNAIL SIDEBAR QUẢN LÝ MÀN HÌNH CON
+// ==========================================
 const ThumbnailSidebar = () => {
-    // ... Giữ nguyên toàn bộ logic cũ
     const { components_map, activeScreenId, changeScreen, addScreen, openActionMenu } = useUIEngine();
     const screens = Object.values(components_map).filter((n:any) => n.type === 'screen');
 
@@ -297,72 +253,66 @@ const ThumbnailSidebar = () => {
     );
 };
 
+
+// ==========================================
+// MÀN HÌNH CHÍNH INSPECTION PAGE
+// ==========================================
 export const InspectionPage = () => {
     const navigate = useNavigate();
     const isTagsOpen = useTagDb(state => state.isGlobalTagsTableOpen);
-    const { showTerminalLog, toggleTerminalLog, closeActionMenu, importFileContext, setImportFile, changeScreen, components_map, fileManagerContext, closeFileManager } = useUIEngine();
+    const { showTerminalLog, toggleTerminalLog, importFileContext, setImportFile, changeScreen, components_map, fileManagerContext, openFileManager, closeFileManager } = useUIEngine();
     const sequencerStore = useSequencerStore();
     useKeyboardTrigger();
     const toggleSettings = useKeyboardTriggerStore(state => state.toggleSettingsModal);
 
     const activeScreenTagValue = useTagDb(state => state.tags['SYS_ACTIVE_SCREEN']);
 
-
     useEffect(() => {
         if (sequencerStore.isEngineRunning && activeScreenTagValue && typeof activeScreenTagValue === 'string') {
-            // Tìm màn hình có 'name' khớp với giá trị của Tag
             const targetScreen = Object.values(components_map).find(
                 (c: any) => c.type === 'screen' && c.name === activeScreenTagValue
             );
-            
             if (targetScreen) {
-                changeScreen(targetScreen.id); // Hàm lật màn hình của UI Engine vẫn cần ID để chạy
+                changeScreen(targetScreen.id); 
             }
         }
     }, [activeScreenTagValue, sequencerStore.isEngineRunning, changeScreen, components_map]);
 
-    // 1. Logic xử lý khi chọn file trên Server để Load
+    // Luồng xử lý khi chọn một Project File trên Server để nạp vào RAM ảo của hệ thống
     const handleServerFileLoad = (filename: string, fileContent: any) => {
-        // MẸO CỐT LÕI: Đóng gói JSON thành đối tượng File ảo để lừa thằng ModernImportModal
         const blob = new Blob([JSON.stringify(fileContent, null, 2)], { type: 'application/json' });
         const virtualFile = new File([blob], filename, { type: 'application/json' });
         
-        setImportFile(virtualFile); // Kích hoạt ModernImportModal chạy như bình thường
+        setImportFile(virtualFile); 
         closeFileManager();
     };
 
-    // 2. Logic xử lý khi Lưu file lên Server
+    // Luồng đóng gói Bundle của Project và đẩy lên Server lưu trữ thông qua FleetAPI công nghiệp
     const handleServerFileSave = async (filename: string) => {
         try {
-            // 1. Thu thập dữ liệu hệ thống từ các Zustand Stores
             const bundle = await ProjectCompiler.generateProjectBundle(); 
-            
-            // 2. Format chuẩn hóa tên file
             const finalName = filename.endsWith('.json') ? filename : `${filename}.json`;
             
-            // 3. Đóng gói thành File Object ảo
             const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
             const fileToUpload = new File([blob], finalName, { type: 'application/json' });
 
-            // 4. GỌI API CHUẨN LAYER: Không dùng axiosClient.post() trực tiếp nữa
             await FleetAPI.master_uploadFile(fileToUpload, 'projects');
-
-            // 5. Đóng Modal sau khi thành công
             closeFileManager();
         } catch (error) {
             console.error("Lỗi khi lưu lên Server: ", error);
-            alert("Lưu thất bại, vui lòng kiểm tra kết nối!");
+            alert("Lưu thất bại, vui lòng kiểm tra kết nối với Master Node!");
         }
     };
 
     return (
         <div className="h-screen w-screen bg-[#202124] text-[#e8eaed] flex flex-col overflow-hidden font-sans relative select-none">
             
-            {/* COMPONENT MODAL IMPORT - CHỈ RENDER KHI CÓ FILE TRONG STORE */}
+            {/* RENDER IMPORT MODAL KHI CÓ CONTEXT FILE NẠP VÀO */}
             {importFileContext && (
                 <ModernImportModal file={importFileContext} onClose={() => setImportFile(null)} />
             )}
 
+            {/* HEADER TOOLBAR TẬP TRUNG */}
             <header className="h-16 bg-[#303134] border-b border-[#3c4043] flex items-center justify-between px-4 z-30 shrink-0 shadow-lg relative">
                 
                 <div className="flex items-center gap-4 z-10 w-auto min-w-[250px]">
@@ -381,10 +331,16 @@ export const InspectionPage = () => {
                     </div>
                 </div>
                 
+                {/* THANH ĐIỀU HƯỚNG TRUNG TÂM SẠCH SẼ */}
                 <div className="absolute left-1/2 -translate-x-1/2 flex items-center bg-[#171717] border border-[#3c4043] p-1 rounded-lg shadow-inner transition-all">
-                    <ProjectMenu />
-                    <div className="w-px h-5 bg-[#3c4043] mx-1"></div>
+                    <button 
+                        onClick={() => openFileManager('manage')} 
+                        className="flex items-center gap-2 px-4 py-1.5 rounded-md hover:bg-[#3c4043] text-[11px] font-bold text-[#8ab4f8] bg-[#8ab4f8]/10 transition-colors"
+                    >
+                        <FolderOpen size={14} /> ASSET MANAGER
+                    </button>
 
+                    <div className="w-px h-5 bg-[#3c4043] mx-1"></div>
                     <button onClick={() => useTagDb.setState({ isGlobalTagsTableOpen: true })} className="flex items-center gap-2 px-4 py-1.5 rounded-md hover:bg-[#3c4043] text-[11px] font-bold text-[#9aa0a6] hover:text-[#fcd663] transition-colors"><Database size={14} /> DATA TAGS</button>
                     <div className="w-px h-5 bg-[#3c4043] mx-1"></div>
                     <button onClick={toggleTerminalLog} className={`flex items-center gap-2 px-4 py-1.5 rounded-md transition-colors text-[11px] font-bold ${showTerminalLog ? 'text-[#8ab4f8] bg-[#8ab4f8]/10' : 'text-[#9aa0a6] hover:bg-[#3c4043] hover:text-[#8ab4f8]'}`}><TerminalSquare size={14} /> TERMINAL</button>
@@ -422,6 +378,7 @@ export const InspectionPage = () => {
                 </div>
             </header>
 
+            {/* BỐ CỤC KHU VỰC THIẾT KẾ CANVAS */}
             <div className="flex-1 flex flex-col overflow-hidden">
                 <div className="flex-1 flex overflow-hidden">
                     <ThumbnailSidebar />
@@ -430,6 +387,7 @@ export const InspectionPage = () => {
                 {showTerminalLog && <TerminalLog />}
             </div>
 
+            {/* FLOATING PANELS HỆ THỐNG */}
             <ActionMenu />
             <UIPropertiesPanel />
             <RenameModal />
@@ -440,11 +398,11 @@ export const InspectionPage = () => {
                 <TagManagerTable onClose={() => useTagDb.setState({ isGlobalTagsTableOpen: false })} />
             </div>
 
-            {/* THÊM FileManager Modal */}
+            {/* CENTRAL ASSET MANAGER TABLE MODAL */}
             <FileManagerModal 
                 isOpen={fileManagerContext?.isOpen || false}
                 onClose={closeFileManager}
-                defaultTab="projects" // <--- Sửa chữ "folder" thành "defaultTab" ở dòng này
+                defaultTab="projects"
                 mode={fileManagerContext?.mode || 'manage'}
                 onFileSelect={handleServerFileLoad}
                 onSaveAs={handleServerFileSave}
