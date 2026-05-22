@@ -57,8 +57,7 @@ export const ProjectCompiler = {
     // ----------------------------------------------------
     // 1. EXPORT PROJECT
     // ----------------------------------------------------
-    exportProject: async (projectName: string = "Lambda_Project") => {
-        // ... (GIỮ NGUYÊN CODE EXPORT CỦA BẠN - Không thay đổi gì)
+    generateProjectBundle: async (): Promise<ProjectBundle> => {
         const fleetState = useFleetStore.getState();
         const uiState = useUIEngine.getState();
         const tagState = useTagDb.getState();
@@ -134,11 +133,11 @@ export const ProjectCompiler = {
             }
         });
 
-        const bundle: ProjectBundle = {
+        return {
             project_uuid: crypto.randomUUID(),
             fleet: {
                 master_gateway_host: fleetState.gateway || "",
-                workers_information: workersInfo // Giả sử workersInfo đã được tính toán ở trên
+                workers_information: workersInfo
             },
             UI: {
                 activeScreenId: uiState.activeScreenId,
@@ -152,23 +151,28 @@ export const ProjectCompiler = {
                 edges: seqState.edges
             }
         };
+    },
 
+    // ----------------------------------------------------
+    // 2. EXPORT PROJECT (Lưu file xuống Local)
+    // ----------------------------------------------------
+    exportProject: async (projectName: string = "Lambda_Project") => {
+        // Tái sử dụng hàm generate để lấy cục dữ liệu
+        const bundle = await ProjectCompiler.generateProjectBundle();
+        
         const jsonString = JSON.stringify(bundle, null, 2);
         const defaultFilename = `${projectName.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.json`;
 
         try {
             // KIỂM TRA MÔI TRƯỜNG: NẾU LÀ TAURI (DESKTOP APP)
             if ((window as any).__TAURI__) {
-                // Mở hộp thoại "Save As" chuẩn của hệ điều hành
                 const filePath = await save({
                     defaultPath: defaultFilename,
                     filters: [{ name: 'Lambda Project', extensions: ['json', 'lambda_proj'] }]
                 });
 
-                // Nếu người dùng không ấn Cancel
                 if (filePath) {
                     await writeTextFile(filePath, jsonString);
-                    // Hiển thị thông báo (Bạn có thể thay bằng Custom Toast Modal của bạn cho đẹp)
                     alert(`✅ Export Project thành công!\nĐã lưu tại: ${filePath}`);
                 }
             } 
