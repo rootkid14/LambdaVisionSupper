@@ -239,8 +239,8 @@ export interface UIEngineStore {
     bindTagToProperty: (nodeId: string, propName: string, globalTagKey: string) => void;
     unbindTag: (nodeId: string, propName: string) => void;
 
-    fileManagerContext: { isOpen: boolean; mode: 'load' | 'save' } | null;
-    openFileManager: (mode: 'load' | 'save') => void;
+    fileManagerContext: { isOpen: boolean; mode: 'load' | 'save' | 'manage' } | null;
+    openFileManager: (mode: 'load' | 'save' | 'manage') => void;
     closeFileManager: () => void;
 
 }
@@ -593,6 +593,7 @@ export const useUIEngine = create<UIEngineStore>((set, get) => ({
     })),
     
     fileManagerContext: null,
+    
     openFileManager: (mode) => set({ fileManagerContext: { isOpen: true, mode } }),
     closeFileManager: () => set({ fileManagerContext: null }),
 }));
