@@ -1,11 +1,14 @@
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from typing import Any
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from app.services.ConnectionBus import APIManualRoutingBus
 from app.services.LogicPoolManager import LogicPoolManager
 from app.services.DevicePoolManager import HTTPDevicePoolManager
 from pydantic import BaseModel
 from app.services.LVSTypes import FileType
+import json
+
+VALID_FOLDERS = {"graphs", "models", "plugins", "projects"}
 
 router = APIRouter()
 server_bus = APIManualRoutingBus()
@@ -228,3 +231,31 @@ def unload_file_from_memory(filename: str):
         return res
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Lỗi khi giải phóng file: {str(e)}")
+    
+
+@router.get("/resources/files/{filetype}/{filename}/content", summary="Đọc nội dung file (JSON) từ Disk")
+async def get_file_content(filetype: str, filename: str):
+    """
+    ĐỌC VÀ TRẢ VỀ NỘI DUNG FILE DƯỚI DẠNG JSON OBJECT
+    Dùng để load trực tiếp các file projects, graphs, cấu hình... vào UI
+    """
+    # 1. Kiểm tra tính hợp lệ của thư mục (Dùng chung Enum như hàm download)
+    try:
+        FileType(filetype)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Loại file '{filetype}' không hợp lệ")
+
+    try:
+        # 2. Lấy đường dẫn vật lý an toàn từ Manager
+        file_path = logic_pool.get_file_path(filename, filetype)
+        
+        # 3. Đọc và parse JSON trả về
+        with open(file_path, "r", encoding="utf-8") as f:
+            return JSONResponse(content=json.load(f))
+            
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=f"Không tìm thấy file: {str(e)}")
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="File bị hỏng hoặc không phải là định dạng JSON chuẩn")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lỗi hệ thống khi đọc file: {e}")
