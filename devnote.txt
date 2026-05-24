@@ -1,4 +1,0 @@
-thẻ logic graph : --> phải thêm trường hiện Logic_id trong Ram nếu đã được load vào ram. Bởi vì bây giờ logic ID 
-là {tên graph}{uuid} chứ không phải thuần tên file nữa.
-
- Trên các thẻ ở trang /fleet cần có thêm mục ping

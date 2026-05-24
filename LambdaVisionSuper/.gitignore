@@ -7,7 +7,6 @@ storage/
 
 # --- Frontend (Vite/React) ---
 node_modules/
-dist/
 dist-ssr/
 *.local
 

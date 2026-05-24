@@ -130,33 +130,46 @@ class YoloClassification(BaseNode[ClassificationInput, ClassificationOutput]):
             roi_resized = cv2.resize(roi, (128, 128))
             
             cv2.rectangle(roi_resized, (0, 0), (127, 127), color, 4)
-            cv2.putText(roi_resized, text, (8, 118), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 0), 2)
-            cv2.putText(roi_resized, text, (8, 118), cv2.FONT_HERSHEY_SIMPLEX, 0.45, color, 1)
+            cv2.putText(roi_resized, text, (8, 118), cv2.FONT_HERSHEY_SIMPLEX, 0.25, (0, 0, 0), 2)
+            cv2.putText(roi_resized, text, (8, 118), cv2.FONT_HERSHEY_SIMPLEX, 0.25, color, 1)
 
             cropped_rois.append(roi_resized)
 
-        # Trả về nếu không có ROI nào hợp lệ
         if not cropped_rois:
             self.local_output = self.OUTPUT_SCHEMA(
-                annotated_image=cv2_to_base64(annotated_img), # Trả về ảnh gốc (không có hình vẽ nào do mảng trống)
+                annotated_image=cv2_to_base64(annotated_img), 
                 roi_concat_image="", 
                 overall_result=(qty_ng == 0), 
                 qty_ng_found=qty_ng
             )
             return
 
-        # 5. Ghép ảnh (Concat) thành Grid
-        cols = 4
-        rows = math.ceil(len(cropped_rois) / cols)
-        total_cells = cols * rows
+        # ==========================================
+        # 5. GHÉP ẢNH (CONCAT) THÀNH GRID (ĐÃ CẢI TIẾN)
+        # ==========================================
+        # Chỉ định số cột mặc định là 5
+        cols = 5
+        total_rois = len(cropped_rois)
+        
+        # Nếu số lượng ảnh thật ít hơn hoặc bằng 5 -> Số cột thực tế bằng đúng số ảnh đó
+        if total_rois <= cols:
+            actual_cols = total_rois
+            rows = 1
+        else:
+            # Nếu nhiều hơn 5, giữ nguyên 5 cột và tính số hàng cần thiết
+            actual_cols = cols
+            rows = math.ceil(total_rois / actual_cols)
+
+        total_cells = actual_cols * rows
         blank_img = np.zeros((128, 128, 3), dtype=np.uint8)
         
+        # Điền thêm ảnh đen cho đủ ô CỦA NHỮNG HÀNG SAU (Nếu bị lẻ)
         while len(cropped_rois) < total_cells:
             cropped_rois.append(blank_img)
             
         row_images = []
         for r in range(rows):
-            row_slice = cropped_rois[r * cols : (r + 1) * cols]
+            row_slice = cropped_rois[r * actual_cols : (r + 1) * actual_cols]
             row_concat = cv2.hconcat(row_slice)
             row_images.append(row_concat)
             

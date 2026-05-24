@@ -14,6 +14,7 @@ import { useSequencerStore } from '../UI_Engine/UIEngineStores/SequencerStores';
 import { ProjectCompiler } from '../ProjectCompiler/ProjectCompilerCore/ProjectCompilerCore';
 import { FileManagerModal } from '../UI_Engine/UIEngineComponents/FileManagerModal';
 import { FleetAPI } from '../api/fleetApi';
+import { InspectionTopbar } from '../UI_Engine/UIEngineComponents/InspectionTopbar';
 
 
 // ==========================================================
@@ -224,6 +225,8 @@ export const NameConfigDropdown = () => {
 };
 
 
+
+
 // ==========================================
 // THUMBNAIL SIDEBAR QUẢN LÝ MÀN HÌNH CON
 // ==========================================
@@ -232,20 +235,25 @@ const ThumbnailSidebar = () => {
     const screens = Object.values(components_map).filter((n:any) => n.type === 'screen');
 
     return (
-        <div className="w-56 bg-[#28292c] border-r border-[#3c4043] flex flex-col z-10 shadow-xl">
-            <div className="p-3 border-b border-[#3c4043] flex justify-between items-center bg-[#202124]">
-                <span className="text-[10px] font-bold text-[#9aa0a6] uppercase tracking-widest">Screens</span>
-                <button onClick={addScreen} className="p-1.5 rounded-md bg-[#8ab4f8]/10 text-[#8ab4f8] hover:bg-[#8ab4f8]/30 transition-colors">
+        <div className="w-56 bg-[#18181b] border-r border-white/5 flex flex-col z-10 shadow-xl shrink-0">
+            <div className="p-3 border-b border-white/5 flex justify-between items-center bg-[#111113]">
+                <span className="text-[10px] font-bold text-[#a1a1aa] uppercase tracking-widest">Screens</span>
+                <button onClick={addScreen} className="p-1.5 rounded-md hover:bg-white/10 text-[#a1a1aa] hover:text-white transition-colors">
                     <Plus size={14} />
                 </button>
             </div>
             <div className="flex-1 p-3 flex flex-col gap-3 overflow-y-auto custom-scrollbar">
                 {screens.map((s:any) => (
-                    <div key={s.id} onClick={() => changeScreen(s.id)} onContextMenu={(e) => { e.preventDefault(); openActionMenu(s.id, 'thumbnail', e.clientX, e.clientY, 0, 0); }} className={`cursor-pointer rounded-xl border-2 p-3 flex flex-col items-center gap-2 transition-all shadow-sm ${activeScreenId === s.id ? 'border-[#8ab4f8] bg-[#8ab4f8]/10' : 'border-[#3c4043] bg-[#171717] hover:border-[#5f6368]'}`}>
-                        <div className="w-full aspect-video bg-[#202124] rounded border border-[#3c4043] flex items-center justify-center pointer-events-none">
-                             <ImageIcon size={28} className={activeScreenId === s.id ? 'text-[#8ab4f8]' : 'text-[#5f6368]'} />
+                    <div 
+                        key={s.id} 
+                        onClick={() => changeScreen(s.id)} 
+                        onContextMenu={(e) => { e.preventDefault(); openActionMenu(s.id, 'thumbnail', e.clientX, e.clientY, 0, 0); }} 
+                        className={`cursor-pointer rounded-lg border p-3 flex flex-col items-center gap-2 transition-all shadow-sm ${activeScreenId === s.id ? 'border-[#8ab4f8] bg-[#8ab4f8]/10' : 'border-white/5 bg-[#09090b] hover:border-white/20'}`}
+                    >
+                        <div className="w-full aspect-video bg-[#111113] rounded border border-white/5 flex items-center justify-center pointer-events-none">
+                             <ImageIcon size={24} className={activeScreenId === s.id ? 'text-[#8ab4f8]' : 'text-[#52525b]'} />
                         </div>
-                        <span className={`text-[10px] font-bold uppercase truncate w-full text-center tracking-wider ${activeScreenId === s.id ? 'text-[#8ab4f8]' : 'text-[#9aa0a6]'}`}>{s.name}</span>
+                        <span className={`text-[10px] font-bold uppercase truncate w-full text-center tracking-wider ${activeScreenId === s.id ? 'text-[#8ab4f8]' : 'text-[#a1a1aa]'}`}>{s.name}</span>
                     </div>
                 ))}
             </div>
@@ -258,12 +266,10 @@ const ThumbnailSidebar = () => {
 // MÀN HÌNH CHÍNH INSPECTION PAGE
 // ==========================================
 export const InspectionPage = () => {
-    const navigate = useNavigate();
     const isTagsOpen = useTagDb(state => state.isGlobalTagsTableOpen);
-    const { showTerminalLog, toggleTerminalLog, importFileContext, setImportFile, changeScreen, components_map, fileManagerContext, openFileManager, closeFileManager } = useUIEngine();
+    const { showTerminalLog, importFileContext, setImportFile, changeScreen, components_map, fileManagerContext, closeFileManager } = useUIEngine();
     const sequencerStore = useSequencerStore();
     useKeyboardTrigger();
-    const toggleSettings = useKeyboardTriggerStore(state => state.toggleSettingsModal);
 
     const activeScreenTagValue = useTagDb(state => state.tags['SYS_ACTIVE_SCREEN']);
 
@@ -278,24 +284,19 @@ export const InspectionPage = () => {
         }
     }, [activeScreenTagValue, sequencerStore.isEngineRunning, changeScreen, components_map]);
 
-    // Luồng xử lý khi chọn một Project File trên Server để nạp vào RAM ảo của hệ thống
     const handleServerFileLoad = (filename: string, fileContent: any) => {
         const blob = new Blob([JSON.stringify(fileContent, null, 2)], { type: 'application/json' });
         const virtualFile = new File([blob], filename, { type: 'application/json' });
-        
         setImportFile(virtualFile); 
         closeFileManager();
     };
 
-    // Luồng đóng gói Bundle của Project và đẩy lên Server lưu trữ thông qua FleetAPI công nghiệp
     const handleServerFileSave = async (filename: string) => {
         try {
             const bundle = await ProjectCompiler.generateProjectBundle(); 
             const finalName = filename.endsWith('.json') ? filename : `${filename}.json`;
-            
             const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
             const fileToUpload = new File([blob], finalName, { type: 'application/json' });
-
             await FleetAPI.master_uploadFile(fileToUpload, 'projects');
             closeFileManager();
         } catch (error) {
@@ -305,78 +306,15 @@ export const InspectionPage = () => {
     };
 
     return (
-        <div className="h-screen w-screen bg-[#202124] text-[#e8eaed] flex flex-col overflow-hidden font-sans relative select-none">
+        // Đổi màu nền bao quát thành nền đen cực sâu của App chuyên nghiệp
+        <div className="h-screen w-screen bg-[#09090b] text-[#e8eaed] flex flex-col overflow-hidden font-sans relative select-none">
             
-            {/* RENDER IMPORT MODAL KHI CÓ CONTEXT FILE NẠP VÀO */}
             {importFileContext && (
                 <ModernImportModal file={importFileContext} onClose={() => setImportFile(null)} />
             )}
 
-            {/* HEADER TOOLBAR TẬP TRUNG */}
-            <header className="h-16 bg-[#303134] border-b border-[#3c4043] flex items-center justify-between px-4 z-30 shrink-0 shadow-lg relative">
-                
-                <div className="flex items-center gap-4 z-10 w-auto min-w-[250px]">
-                    <button onClick={() => navigate('/')} className="group flex items-center justify-center w-8 h-8 bg-[#202124] border border-[#5f6368] hover:border-[#8ab4f8] hover:bg-[#8ab4f8]/10 text-[#e8eaed] hover:text-[#8ab4f8] rounded-md transition-all shadow-sm" title="Back to Dashboard">
-                        <ArrowLeft size={18} className="group-hover:-translate-x-0.5 transition-transform duration-200" />
-                    </button>
-                    <div className="w-px h-8 bg-[#3c4043]"></div>
-                    <div className="flex flex-col justify-center">
-                        <h1 className="font-extrabold text-[#e8eaed] text-[13px] tracking-wide leading-tight flex items-baseline gap-1">
-                            LAMBDA AGENTIC
-                        </h1>
-                        <div className="flex items-center gap-1.5 mt-0.5">
-                            <span className={`w-2.5 h-2.5 rounded-full ${sequencerStore.isEngineRunning ? 'bg-[#81c995] animate-pulse shadow-[0_0_4px_#81c995]' : 'bg-[#f28b82]'}`}></span>
-                            <span className="text-[#9aa0a6] text-[14px] font-bold tracking-[0.2em] uppercase font-mono">UI Editor</span>
-                        </div>
-                    </div>
-                </div>
-                
-                {/* THANH ĐIỀU HƯỚNG TRUNG TÂM SẠCH SẼ */}
-                <div className="absolute left-1/2 -translate-x-1/2 flex items-center bg-[#171717] border border-[#3c4043] p-1 rounded-lg shadow-inner transition-all">
-                    <button 
-                        onClick={() => openFileManager('manage')} 
-                        className="flex items-center gap-2 px-4 py-1.5 rounded-md hover:bg-[#3c4043] text-[11px] font-bold text-[#8ab4f8] bg-[#8ab4f8]/10 transition-colors"
-                    >
-                        <FolderOpen size={14} /> ASSET MANAGER
-                    </button>
-
-                    <div className="w-px h-5 bg-[#3c4043] mx-1"></div>
-                    <button onClick={() => useTagDb.setState({ isGlobalTagsTableOpen: true })} className="flex items-center gap-2 px-4 py-1.5 rounded-md hover:bg-[#3c4043] text-[11px] font-bold text-[#9aa0a6] hover:text-[#fcd663] transition-colors"><Database size={14} /> DATA TAGS</button>
-                    <div className="w-px h-5 bg-[#3c4043] mx-1"></div>
-                    <button onClick={toggleTerminalLog} className={`flex items-center gap-2 px-4 py-1.5 rounded-md transition-colors text-[11px] font-bold ${showTerminalLog ? 'text-[#8ab4f8] bg-[#8ab4f8]/10' : 'text-[#9aa0a6] hover:bg-[#3c4043] hover:text-[#8ab4f8]'}`}><TerminalSquare size={14} /> TERMINAL</button>
-                    <div className="w-px h-5 bg-[#3c4043] mx-1"></div>
-                    <NameConfigDropdown />
-                    <div className="w-px h-5 bg-[#3c4043] mx-1"></div>
-                    <button onClick={() => navigate('/sequencer')} className="flex items-center gap-2 px-4 py-1.5 rounded-md hover:bg-[#3c4043] text-[11px] font-bold text-[#9aa0a6] hover:text-[#c58af9] transition-colors"><GitMerge size={14} /> SEQUENCER</button>
-                    <div className="w-px h-5 bg-[#3c4043] mx-1"></div>
-                    <button onClick={toggleSettings} className="flex items-center gap-2 px-4 py-1.5 rounded-md hover:bg-[#3c4043] text-[11px] font-bold text-[#9aa0a6] hover:text-[#e8eaed] transition-colors"><Settings size={14} /> KEY MAPPING</button>
-                </div>
-
-                <div className="flex items-center gap-3">
-                     {sequencerStore.isGraphDirty && (
-                        <div className="text-[#fcd663] text-[14px] font-bold flex items-center gap-1.5 px-3 py-1 bg-[#fcd663]/10 rounded border border-[#fcd663]/20">
-                            <AlertTriangle size={14}/> Graph Dirty, Need recompiling
-                        </div>
-                     )}
-
-                     {!sequencerStore.isEngineRunning ? (
-                        <button 
-                            onClick={() => sequencerStore.runEngine()} 
-                            disabled={sequencerStore.isGraphDirty || sequencerStore.isCompiling}
-                            className="flex items-center gap-2 px-5 py-2 bg-[#81c995] text-[#202124] rounded-lg text-xs font-bold hover:bg-[#a8dab5] disabled:opacity-50 transition-colors shadow-md"
-                        >
-                            <Play size={14} fill="currentColor" /> RUN ENGINE
-                        </button>
-                     ) : (
-                        <button 
-                            onClick={() => sequencerStore.stopEngine()} 
-                            className="flex items-center gap-2 px-5 py-2 bg-[#f28b82] text-[#202124] rounded-lg text-xs font-bold hover:bg-[#f6aea9] transition-colors shadow-[0_0_15px_rgba(242,139,130,0.5)]"
-                        >
-                            <Square size={14} fill="currentColor" /> STOP ENGINE
-                        </button>
-                     )}
-                </div>
-            </header>
+            {/* CHÈN COMPONENT TOPBAR MỚI VÀO ĐÂY */}
+            <InspectionTopbar />
 
             {/* BỐ CỤC KHU VỰC THIẾT KẾ CANVAS */}
             <div className="flex-1 flex flex-col overflow-hidden">
@@ -394,7 +332,8 @@ export const InspectionPage = () => {
             <SettingsModal />
             <CreateButtonModal/>
             
-            <div className={`absolute top-0 right-0 h-full w-[450px] z-40 transition-transform duration-300 ease-out shadow-[-10px_0_30px_rgba(0,0,0,0.5)] ${isTagsOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+            {/* Panel Global Tags trượt từ phải sang */}
+            <div className={`absolute top-0 right-0 h-full w-[450px] z-40 transition-transform duration-300 ease-out shadow-[-20px_0_40px_rgba(0,0,0,0.6)] border-l border-white/5 ${isTagsOpen ? 'translate-x-0' : 'translate-x-full'}`}>
                 <TagManagerTable onClose={() => useTagDb.setState({ isGlobalTagsTableOpen: false })} />
             </div>
 
@@ -407,7 +346,6 @@ export const InspectionPage = () => {
                 onFileSelect={handleServerFileLoad}
                 onSaveAs={handleServerFileSave}
             />
-            
         </div>
     );
 };
