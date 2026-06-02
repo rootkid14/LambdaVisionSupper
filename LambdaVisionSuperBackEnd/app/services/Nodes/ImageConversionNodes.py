@@ -204,4 +204,62 @@ class BBoxesWarpAffine(BaseNode[BBoxesWarpAffineInput, BBoxesWarpAffineOutput]):
 
         self.local_output = self.OUTPUT_SCHEMA(new_bboxes_coords=bboxes_new)
 
-        
+    
+class ImageRotate180Input(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    execute_in: Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
+    input_image: Any = Field(default=None, title="Input Image", description=UIDataType.ANY.value)
+
+class ImageRotate180Output(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    execute_out: Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
+    output_image: Any = Field(default=None, title="Output Image", description=UIDataType.ANY.value)
+
+@registry_node
+class ImageRotate180Node(BaseNode[ImageRotate180Input, ImageRotate180Output]):
+    INPUT_SCHEMA = ImageRotate180Input
+    OUTPUT_SCHEMA = ImageRotate180Output
+    NODE_TYPE = NodeType.PROGRAM
+    UI_LABEL = "Image Rotate 180"
+    UI_DESCRIPTION = "Xoay ngược ảnh 180 độ"
+    UI_COLOR = "#0ea5e9"  # Màu xanh lam nhạt để phân biệt với Node Resize
+    REQUIRE_TIMEOUT = False
+
+    CONFIG_FIELDS = [
+        UIConfigField(
+            id="Format",
+            label="Output Format",
+            type=UIConfigType.SELECT.value,
+            options=["B64", "CV2"],
+            default="CV2"
+        )
+    ]
+
+    def __init__(self, node_id, parent, node_data=None):
+        super().__init__(node_id, parent, node_data)
+        # Thêm giá trị mặc định vào get_config_field_value để an toàn hơn
+        self.output_format = self.get_config_field_value("Format", "CV2")
+
+    @staticmethod
+    def extract_cv2_image(image_input: Any) -> np.ndarray:
+        if isinstance(image_input, np.ndarray):
+            return image_input.copy()
+        elif isinstance(image_input, str):
+            # Giả định hàm base64_to_cv2 đã được định nghĩa ở Utils
+            return base64_to_cv2(image_input)
+        else:
+            raise ValueError("Đầu vào không phải là Numpy Array hoặc Base64 String hợp lệ.")
+    
+    async def execute(self):
+        # 1. Trích xuất mảng ảnh gốc an toàn
+        img = self.extract_cv2_image(self.local_input.input_image)
+
+        # 2. Thực thi xoay ảnh bằng hàm tối ưu của OpenCV
+        out_img = cv2.rotate(img, cv2.ROTATE_180)
+
+        # 3. Xử lý định dạng đầu ra dựa trên cấu hình UI
+        if self.output_format == "B64":
+            out_img = cv2_to_base64(out_img)
+
+        # 4. Gán kết quả vào luồng đầu ra
+        self.local_output = self.OUTPUT_SCHEMA(output_image=out_img)
