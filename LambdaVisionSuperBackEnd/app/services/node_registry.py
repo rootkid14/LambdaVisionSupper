@@ -408,7 +408,6 @@ class ReceivePayloadNode(BaseNode[None, TerminalNodeDefaultPin]):
             pin_id = pin["id"]
             data_type_str = pin.get("dataType")
             
-            #Remove Execution Pin from the BE built Pydantic to avoid error
             if data_type_str == UIDataType.EXECUTE.value:
                 continue 
                 
@@ -430,7 +429,6 @@ class ReceivePayloadNode(BaseNode[None, TerminalNodeDefaultPin]):
 
     def get_schema(self) -> Dict[str, str]:
         """Return a schema directly from the node_data to avoid Pydantic annotation parsing issues"""
-        # Node này cung cấp dữ liệu cho FE thông qua "outputs"
         dynamic_outputs = self.node_data.get("outputs", [])
         if not dynamic_outputs:
             return {}
