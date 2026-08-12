@@ -115,10 +115,12 @@ class MakeBooleanNode(BaseNode[None, MakeBooleanOutput]):
 
 
 class RandomIntInput(BaseModel):
+    execute_in: Any = Field(default="GO", title="Execute In", description=UIDataType.EXECUTE.value)
     min_val: int = Field(default=0, title="Min Value", description=UIDataType.NUMBER.value)
     max_val: int = Field(default=100, title="Max Value", description=UIDataType.NUMBER.value)
 
 class RandomNumberOutput(BaseModel):
+    execute_out : Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
     result: float = Field(..., title="Result", description=UIDataType.NUMBER.value)
 
 @registry_node

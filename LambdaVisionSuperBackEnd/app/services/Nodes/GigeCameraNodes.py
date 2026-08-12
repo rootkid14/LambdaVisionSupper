@@ -1,160 +1,160 @@
-# import asyncio
-# import numpy as np
-# from typing import Dict, List
-# from pydantic import BaseModel, Field, ConfigDict
-# from typing import Any, Optional
-# from app.services.node_registry import BaseNode, registry_node
-# from app.services.LVSTypes import NodeType, UIDataType, UIConfigField, UIConfigType
+import asyncio
+import numpy as np
+from typing import Dict, List
+from pydantic import BaseModel, Field, ConfigDict
+from typing import Any, Optional
+from app.services.node_registry import BaseNode, registry_node
+from app.services.LVSTypes import NodeType, UIDataType, UIConfigField, UIConfigType
 # from app.external_libs.MvImport.MvCameraControl_class import *
-# from ctypes import *
-# import sys
-# import os
-# import pypylon.pylon as pylon
-# import threading
-# from app.services.utils.image_utils import cv2_to_base64
-# import time
+from ctypes import *
+import sys
+import os
+import pypylon.pylon as pylon
+import threading
+from app.services.utils.image_utils import cv2_to_base64
+import time
 
-# class BaslerCameraManager:
-#     _instance = None
-#     _locks = {}  # Chỉ lưu Lock để xếp hàng các luồng, không lưu Camera Handle nữa
-#     _global_lock = threading.Lock() 
+class BaslerCameraManager:
+    _instance = None
+    _locks = {}  # Chỉ lưu Lock để xếp hàng các luồng, không lưu Camera Handle nữa
+    _global_lock = threading.Lock() 
 
-#     def __new__(cls):
-#         if cls._instance is None:
-#             cls._instance = super(BaslerCameraManager, cls).__new__(cls)
-#         return cls._instance
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(BaslerCameraManager, cls).__new__(cls)
+        return cls._instance
     
-#     def _get_lock(self, serial_number: str):
-#         """Mỗi Serial Number có một cái cờ (Lock) để tránh 2 node gọi mở cam cùng lúc"""
-#         with self._global_lock:
-#             if serial_number not in self._locks:
-#                 self._locks[serial_number] = threading.Lock()
-#             return self._locks[serial_number]
+    def _get_lock(self, serial_number: str):
+        """Mỗi Serial Number có một cái cờ (Lock) để tránh 2 node gọi mở cam cùng lúc"""
+        with self._global_lock:
+            if serial_number not in self._locks:
+                self._locks[serial_number] = threading.Lock()
+            return self._locks[serial_number]
     
-#     def get_image(self, serial_number: str, timeout_ms: int = 5000, exposure_us: float = 50000.0) -> np.ndarray:
-#         # Bỏ qua exposure_us do Node truyền vào, ép cứng 50000 theo yêu cầu
+    def get_image(self, serial_number: str, timeout_ms: int = 5000, exposure_us: float = 50000.0) -> np.ndarray:
+        # Bỏ qua exposure_us do Node truyền vào, ép cứng 50000 theo yêu cầu
         
-#         cam_lock = self._get_lock(serial_number)
+        cam_lock = self._get_lock(serial_number)
 
-#         with cam_lock:
-#             cam = None
-#             try:
-#                 # 1. TẠO MỚI HANDLE TỪ SỐ 0
-#                 info = pylon.DeviceInfo()
-#                 info.SetPropertyValue('SerialNumber', serial_number)
-#                 cam = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateFirstDevice(info))
+        with cam_lock:
+            cam = None
+            try:
+                # 1. TẠO MỚI HANDLE TỪ SỐ 0
+                info = pylon.DeviceInfo()
+                info.SetPropertyValue('SerialNumber', serial_number)
+                cam = pylon.InstantCamera(pylon.TlFactory.GetInstance().CreateFirstDevice(info))
 
-#                 # 2. MỞ KẾT NỐI USB/MẠNG
-#                 cam.Open()
+                # 2. MỞ KẾT NỐI USB/MẠNG
+                cam.Open()
 
-#                 # 3. ÉP CỨNG EXPOSURE (Vì vừa Open, 100% phần cứng đang ở trạng thái cho phép ghi)
-#                 try: cam.ExposureAuto.SetValue("Off")
-#                 except: pass
+                # 3. ÉP CỨNG EXPOSURE (Vì vừa Open, 100% phần cứng đang ở trạng thái cho phép ghi)
+                try: cam.ExposureAuto.SetValue("Off")
+                except: pass
                 
-#                 try: cam.ExposureTime.SetValue(exposure_us)
-#                 except: 
-#                     try: cam.ExposureTimeAbs.SetValue(exposure_us)
-#                     except: pass
+                try: cam.ExposureTime.SetValue(exposure_us)
+                except: 
+                    try: cam.ExposureTimeAbs.SetValue(exposure_us)
+                    except: pass
 
-#                 # Tắt Trigger để GrabOne hoạt động mượt nhất
-#                 try: cam.TriggerMode.SetValue("Off")
-#                 except: pass
+                # Tắt Trigger để GrabOne hoạt động mượt nhất
+                try: cam.TriggerMode.SetValue("Off")
+                except: pass
 
-#                 # 4. CHỤP ĐÚNG 1 TẤM ẢNH BẰNG LỆNH CHUYÊN DỤNG (GRAB ONE)
-#                 # Lệnh này tự Start -> Đợi Ảnh -> Stop cực kỳ sạch sẽ
-#                 res = cam.GrabOne(timeout_ms)
-#                 img = None
+                # 4. CHỤP ĐÚNG 1 TẤM ẢNH BẰNG LỆNH CHUYÊN DỤNG (GRAB ONE)
+                # Lệnh này tự Start -> Đợi Ảnh -> Stop cực kỳ sạch sẽ
+                res = cam.GrabOne(timeout_ms)
+                img = None
                 
-#                 if res.GrabSucceeded():
-#                     img = res.GetArray().copy()
-#                 res.Release()
+                if res.GrabSucceeded():
+                    img = res.GetArray().copy()
+                res.Release()
 
-#                 if img is None:
-#                     raise TimeoutError(f"Camera {serial_number} lấy ảnh thất bại.")
+                if img is None:
+                    raise TimeoutError(f"Camera {serial_number} lấy ảnh thất bại.")
 
-#                 return img
+                return img
             
-#             except Exception as e:
-#                 print(f"[Basler Error] Lỗi vòng đời 1-Shot: {e}")
-#                 raise RuntimeError(str(e))
+            except Exception as e:
+                print(f"[Basler Error] Lỗi vòng đời 1-Shot: {e}")
+                raise RuntimeError(str(e))
                 
-#             finally:
-#                 # 5. GIẢI PHÓNG TOÀN BỘ PHẦN CỨNG (Quan trọng nhất)
-#                 # Cho dù có lỗi đứt cáp hay chụp thành công, Block 'finally' luôn chạy
-#                 # Đảm bảo camera được Close và nhả RAM hoàn toàn.
-#                 if cam is not None and cam.IsOpen():
-#                     try: cam.Close()
-#                     except: pass
+            finally:
+                # 5. GIẢI PHÓNG TOÀN BỘ PHẦN CỨNG (Quan trọng nhất)
+                # Cho dù có lỗi đứt cáp hay chụp thành công, Block 'finally' luôn chạy
+                # Đảm bảo camera được Close và nhả RAM hoàn toàn.
+                if cam is not None and cam.IsOpen():
+                    try: cam.Close()
+                    except: pass
 
-#     # Hai hàm release bên dưới hiện tại chỉ để trống (pass) để không làm vỡ logic 
-#     # của các class Node khác đang gọi đến nó. Bản thân kiến trúc này không cần 
-#     # release thủ công vì nó tự dọn dẹp ở Block finally phía trên rồi.
-#     def release_one(self, serial_number: str):
-#         pass
+    # Hai hàm release bên dưới hiện tại chỉ để trống (pass) để không làm vỡ logic 
+    # của các class Node khác đang gọi đến nó. Bản thân kiến trúc này không cần 
+    # release thủ công vì nó tự dọn dẹp ở Block finally phía trên rồi.
+    def release_one(self, serial_number: str):
+        pass
 
-#     def _release_all(self):
-#         """Bảo hiểm cuối cùng: Được gọi khi tắt/reload Server"""
-#         with self._global_lock:
-#             for serial, context in self._cameras.items():
-#                 cam = context.get("active_cam")
+    def _release_all(self):
+        """Bảo hiểm cuối cùng: Được gọi khi tắt/reload Server"""
+        with self._global_lock:
+            for serial, context in self._cameras.items():
+                cam = context.get("active_cam")
                 
-#                 # Nếu lúc tắt server mà vẫn có camera đang chụp dở (khác None) -> Ép đóng!
-#                 if cam is not None:
-#                     try:
-#                         if cam.IsOpen(): cam.Close()
-#                         print(f"[Basler Info] Đã ép đóng an toàn camera {serial} do server tắt.")
-#                     except: pass
-#                 context["active_cam"] = None
+                # Nếu lúc tắt server mà vẫn có camera đang chụp dở (khác None) -> Ép đóng!
+                if cam is not None:
+                    try:
+                        if cam.IsOpen(): cam.Close()
+                        print(f"[Basler Info] Đã ép đóng an toàn camera {serial} do server tắt.")
+                    except: pass
+                context["active_cam"] = None
 
-# class CameraInput(BaseModel):
-#     model_config = ConfigDict(arbitrary_types_allowed=True)
-#     execute_in : Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
-#     cam_ip : str = Field(default="", title="Camera IP", description=UIDataType.STRING.value)
-#     exposure : float = Field(default=40000, title="Exposure", description=UIDataType.NUMBER.value)
+class CameraInput(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    execute_in : Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
+    cam_ip : str = Field(default="", title="Camera IP", description=UIDataType.STRING.value)
+    exposure : float = Field(default=40000, title="Exposure", description=UIDataType.NUMBER.value)
 
-# class CameraOutput(BaseModel):
-#     model_config = ConfigDict(arbitrary_types_allowed=True)
-#     execute_out : Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
-#     image: Any = Field(default=None, title="Output Image", description=UIDataType.ANY.value)
+class CameraOutput(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    execute_out : Any = Field(default="GO", title="Execute", description=UIDataType.EXECUTE.value)
+    image: Any = Field(default=None, title="Output Image", description=UIDataType.ANY.value)
 
-# @registry_node
-# class BaslerCameraNode(BaseNode[CameraInput, CameraOutput]):
-#     INPUT_SCHEMA = CameraInput
-#     OUTPUT_SCHEMA = CameraOutput
-#     NODE_TYPE = NodeType.PROGRAM
-#     UI_LABEL = "Basler GigE"
-#     UI_DESCRIPTION = "Control Basler Camera"
-#     UI_COLOR = "#005a9e"
-#     REQUIRE_TIMEOUT = 5.0
+@registry_node
+class BaslerCameraNode(BaseNode[CameraInput, CameraOutput]):
+    INPUT_SCHEMA = CameraInput
+    OUTPUT_SCHEMA = CameraOutput
+    NODE_TYPE = NodeType.PROGRAM
+    UI_LABEL = "Basler GigE"
+    UI_DESCRIPTION = "Control Basler Camera"
+    UI_COLOR = "#005a9e"
+    REQUIRE_TIMEOUT = 5.0
 
-#     CONFIG_FIELDS = [
-#         UIConfigField(
-#             id="output_format",
-#             label="Image Output Format",
-#             type=UIConfigType.SELECT,
-#             options=["Base64", "NumpyArray"],
-#             default="Base64"
-#         )
-#     ]
-#     def __init__(self, node_id, parent, node_data = None):
-#         super().__init__(node_id, parent, node_data)
-#         self.cam = None
-#         self.output_format = self.get_config_field_value("output_format")
+    CONFIG_FIELDS = [
+        UIConfigField(
+            id="output_format",
+            label="Image Output Format",
+            type=UIConfigType.SELECT,
+            options=["Base64", "NumpyArray"],
+            default="Base64"
+        )
+    ]
+    def __init__(self, node_id, parent, node_data = None):
+        super().__init__(node_id, parent, node_data)
+        self.cam = None
+        self.output_format = self.get_config_field_value("output_format")
         
-#     async def execute(self):
-#         manager = BaslerCameraManager()
+    async def execute(self):
+        manager = BaslerCameraManager()
 
-#         try:
-#             # Use a seperate thread to avoid blocking the system
-#             img = await asyncio.to_thread(manager.get_image, self.local_input.cam_ip, 5000, self.local_input.exposure)
+        try:
+            # Use a seperate thread to avoid blocking the system
+            img = await asyncio.to_thread(manager.get_image, self.local_input.cam_ip, 5000, self.local_input.exposure)
 
-#             if (self.output_format == "Base64"):
-#                 img = cv2_to_base64(img)
+            if (self.output_format == "Base64"):
+                img = cv2_to_base64(img)
 
-#             self.local_output = self.OUTPUT_SCHEMA(image=img)        
-#         except Exception as e:
-#             manager.release_one(self.local_input.cam_ip)
-#             raise RuntimeError(str(e))
+            self.local_output = self.OUTPUT_SCHEMA(image=img)        
+        except Exception as e:
+            manager.release_one(self.local_input.cam_ip)
+            raise RuntimeError(str(e))
 
         
 # # ==========================================
