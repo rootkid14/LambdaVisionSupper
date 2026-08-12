@@ -1,0 +1,178 @@
+{
+  "timeout": 30,
+  "nodes": [
+    {
+      "id": "ReceivePayloadNode-1781227539168",
+      "type": "1",
+      "position": {
+        "x": -464.0598368931955,
+        "y": 252.56364216454062
+      },
+      "data": {
+        "type": "1",
+        "class": "ReceivePayloadNode",
+        "label": "Data In",
+        "description": "Define what data need to receive from FE",
+        "color": "bg-purple-600",
+        "inputs": [],
+        "outputs": [
+          {
+            "id": "execute",
+            "label": "execute",
+            "dataType": "execute"
+          },
+          {
+            "id": "image_folder_path",
+            "label": "Image_Folder_Path",
+            "dataType": "string"
+          }
+        ],
+        "config_fields": [
+          {
+            "id": "timeout_limit",
+            "label": "Timeout (s)",
+            "type": "number",
+            "default": 1
+          }
+        ],
+        "className": "ReceivePayloadNode",
+        "displayName": "Data In"
+      },
+      "measured": {
+        "width": 278,
+        "height": 161
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "SendResponseNode-1781227540672",
+      "type": "1",
+      "position": {
+        "x": 398,
+        "y": 236
+      },
+      "data": {
+        "type": "1",
+        "class": "SendResponseNode",
+        "label": "Data Out",
+        "description": "Define Output Data and Send back to API",
+        "color": "bg-rose-600",
+        "inputs": [
+          {
+            "id": "execute",
+            "label": "execute",
+            "dataType": "execute"
+          },
+          {
+            "id": "image_path_list",
+            "label": "Image_Path_List",
+            "dataType": "list"
+          }
+        ],
+        "outputs": [],
+        "config_fields": [
+          {
+            "id": "timeout_limit",
+            "label": "Timeout (s)",
+            "type": "number",
+            "default": 1
+          }
+        ],
+        "className": "SendResponseNode",
+        "displayName": "Data Out"
+      },
+      "measured": {
+        "width": 247,
+        "height": 161
+      },
+      "selected": false
+    },
+    {
+      "id": "FolderImageScanner-1781227577845",
+      "type": "1",
+      "position": {
+        "x": -75.5991189072274,
+        "y": 199.7160480067209
+      },
+      "data": {
+        "type": "1",
+        "class": "FolderImageScanner",
+        "label": "Folder Image Scanner",
+        "description": "No Description",
+        "color": "bg-purple-500",
+        "inputs": [
+          {
+            "id": "execute_in",
+            "label": "Execute",
+            "dataType": "execute"
+          },
+          {
+            "id": "folder_path",
+            "label": "Target Folder",
+            "dataType": "string"
+          }
+        ],
+        "outputs": [
+          {
+            "id": "execute_out",
+            "label": "Execute",
+            "dataType": "execute"
+          },
+          {
+            "id": "image_list",
+            "label": "Image List",
+            "dataType": "list"
+          }
+        ],
+        "config_fields": [
+          {
+            "id": "timeout_limit",
+            "label": "Timeout (s)",
+            "type": "number",
+            "default": 1
+          }
+        ],
+        "className": "FolderImageScanner",
+        "displayName": "Folder Image Scanner",
+        "timeout_limit": 2
+      },
+      "measured": {
+        "width": 240,
+        "height": 261
+      },
+      "selected": false,
+      "dragging": false
+    }
+  ],
+  "edges": [
+    {
+      "source": "ReceivePayloadNode-1781227539168",
+      "sourceHandle": "image_folder_path",
+      "target": "FolderImageScanner-1781227577845",
+      "targetHandle": "folder_path",
+      "id": "xy-edge__ReceivePayloadNode-1781227539168image_folder_path-FolderImageScanner-1781227577845folder_path"
+    },
+    {
+      "source": "ReceivePayloadNode-1781227539168",
+      "sourceHandle": "execute",
+      "target": "FolderImageScanner-1781227577845",
+      "targetHandle": "execute_in",
+      "id": "xy-edge__ReceivePayloadNode-1781227539168execute-FolderImageScanner-1781227577845execute_in"
+    },
+    {
+      "source": "FolderImageScanner-1781227577845",
+      "sourceHandle": "execute_out",
+      "target": "SendResponseNode-1781227540672",
+      "targetHandle": "execute",
+      "id": "xy-edge__FolderImageScanner-1781227577845execute_out-SendResponseNode-1781227540672execute"
+    },
+    {
+      "source": "FolderImageScanner-1781227577845",
+      "sourceHandle": "image_list",
+      "target": "SendResponseNode-1781227540672",
+      "targetHandle": "image_path_list",
+      "id": "xy-edge__FolderImageScanner-1781227577845image_list-SendResponseNode-1781227540672image_path_list"
+    }
+  ]
+}

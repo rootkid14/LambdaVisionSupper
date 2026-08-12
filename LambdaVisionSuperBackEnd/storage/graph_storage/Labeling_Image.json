@@ -1,0 +1,256 @@
+{
+  "timeout": 30,
+  "nodes": [
+    {
+      "id": "ReceivePayloadNode-1781227738004",
+      "type": "1",
+      "position": {
+        "x": -7.541919768083005,
+        "y": 304.10630521613865
+      },
+      "data": {
+        "type": "1",
+        "class": "ReceivePayloadNode",
+        "label": "Data In",
+        "description": "Define what data need to receive from FE",
+        "color": "bg-purple-600",
+        "inputs": [],
+        "outputs": [
+          {
+            "id": "execute",
+            "label": "execute",
+            "dataType": "execute"
+          },
+          {
+            "id": "image_to_label",
+            "label": "Image_To_Label",
+            "dataType": "base64"
+          },
+          {
+            "id": "bboxes_json_label_xywh",
+            "label": "BBoxes_JSON_Label_xywh",
+            "dataType": "json"
+          },
+          {
+            "id": "classes_names_commasep_",
+            "label": "Classes_Names(commaSep)",
+            "dataType": "string"
+          },
+          {
+            "id": "save_image_folder",
+            "label": "save_image_folder",
+            "dataType": "string"
+          },
+          {
+            "id": "save_label_folder",
+            "label": "save_label_folder",
+            "dataType": "string"
+          }
+        ],
+        "config_fields": [
+          {
+            "id": "timeout_limit",
+            "label": "Timeout (s)",
+            "type": "number",
+            "default": 1
+          }
+        ],
+        "className": "ReceivePayloadNode",
+        "displayName": "Data In"
+      },
+      "measured": {
+        "width": 320,
+        "height": 289
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "SendResponseNode-1781227740204",
+      "type": "1",
+      "position": {
+        "x": 1004.4219032667289,
+        "y": 492.27748252127776
+      },
+      "data": {
+        "type": "1",
+        "class": "SendResponseNode",
+        "label": "Data Out",
+        "description": "Define Output Data and Send back to API",
+        "color": "bg-rose-600",
+        "inputs": [
+          {
+            "id": "execute",
+            "label": "execute",
+            "dataType": "execute"
+          },
+          {
+            "id": "saved_sucess",
+            "label": "saved_sucess",
+            "dataType": "boolean"
+          }
+        ],
+        "outputs": [],
+        "config_fields": [
+          {
+            "id": "timeout_limit",
+            "label": "Timeout (s)",
+            "type": "number",
+            "default": 1
+          }
+        ],
+        "className": "SendResponseNode",
+        "displayName": "Data Out"
+      },
+      "measured": {
+        "width": 240,
+        "height": 161
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "SaveYoloDatasetNode-1781227747580",
+      "type": "1",
+      "position": {
+        "x": 582.4454039983622,
+        "y": 210.14901461525068
+      },
+      "data": {
+        "type": "1",
+        "class": "SaveYoloDatasetNode",
+        "label": "SAVE YOLO DATASET",
+        "description": "Auto format and save Image & Label (.txt) for YOLO Detection training",
+        "color": "bg-blue-600",
+        "inputs": [
+          {
+            "id": "execute_in",
+            "label": "Execute",
+            "dataType": "execute"
+          },
+          {
+            "id": "input_image",
+            "label": "Input Image",
+            "dataType": "any"
+          },
+          {
+            "id": "bboxes_json",
+            "label": "BBoxes JSON",
+            "dataType": "json"
+          },
+          {
+            "id": "classes_list",
+            "label": "Classes (Comma separated)",
+            "dataType": "string"
+          },
+          {
+            "id": "image_folder",
+            "label": "Image Folder",
+            "dataType": "string"
+          },
+          {
+            "id": "label_folder",
+            "label": "Label Folder",
+            "dataType": "string"
+          }
+        ],
+        "outputs": [
+          {
+            "id": "execute_out",
+            "label": "Execute",
+            "dataType": "execute"
+          },
+          {
+            "id": "saved_status",
+            "label": "Saved Success",
+            "dataType": "boolean"
+          },
+          {
+            "id": "saved_file_name",
+            "label": "Saved File Name",
+            "dataType": "string"
+          }
+        ],
+        "config_fields": [
+          {
+            "id": "timeout_limit",
+            "label": "Timeout (s)",
+            "type": "number",
+            "default": 1
+          }
+        ],
+        "className": "SaveYoloDatasetNode",
+        "displayName": "SAVE YOLO DATASET"
+      },
+      "measured": {
+        "width": 240,
+        "height": 421
+      },
+      "selected": false,
+      "dragging": false
+    }
+  ],
+  "edges": [
+    {
+      "source": "ReceivePayloadNode-1781227738004",
+      "sourceHandle": "execute",
+      "target": "SaveYoloDatasetNode-1781227747580",
+      "targetHandle": "execute_in",
+      "id": "xy-edge__ReceivePayloadNode-1781227738004execute-SaveYoloDatasetNode-1781227747580execute_in",
+      "selected": false
+    },
+    {
+      "source": "ReceivePayloadNode-1781227738004",
+      "sourceHandle": "image_to_label",
+      "target": "SaveYoloDatasetNode-1781227747580",
+      "targetHandle": "input_image",
+      "id": "xy-edge__ReceivePayloadNode-1781227738004image_to_label-SaveYoloDatasetNode-1781227747580input_image",
+      "selected": false
+    },
+    {
+      "source": "ReceivePayloadNode-1781227738004",
+      "sourceHandle": "bboxes_json_label_xywh",
+      "target": "SaveYoloDatasetNode-1781227747580",
+      "targetHandle": "bboxes_json",
+      "id": "xy-edge__ReceivePayloadNode-1781227738004bboxes_json_label_xywh-SaveYoloDatasetNode-1781227747580bboxes_json",
+      "selected": false
+    },
+    {
+      "source": "ReceivePayloadNode-1781227738004",
+      "sourceHandle": "classes_names_commasep_",
+      "target": "SaveYoloDatasetNode-1781227747580",
+      "targetHandle": "classes_list",
+      "id": "xy-edge__ReceivePayloadNode-1781227738004classes_names_commasep_-SaveYoloDatasetNode-1781227747580classes_list",
+      "selected": false
+    },
+    {
+      "source": "ReceivePayloadNode-1781227738004",
+      "sourceHandle": "save_image_folder",
+      "target": "SaveYoloDatasetNode-1781227747580",
+      "targetHandle": "image_folder",
+      "id": "xy-edge__ReceivePayloadNode-1781227738004save_image_folder-SaveYoloDatasetNode-1781227747580image_folder",
+      "selected": false
+    },
+    {
+      "source": "ReceivePayloadNode-1781227738004",
+      "sourceHandle": "save_label_folder",
+      "target": "SaveYoloDatasetNode-1781227747580",
+      "targetHandle": "label_folder",
+      "id": "xy-edge__ReceivePayloadNode-1781227738004save_label_folder-SaveYoloDatasetNode-1781227747580label_folder"
+    },
+    {
+      "source": "SaveYoloDatasetNode-1781227747580",
+      "sourceHandle": "execute_out",
+      "target": "SendResponseNode-1781227740204",
+      "targetHandle": "execute",
+      "id": "xy-edge__SaveYoloDatasetNode-1781227747580execute_out-SendResponseNode-1781227740204execute"
+    },
+    {
+      "source": "SaveYoloDatasetNode-1781227747580",
+      "sourceHandle": "saved_status",
+      "target": "SendResponseNode-1781227740204",
+      "targetHandle": "saved_sucess",
+      "id": "xy-edge__SaveYoloDatasetNode-1781227747580saved_status-SendResponseNode-1781227740204saved_sucess"
+    }
+  ]
+}

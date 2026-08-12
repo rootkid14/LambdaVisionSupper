@@ -1,0 +1,318 @@
+{
+  "timeout": 30,
+  "nodes": [
+    {
+      "id": "ReceivePayloadNode-1786435393557",
+      "type": "1",
+      "position": {
+        "x": -4.754729729729718,
+        "y": 382.4972972972972
+      },
+      "data": {
+        "type": "1",
+        "class": "ReceivePayloadNode",
+        "label": "Data In",
+        "description": "Define what data need to receive from FE",
+        "color": "bg-purple-600",
+        "inputs": [],
+        "outputs": [
+          {
+            "id": "execute",
+            "label": "execute",
+            "dataType": "execute"
+          },
+          {
+            "id": "world_x",
+            "label": "world_x",
+            "dataType": "number"
+          },
+          {
+            "id": "world_y",
+            "label": "world_y",
+            "dataType": "number"
+          },
+          {
+            "id": "world_z",
+            "label": "world_z",
+            "dataType": "number"
+          },
+          {
+            "id": "matrix_path",
+            "label": "matrix_path",
+            "dataType": "string"
+          }
+        ],
+        "config_fields": [
+          {
+            "id": "timeout_limit",
+            "label": "Timeout (s)",
+            "type": "number",
+            "default": 1
+          }
+        ],
+        "className": "ReceivePayloadNode",
+        "displayName": "Data In"
+      },
+      "measured": {
+        "width": 240,
+        "height": 257
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "SendResponseNode-1786435447962",
+      "type": "1",
+      "position": {
+        "x": 711.2885135135135,
+        "y": 519.8959459459459
+      },
+      "data": {
+        "type": "1",
+        "class": "SendResponseNode",
+        "label": "Data Out",
+        "description": "Define Output Data and Send back to API",
+        "color": "bg-rose-600",
+        "inputs": [
+          {
+            "id": "execute",
+            "label": "execute",
+            "dataType": "execute"
+          },
+          {
+            "id": "conversion_sucess",
+            "label": "conversion_sucess",
+            "dataType": "boolean"
+          },
+          {
+            "id": "robot_x",
+            "label": "robot_x",
+            "dataType": "number"
+          },
+          {
+            "id": "robot_y",
+            "label": "robot_y",
+            "dataType": "number"
+          },
+          {
+            "id": "robot_z",
+            "label": "robot_z",
+            "dataType": "number"
+          },
+          {
+            "id": "failure_message",
+            "label": "failure_message",
+            "dataType": "string"
+          }
+        ],
+        "outputs": [],
+        "config_fields": [
+          {
+            "id": "timeout_limit",
+            "label": "Timeout (s)",
+            "type": "number",
+            "default": 1
+          }
+        ],
+        "className": "SendResponseNode",
+        "displayName": "Data Out"
+      },
+      "measured": {
+        "width": 272,
+        "height": 289
+      },
+      "selected": false
+    },
+    {
+      "id": "WorldPointToRobotFrameNode-1786436126410",
+      "type": "1",
+      "position": {
+        "x": 290.3830695951611,
+        "y": 276.53316191296074
+      },
+      "data": {
+        "type": "1",
+        "class": "WorldPointToRobotFrameNode",
+        "label": "World Point To Robot Frame",
+        "description": "Convert XYZ point from ChArUco world coordinates to robot base coordinates using a calibration profile",
+        "color": "bg-orange-600",
+        "inputs": [
+          {
+            "id": "execute_in",
+            "label": "execute",
+            "dataType": "execute"
+          },
+          {
+            "id": "world_x_mm",
+            "label": "World X (mm)",
+            "dataType": "number"
+          },
+          {
+            "id": "world_y_mm",
+            "label": "World Y (mm)",
+            "dataType": "number"
+          },
+          {
+            "id": "world_z_mm",
+            "label": "World Z (mm)",
+            "dataType": "number"
+          },
+          {
+            "id": "calibration_profile_path",
+            "label": "World-Robot Calibration Profile JSON Path",
+            "dataType": "string"
+          }
+        ],
+        "outputs": [
+          {
+            "id": "conversion_success",
+            "label": "Conversion Success",
+            "dataType": "boolean"
+          },
+          {
+            "id": "robot_x_mm",
+            "label": "Robot X (mm)",
+            "dataType": "number"
+          },
+          {
+            "id": "robot_y_mm",
+            "label": "Robot Y (mm)",
+            "dataType": "number"
+          },
+          {
+            "id": "robot_z_mm",
+            "label": "Robot Z (mm)",
+            "dataType": "number"
+          },
+          {
+            "id": "robot_point",
+            "label": "Robot Point",
+            "dataType": "dict"
+          },
+          {
+            "id": "calculation_details",
+            "label": "Calculation Details",
+            "dataType": "dict"
+          },
+          {
+            "id": "failure_message",
+            "label": "Failure Message",
+            "dataType": "string"
+          },
+          {
+            "id": "execute_success",
+            "label": "success",
+            "dataType": "execute"
+          },
+          {
+            "id": "execute_failed",
+            "label": "failed",
+            "dataType": "execute"
+          }
+        ],
+        "config_fields": [
+          {
+            "id": "timeout_limit",
+            "label": "Timeout (s)",
+            "type": "number",
+            "default": 5
+          }
+        ],
+        "className": "WorldPointToRobotFrameNode",
+        "displayName": "World Point To Robot Frame"
+      },
+      "measured": {
+        "width": 313,
+        "height": 581
+      },
+      "selected": false,
+      "dragging": false
+    }
+  ],
+  "edges": [
+    {
+      "source": "ReceivePayloadNode-1786435393557",
+      "sourceHandle": "matrix_path",
+      "target": "WorldPointToRobotFrameNode-1786436126410",
+      "targetHandle": "calibration_profile_path",
+      "id": "xy-edge__ReceivePayloadNode-1786435393557matrix_path-WorldPointToRobotFrameNode-1786436126410calibration_profile_path"
+    },
+    {
+      "source": "ReceivePayloadNode-1786435393557",
+      "sourceHandle": "world_z",
+      "target": "WorldPointToRobotFrameNode-1786436126410",
+      "targetHandle": "world_z_mm",
+      "id": "xy-edge__ReceivePayloadNode-1786435393557world_z-WorldPointToRobotFrameNode-1786436126410world_z_mm"
+    },
+    {
+      "source": "ReceivePayloadNode-1786435393557",
+      "sourceHandle": "world_y",
+      "target": "WorldPointToRobotFrameNode-1786436126410",
+      "targetHandle": "world_y_mm",
+      "id": "xy-edge__ReceivePayloadNode-1786435393557world_y-WorldPointToRobotFrameNode-1786436126410world_y_mm"
+    },
+    {
+      "source": "ReceivePayloadNode-1786435393557",
+      "sourceHandle": "world_x",
+      "target": "WorldPointToRobotFrameNode-1786436126410",
+      "targetHandle": "world_x_mm",
+      "id": "xy-edge__ReceivePayloadNode-1786435393557world_x-WorldPointToRobotFrameNode-1786436126410world_x_mm"
+    },
+    {
+      "source": "ReceivePayloadNode-1786435393557",
+      "sourceHandle": "execute",
+      "target": "WorldPointToRobotFrameNode-1786436126410",
+      "targetHandle": "execute_in",
+      "id": "xy-edge__ReceivePayloadNode-1786435393557execute-WorldPointToRobotFrameNode-1786436126410execute_in"
+    },
+    {
+      "source": "WorldPointToRobotFrameNode-1786436126410",
+      "sourceHandle": "conversion_success",
+      "target": "SendResponseNode-1786435447962",
+      "targetHandle": "conversion_sucess",
+      "id": "xy-edge__WorldPointToRobotFrameNode-1786436126410conversion_success-SendResponseNode-1786435447962conversion_sucess"
+    },
+    {
+      "source": "WorldPointToRobotFrameNode-1786436126410",
+      "sourceHandle": "robot_x_mm",
+      "target": "SendResponseNode-1786435447962",
+      "targetHandle": "robot_x",
+      "id": "xy-edge__WorldPointToRobotFrameNode-1786436126410robot_x_mm-SendResponseNode-1786435447962robot_x"
+    },
+    {
+      "source": "WorldPointToRobotFrameNode-1786436126410",
+      "sourceHandle": "robot_y_mm",
+      "target": "SendResponseNode-1786435447962",
+      "targetHandle": "robot_y",
+      "id": "xy-edge__WorldPointToRobotFrameNode-1786436126410robot_y_mm-SendResponseNode-1786435447962robot_y"
+    },
+    {
+      "source": "WorldPointToRobotFrameNode-1786436126410",
+      "sourceHandle": "robot_z_mm",
+      "target": "SendResponseNode-1786435447962",
+      "targetHandle": "robot_z",
+      "id": "xy-edge__WorldPointToRobotFrameNode-1786436126410robot_z_mm-SendResponseNode-1786435447962robot_z"
+    },
+    {
+      "source": "WorldPointToRobotFrameNode-1786436126410",
+      "sourceHandle": "failure_message",
+      "target": "SendResponseNode-1786435447962",
+      "targetHandle": "failure_message",
+      "id": "xy-edge__WorldPointToRobotFrameNode-1786436126410failure_message-SendResponseNode-1786435447962failure_message"
+    },
+    {
+      "source": "WorldPointToRobotFrameNode-1786436126410",
+      "sourceHandle": "execute_success",
+      "target": "SendResponseNode-1786435447962",
+      "targetHandle": "execute",
+      "id": "xy-edge__WorldPointToRobotFrameNode-1786436126410execute_success-SendResponseNode-1786435447962execute"
+    },
+    {
+      "source": "WorldPointToRobotFrameNode-1786436126410",
+      "sourceHandle": "execute_failed",
+      "target": "SendResponseNode-1786435447962",
+      "targetHandle": "execute",
+      "id": "xy-edge__WorldPointToRobotFrameNode-1786436126410execute_failed-SendResponseNode-1786435447962execute"
+    }
+  ]
+}

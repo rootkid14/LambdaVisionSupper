@@ -1,0 +1,186 @@
+{
+  "timeout": 30,
+  "nodes": [
+    {
+      "id": "RandomIntNode-1785148327630",
+      "type": "1",
+      "position": {
+        "x": 304,
+        "y": 165
+      },
+      "data": {
+        "type": "1",
+        "class": "RandomIntNode",
+        "label": "Random Int",
+        "description": "Sinh số nguyên ngẫu nhiên trong khoảng [Min, Max]",
+        "color": "bg-green-700",
+        "inputs": [
+          {
+            "id": "execute_in",
+            "label": "Execute In",
+            "dataType": "execute"
+          },
+          {
+            "id": "min_val",
+            "label": "Min Value",
+            "dataType": "number"
+          },
+          {
+            "id": "max_val",
+            "label": "Max Value",
+            "dataType": "number"
+          }
+        ],
+        "outputs": [
+          {
+            "id": "execute_out",
+            "label": "Execute",
+            "dataType": "execute"
+          },
+          {
+            "id": "result",
+            "label": "Result",
+            "dataType": "number"
+          }
+        ],
+        "config_fields": [],
+        "className": "RandomIntNode",
+        "displayName": "Random Int"
+      },
+      "measured": {
+        "width": 240,
+        "height": 215
+      }
+    },
+    {
+      "id": "ReceivePayloadNode-1785148333326",
+      "type": "1",
+      "position": {
+        "x": -23.75,
+        "y": 122
+      },
+      "data": {
+        "type": "1",
+        "class": "ReceivePayloadNode",
+        "label": "Data In",
+        "description": "Define what data need to receive from FE",
+        "color": "bg-purple-600",
+        "inputs": [],
+        "outputs": [
+          {
+            "id": "execute",
+            "label": "execute",
+            "dataType": "execute"
+          },
+          {
+            "id": "min",
+            "label": "min",
+            "dataType": "number"
+          },
+          {
+            "id": "max",
+            "label": "max",
+            "dataType": "number"
+          }
+        ],
+        "config_fields": [
+          {
+            "id": "timeout_limit",
+            "label": "Timeout (s)",
+            "type": "number",
+            "default": 1
+          }
+        ],
+        "className": "ReceivePayloadNode",
+        "displayName": "Data In"
+      },
+      "measured": {
+        "width": 240,
+        "height": 193
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "SendResponseNode-1785148351303",
+      "type": "1",
+      "position": {
+        "x": 619.25,
+        "y": 219
+      },
+      "data": {
+        "type": "1",
+        "class": "SendResponseNode",
+        "label": "Data Out",
+        "description": "Define Output Data and Send back to API",
+        "color": "bg-rose-600",
+        "inputs": [
+          {
+            "id": "execute",
+            "label": "execute",
+            "dataType": "execute"
+          },
+          {
+            "id": "result",
+            "label": "result",
+            "dataType": "number"
+          }
+        ],
+        "outputs": [],
+        "config_fields": [
+          {
+            "id": "timeout_limit",
+            "label": "Timeout (s)",
+            "type": "number",
+            "default": 1
+          }
+        ],
+        "className": "SendResponseNode",
+        "displayName": "Data Out"
+      },
+      "measured": {
+        "width": 240,
+        "height": 161
+      },
+      "selected": false,
+      "dragging": false
+    }
+  ],
+  "edges": [
+    {
+      "source": "ReceivePayloadNode-1785148333326",
+      "sourceHandle": "execute",
+      "target": "RandomIntNode-1785148327630",
+      "targetHandle": "execute_in",
+      "id": "xy-edge__ReceivePayloadNode-1785148333326execute-RandomIntNode-1785148327630execute_in"
+    },
+    {
+      "source": "ReceivePayloadNode-1785148333326",
+      "sourceHandle": "max",
+      "target": "RandomIntNode-1785148327630",
+      "targetHandle": "max_val",
+      "id": "xy-edge__ReceivePayloadNode-1785148333326max-RandomIntNode-1785148327630max_val"
+    },
+    {
+      "source": "ReceivePayloadNode-1785148333326",
+      "sourceHandle": "min",
+      "target": "RandomIntNode-1785148327630",
+      "targetHandle": "min_val",
+      "id": "xy-edge__ReceivePayloadNode-1785148333326min-RandomIntNode-1785148327630min_val"
+    },
+    {
+      "source": "RandomIntNode-1785148327630",
+      "sourceHandle": "execute_out",
+      "target": "SendResponseNode-1785148351303",
+      "targetHandle": "execute",
+      "id": "xy-edge__RandomIntNode-1785148327630execute_out-SendResponseNode-1785148351303execute"
+    },
+    {
+      "source": "RandomIntNode-1785148327630",
+      "sourceHandle": "result",
+      "target": "SendResponseNode-1785148351303",
+      "targetHandle": "result",
+      "id": "xy-edge__RandomIntNode-1785148327630result-SendResponseNode-1785148351303result"
+    }
+  ]
+}

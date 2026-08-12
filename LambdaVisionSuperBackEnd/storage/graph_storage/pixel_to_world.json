@@ -1,0 +1,359 @@
+{
+  "timeout": 30,
+  "nodes": [
+    {
+      "id": "PixelToWorldFrameNode-1786426850523",
+      "type": "1",
+      "position": {
+        "x": 251,
+        "y": 282
+      },
+      "data": {
+        "type": "1",
+        "class": "PixelToWorldFrameNode",
+        "label": "Pixel To World Frame",
+        "description": "Convert a distorted image pixel into a physical point by intersecting its camera ray with a constant-Z world plane",
+        "color": "bg-emerald-600",
+        "inputs": [
+          {
+            "id": "execute_in",
+            "label": "execute",
+            "dataType": "execute"
+          },
+          {
+            "id": "pixel_u",
+            "label": "Pixel U / X",
+            "dataType": "number"
+          },
+          {
+            "id": "pixel_v",
+            "label": "Pixel V / Y",
+            "dataType": "number"
+          },
+          {
+            "id": "target_plane_z_mm",
+            "label": "Target Plane Z (mm)",
+            "dataType": "number"
+          },
+          {
+            "id": "extrinsics_profile_file_path",
+            "label": "Extrinsics Profile File Path",
+            "dataType": "string"
+          }
+        ],
+        "outputs": [
+          {
+            "id": "conversion_success",
+            "label": "Conversion Success",
+            "dataType": "boolean"
+          },
+          {
+            "id": "world_x_mm",
+            "label": "World X (mm)",
+            "dataType": "number"
+          },
+          {
+            "id": "world_y_mm",
+            "label": "World Y (mm)",
+            "dataType": "number"
+          },
+          {
+            "id": "world_z_mm",
+            "label": "World Z (mm)",
+            "dataType": "number"
+          },
+          {
+            "id": "ray_distance_mm",
+            "label": "Ray Distance (mm)",
+            "dataType": "number"
+          },
+          {
+            "id": "reprojection_error_px",
+            "label": "Reprojection Error (px)",
+            "dataType": "number"
+          },
+          {
+            "id": "world_point_json",
+            "label": "World Point",
+            "dataType": "json"
+          },
+          {
+            "id": "calculation_details_json",
+            "label": "Calculation Details",
+            "dataType": "json"
+          },
+          {
+            "id": "failure_message",
+            "label": "Failure Message",
+            "dataType": "string"
+          },
+          {
+            "id": "execute_success",
+            "label": "success",
+            "dataType": "execute"
+          },
+          {
+            "id": "execute_failed",
+            "label": "failed",
+            "dataType": "execute"
+          }
+        ],
+        "config_fields": [
+          {
+            "id": "timeout_limit",
+            "label": "Timeout (s)",
+            "type": "number",
+            "default": 10
+          }
+        ],
+        "className": "PixelToWorldFrameNode",
+        "displayName": "Pixel To World Frame"
+      },
+      "measured": {
+        "width": 240,
+        "height": 645
+      }
+    },
+    {
+      "id": "ReceivePayloadNode-1786426852951",
+      "type": "1",
+      "position": {
+        "x": -139.33445945945942,
+        "y": 407.5135135135135
+      },
+      "data": {
+        "type": "1",
+        "class": "ReceivePayloadNode",
+        "label": "Data In",
+        "description": "Define what data need to receive from FE",
+        "color": "bg-purple-600",
+        "inputs": [],
+        "outputs": [
+          {
+            "id": "execute",
+            "label": "execute",
+            "dataType": "execute"
+          },
+          {
+            "id": "pixel_x",
+            "label": "pixel_x",
+            "dataType": "number"
+          },
+          {
+            "id": "pixel_y",
+            "label": "pixel_y",
+            "dataType": "number"
+          },
+          {
+            "id": "target_plane",
+            "label": "target_plane",
+            "dataType": "number"
+          },
+          {
+            "id": "extrinsic_profile_path",
+            "label": "extrinsic_profile_path",
+            "dataType": "string"
+          }
+        ],
+        "config_fields": [
+          {
+            "id": "timeout_limit",
+            "label": "Timeout (s)",
+            "type": "number",
+            "default": 1
+          }
+        ],
+        "className": "ReceivePayloadNode",
+        "displayName": "Data In"
+      },
+      "measured": {
+        "width": 320,
+        "height": 257
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "SendResponseNode-1786426914792",
+      "type": "1",
+      "position": {
+        "x": 658.1993243243244,
+        "y": 556.5608108108107
+      },
+      "data": {
+        "type": "1",
+        "class": "SendResponseNode",
+        "label": "Data Out",
+        "description": "Define Output Data and Send back to API",
+        "color": "bg-rose-600",
+        "inputs": [
+          {
+            "id": "execute",
+            "label": "execute",
+            "dataType": "execute"
+          },
+          {
+            "id": "conversion_success",
+            "label": "conversion_success",
+            "dataType": "boolean"
+          },
+          {
+            "id": "world_x",
+            "label": "world_x",
+            "dataType": "number"
+          },
+          {
+            "id": "world_y",
+            "label": "world_y",
+            "dataType": "number"
+          },
+          {
+            "id": "world_z",
+            "label": "world_z",
+            "dataType": "number"
+          },
+          {
+            "id": "ray_distance",
+            "label": "ray_distance",
+            "dataType": "number"
+          },
+          {
+            "id": "reprojection_error",
+            "label": "reprojection_error",
+            "dataType": "number"
+          },
+          {
+            "id": "failure_message",
+            "label": "failure_message",
+            "dataType": "string"
+          }
+        ],
+        "outputs": [],
+        "config_fields": [
+          {
+            "id": "timeout_limit",
+            "label": "Timeout (s)",
+            "type": "number",
+            "default": 1
+          }
+        ],
+        "className": "SendResponseNode",
+        "displayName": "Data Out"
+      },
+      "measured": {
+        "width": 284,
+        "height": 353
+      },
+      "selected": false,
+      "dragging": false
+    }
+  ],
+  "edges": [
+    {
+      "source": "ReceivePayloadNode-1786426852951",
+      "sourceHandle": "execute",
+      "target": "PixelToWorldFrameNode-1786426850523",
+      "targetHandle": "execute_in",
+      "id": "xy-edge__ReceivePayloadNode-1786426852951execute-PixelToWorldFrameNode-1786426850523execute_in"
+    },
+    {
+      "source": "ReceivePayloadNode-1786426852951",
+      "sourceHandle": "pixel_x",
+      "target": "PixelToWorldFrameNode-1786426850523",
+      "targetHandle": "pixel_u",
+      "id": "xy-edge__ReceivePayloadNode-1786426852951pixel_x-PixelToWorldFrameNode-1786426850523pixel_u"
+    },
+    {
+      "source": "ReceivePayloadNode-1786426852951",
+      "sourceHandle": "pixel_y",
+      "target": "PixelToWorldFrameNode-1786426850523",
+      "targetHandle": "pixel_v",
+      "id": "xy-edge__ReceivePayloadNode-1786426852951pixel_y-PixelToWorldFrameNode-1786426850523pixel_v"
+    },
+    {
+      "source": "ReceivePayloadNode-1786426852951",
+      "sourceHandle": "target_plane",
+      "target": "PixelToWorldFrameNode-1786426850523",
+      "targetHandle": "target_plane_z_mm",
+      "id": "xy-edge__ReceivePayloadNode-1786426852951target_plane-PixelToWorldFrameNode-1786426850523target_plane_z_mm"
+    },
+    {
+      "source": "ReceivePayloadNode-1786426852951",
+      "sourceHandle": "extrinsic_profile_path",
+      "target": "PixelToWorldFrameNode-1786426850523",
+      "targetHandle": "extrinsics_profile_file_path",
+      "id": "xy-edge__ReceivePayloadNode-1786426852951extrinsic_profile_path-PixelToWorldFrameNode-1786426850523extrinsics_profile_file_path"
+    },
+    {
+      "source": "PixelToWorldFrameNode-1786426850523",
+      "sourceHandle": "execute_success",
+      "target": "SendResponseNode-1786426914792",
+      "targetHandle": "execute",
+      "id": "xy-edge__PixelToWorldFrameNode-1786426850523execute_success-SendResponseNode-1786426914792execute",
+      "selected": false
+    },
+    {
+      "source": "PixelToWorldFrameNode-1786426850523",
+      "sourceHandle": "execute_failed",
+      "target": "SendResponseNode-1786426914792",
+      "targetHandle": "execute",
+      "id": "xy-edge__PixelToWorldFrameNode-1786426850523execute_failed-SendResponseNode-1786426914792execute",
+      "selected": false
+    },
+    {
+      "source": "PixelToWorldFrameNode-1786426850523",
+      "sourceHandle": "conversion_success",
+      "target": "SendResponseNode-1786426914792",
+      "targetHandle": "conversion_success",
+      "id": "xy-edge__PixelToWorldFrameNode-1786426850523conversion_success-SendResponseNode-1786426914792conversion_success",
+      "selected": false
+    },
+    {
+      "source": "PixelToWorldFrameNode-1786426850523",
+      "sourceHandle": "world_x_mm",
+      "target": "SendResponseNode-1786426914792",
+      "targetHandle": "world_x",
+      "id": "xy-edge__PixelToWorldFrameNode-1786426850523world_x_mm-SendResponseNode-1786426914792world_x",
+      "selected": false
+    },
+    {
+      "source": "PixelToWorldFrameNode-1786426850523",
+      "sourceHandle": "world_y_mm",
+      "target": "SendResponseNode-1786426914792",
+      "targetHandle": "world_y",
+      "id": "xy-edge__PixelToWorldFrameNode-1786426850523world_y_mm-SendResponseNode-1786426914792world_y",
+      "selected": false
+    },
+    {
+      "source": "PixelToWorldFrameNode-1786426850523",
+      "sourceHandle": "world_z_mm",
+      "target": "SendResponseNode-1786426914792",
+      "targetHandle": "world_z",
+      "id": "xy-edge__PixelToWorldFrameNode-1786426850523world_z_mm-SendResponseNode-1786426914792world_z",
+      "selected": false
+    },
+    {
+      "source": "PixelToWorldFrameNode-1786426850523",
+      "sourceHandle": "ray_distance_mm",
+      "target": "SendResponseNode-1786426914792",
+      "targetHandle": "ray_distance",
+      "id": "xy-edge__PixelToWorldFrameNode-1786426850523ray_distance_mm-SendResponseNode-1786426914792ray_distance",
+      "selected": false
+    },
+    {
+      "source": "PixelToWorldFrameNode-1786426850523",
+      "sourceHandle": "reprojection_error_px",
+      "target": "SendResponseNode-1786426914792",
+      "targetHandle": "reprojection_error",
+      "id": "xy-edge__PixelToWorldFrameNode-1786426850523reprojection_error_px-SendResponseNode-1786426914792reprojection_error",
+      "selected": false
+    },
+    {
+      "source": "PixelToWorldFrameNode-1786426850523",
+      "sourceHandle": "failure_message",
+      "target": "SendResponseNode-1786426914792",
+      "targetHandle": "failure_message",
+      "id": "xy-edge__PixelToWorldFrameNode-1786426850523failure_message-SendResponseNode-1786426914792failure_message"
+    }
+  ]
+}

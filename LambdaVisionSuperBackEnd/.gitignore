@@ -10,4 +10,4 @@ __pycache__/
 *.pyc
 
 # Thư mục lưu trữ file sinh ra trong quá trình chạy (nếu không cần thiết đồng bộ)
-storage/
+# storage/

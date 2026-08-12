@@ -1,0 +1,216 @@
+{
+  "timeout": 30,
+  "nodes": [
+    {
+      "id": "ReceivePayloadNode-1781230293808",
+      "type": "1",
+      "position": {
+        "x": -60.43028373730337,
+        "y": 158.69732790553206
+      },
+      "data": {
+        "type": "1",
+        "class": "ReceivePayloadNode",
+        "label": "Data In",
+        "description": "Define what data need to receive from FE",
+        "color": "bg-purple-600",
+        "inputs": [],
+        "outputs": [
+          {
+            "id": "execute",
+            "label": "execute",
+            "dataType": "execute"
+          },
+          {
+            "id": "input_image",
+            "label": "input_image",
+            "dataType": "base64"
+          },
+          {
+            "id": "width",
+            "label": "width",
+            "dataType": "number"
+          },
+          {
+            "id": "height",
+            "label": "height",
+            "dataType": "number"
+          }
+        ],
+        "config_fields": [
+          {
+            "id": "timeout_limit",
+            "label": "Timeout (s)",
+            "type": "number",
+            "default": 1
+          }
+        ],
+        "className": "ReceivePayloadNode",
+        "displayName": "Data In"
+      },
+      "measured": {
+        "width": 240,
+        "height": 225
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "SendResponseNode-1781230295832",
+      "type": "1",
+      "position": {
+        "x": 735.9196556420154,
+        "y": 202.8072971730687
+      },
+      "data": {
+        "type": "1",
+        "class": "SendResponseNode",
+        "label": "Data Out",
+        "description": "Define Output Data and Send back to API",
+        "color": "bg-rose-600",
+        "inputs": [
+          {
+            "id": "execute",
+            "label": "execute",
+            "dataType": "execute"
+          },
+          {
+            "id": "resized_image",
+            "label": "resized_image",
+            "dataType": "base64"
+          }
+        ],
+        "outputs": [],
+        "config_fields": [
+          {
+            "id": "timeout_limit",
+            "label": "Timeout (s)",
+            "type": "number",
+            "default": 1
+          }
+        ],
+        "className": "SendResponseNode",
+        "displayName": "Data Out"
+      },
+      "measured": {
+        "width": 240,
+        "height": 161
+      },
+      "selected": true
+    },
+    {
+      "id": "ImageResize-1781230298993",
+      "type": "1",
+      "position": {
+        "x": 302.7653230545005,
+        "y": 113.15855210884942
+      },
+      "data": {
+        "type": "1",
+        "class": "ImageResize",
+        "label": "Image Resize",
+        "description": "Resize an image",
+        "color": "#202020",
+        "inputs": [
+          {
+            "id": "execute_in",
+            "label": "Execute",
+            "dataType": "execute"
+          },
+          {
+            "id": "input_image",
+            "label": "Input Image",
+            "dataType": "any"
+          },
+          {
+            "id": "width",
+            "label": "Width",
+            "dataType": "number"
+          },
+          {
+            "id": "height",
+            "label": "Height",
+            "dataType": "number"
+          }
+        ],
+        "outputs": [
+          {
+            "id": "execute_out",
+            "label": "Execute",
+            "dataType": "execute"
+          },
+          {
+            "id": "ouput_image",
+            "label": "Output Image",
+            "dataType": "any"
+          }
+        ],
+        "config_fields": [
+          {
+            "id": "Format",
+            "label": "Output Format",
+            "type": "select",
+            "default": "CV2",
+            "options": [
+              "B64",
+              "CV2"
+            ]
+          }
+        ],
+        "className": "ImageResize",
+        "displayName": "Image Resize",
+        "Format": "B64"
+      },
+      "measured": {
+        "width": 240,
+        "height": 323
+      },
+      "selected": false,
+      "dragging": false
+    }
+  ],
+  "edges": [
+    {
+      "source": "ReceivePayloadNode-1781230293808",
+      "sourceHandle": "execute",
+      "target": "ImageResize-1781230298993",
+      "targetHandle": "execute_in",
+      "id": "xy-edge__ReceivePayloadNode-1781230293808execute-ImageResize-1781230298993execute_in"
+    },
+    {
+      "source": "ReceivePayloadNode-1781230293808",
+      "sourceHandle": "input_image",
+      "target": "ImageResize-1781230298993",
+      "targetHandle": "input_image",
+      "id": "xy-edge__ReceivePayloadNode-1781230293808input_image-ImageResize-1781230298993input_image"
+    },
+    {
+      "source": "ReceivePayloadNode-1781230293808",
+      "sourceHandle": "width",
+      "target": "ImageResize-1781230298993",
+      "targetHandle": "width",
+      "id": "xy-edge__ReceivePayloadNode-1781230293808width-ImageResize-1781230298993width"
+    },
+    {
+      "source": "ReceivePayloadNode-1781230293808",
+      "sourceHandle": "height",
+      "target": "ImageResize-1781230298993",
+      "targetHandle": "height",
+      "id": "xy-edge__ReceivePayloadNode-1781230293808height-ImageResize-1781230298993height"
+    },
+    {
+      "source": "ImageResize-1781230298993",
+      "sourceHandle": "execute_out",
+      "target": "SendResponseNode-1781230295832",
+      "targetHandle": "execute",
+      "id": "xy-edge__ImageResize-1781230298993execute_out-SendResponseNode-1781230295832execute"
+    },
+    {
+      "source": "ImageResize-1781230298993",
+      "sourceHandle": "ouput_image",
+      "target": "SendResponseNode-1781230295832",
+      "targetHandle": "resized_image",
+      "id": "xy-edge__ImageResize-1781230298993ouput_image-SendResponseNode-1781230295832resized_image"
+    }
+  ]
+}

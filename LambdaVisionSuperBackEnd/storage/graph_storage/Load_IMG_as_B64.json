@@ -1,0 +1,168 @@
+{
+  "timeout": 5,
+  "nodes": [
+    {
+      "id": "LoadAsBase64-1781227468919",
+      "type": "1",
+      "position": {
+        "x": 353,
+        "y": 275
+      },
+      "data": {
+        "type": "1",
+        "class": "LoadAsBase64",
+        "label": "Load Image as Base64",
+        "description": "Load Image as Base64",
+        "color": "#202020",
+        "inputs": [
+          {
+            "id": "execute_in",
+            "label": "Execute",
+            "dataType": "execute"
+          },
+          {
+            "id": "image_path",
+            "label": "Image Path",
+            "dataType": "string"
+          }
+        ],
+        "outputs": [
+          {
+            "id": "execute_out",
+            "label": "Execute",
+            "dataType": "execute"
+          },
+          {
+            "id": "ouput_base64",
+            "label": "Output Base64 Image",
+            "dataType": "base64"
+          }
+        ],
+        "config_fields": [],
+        "className": "LoadAsBase64",
+        "displayName": "Load Image as Base64"
+      },
+      "measured": {
+        "width": 240,
+        "height": 183
+      }
+    },
+    {
+      "id": "ReceivePayloadNode-1781227470999",
+      "type": "1",
+      "position": {
+        "x": -51.627284329081306,
+        "y": 314.90748758789283
+      },
+      "data": {
+        "type": "1",
+        "class": "ReceivePayloadNode",
+        "label": "Data In",
+        "description": "Define what data need to receive from FE",
+        "color": "bg-purple-600",
+        "inputs": [],
+        "outputs": [
+          {
+            "id": "execute",
+            "label": "execute",
+            "dataType": "execute"
+          },
+          {
+            "id": "image_path",
+            "label": "image_path",
+            "dataType": "string"
+          }
+        ],
+        "config_fields": [
+          {
+            "id": "timeout_limit",
+            "label": "Timeout (s)",
+            "type": "number",
+            "default": 1
+          }
+        ],
+        "className": "ReceivePayloadNode",
+        "displayName": "Data In"
+      },
+      "measured": {
+        "width": 240,
+        "height": 161
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "SendResponseNode-1781227475079",
+      "type": "1",
+      "position": {
+        "x": 740.7952208669415,
+        "y": 351.7343377604983
+      },
+      "data": {
+        "type": "1",
+        "class": "SendResponseNode",
+        "label": "Data Out",
+        "description": "Define Output Data and Send back to API",
+        "color": "bg-rose-600",
+        "inputs": [
+          {
+            "id": "execute",
+            "label": "execute",
+            "dataType": "execute"
+          },
+          {
+            "id": "b64_img",
+            "label": "b64_img",
+            "dataType": "base64"
+          }
+        ],
+        "outputs": [],
+        "config_fields": [
+          {
+            "id": "timeout_limit",
+            "label": "Timeout (s)",
+            "type": "number",
+            "default": 1
+          }
+        ],
+        "className": "SendResponseNode",
+        "displayName": "Data Out"
+      },
+      "measured": {
+        "width": 240,
+        "height": 161
+      },
+      "selected": false
+    }
+  ],
+  "edges": [
+    {
+      "source": "ReceivePayloadNode-1781227470999",
+      "sourceHandle": "image_path",
+      "target": "LoadAsBase64-1781227468919",
+      "targetHandle": "image_path",
+      "id": "xy-edge__ReceivePayloadNode-1781227470999image_path-LoadAsBase64-1781227468919image_path"
+    },
+    {
+      "source": "ReceivePayloadNode-1781227470999",
+      "sourceHandle": "execute",
+      "target": "LoadAsBase64-1781227468919",
+      "targetHandle": "execute_in",
+      "id": "xy-edge__ReceivePayloadNode-1781227470999execute-LoadAsBase64-1781227468919execute_in"
+    },
+    {
+      "source": "LoadAsBase64-1781227468919",
+      "sourceHandle": "execute_out",
+      "target": "SendResponseNode-1781227475079",
+      "targetHandle": "execute",
+      "id": "xy-edge__LoadAsBase64-1781227468919execute_out-SendResponseNode-1781227475079execute"
+    },
+    {
+      "source": "LoadAsBase64-1781227468919",
+      "sourceHandle": "ouput_base64",
+      "target": "SendResponseNode-1781227475079",
+      "targetHandle": "b64_img",
+      "id": "xy-edge__LoadAsBase64-1781227468919ouput_base64-SendResponseNode-1781227475079b64_img"
+    }
+  ]
+}

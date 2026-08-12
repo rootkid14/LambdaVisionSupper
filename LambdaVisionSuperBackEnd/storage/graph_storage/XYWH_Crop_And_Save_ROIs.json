@@ -1,0 +1,200 @@
+{
+  "timeout": 30,
+  "nodes": [
+    {
+      "id": "ReceivePayloadNode-1781227630689",
+      "type": "1",
+      "position": {
+        "x": 143.43433167081707,
+        "y": 297.61684215351033
+      },
+      "data": {
+        "type": "1",
+        "class": "ReceivePayloadNode",
+        "label": "Data In",
+        "description": "Define what data need to receive from FE",
+        "color": "bg-purple-600",
+        "inputs": [],
+        "outputs": [
+          {
+            "id": "execute",
+            "label": "execute",
+            "dataType": "execute"
+          },
+          {
+            "id": "image_to_crop",
+            "label": "Image_To_Crop",
+            "dataType": "base64"
+          },
+          {
+            "id": "xywh_bboxes_list",
+            "label": "XYWH_BBoxes_List",
+            "dataType": "list"
+          },
+          {
+            "id": "save_to_folder",
+            "label": "Save_To_Folder",
+            "dataType": "string"
+          }
+        ],
+        "config_fields": [
+          {
+            "id": "timeout_limit",
+            "label": "Timeout (s)",
+            "type": "number",
+            "default": 1
+          }
+        ],
+        "className": "ReceivePayloadNode",
+        "displayName": "Data In"
+      },
+      "measured": {
+        "width": 273,
+        "height": 225
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "SendResponseNode-1781227633888",
+      "type": "1",
+      "position": {
+        "x": 965.3069368778192,
+        "y": 290.3548463359358
+      },
+      "data": {
+        "type": "1",
+        "class": "SendResponseNode",
+        "label": "Data Out",
+        "description": "Define Output Data and Send back to API",
+        "color": "bg-rose-600",
+        "inputs": [
+          {
+            "id": "execute",
+            "label": "execute",
+            "dataType": "execute"
+          }
+        ],
+        "outputs": [],
+        "config_fields": [
+          {
+            "id": "timeout_limit",
+            "label": "Timeout (s)",
+            "type": "number",
+            "default": 1
+          }
+        ],
+        "className": "SendResponseNode",
+        "displayName": "Data Out"
+      },
+      "measured": {
+        "width": 240,
+        "height": 129
+      },
+      "selected": false
+    },
+    {
+      "id": "CropAndSaveNode-1781227649799",
+      "type": "1",
+      "position": {
+        "x": 544.4098273125782,
+        "y": 151.2369540656015
+      },
+      "data": {
+        "type": "1",
+        "class": "CropAndSaveNode",
+        "label": "CROP & SAVE ROIS",
+        "description": "Crop bounding boxes [x,y,w,h] and save to disk",
+        "color": "bg-teal-600",
+        "inputs": [
+          {
+            "id": "execute_in",
+            "label": "Execute",
+            "dataType": "execute"
+          },
+          {
+            "id": "input_image",
+            "label": "Input Image",
+            "dataType": "any"
+          },
+          {
+            "id": "bboxes_list",
+            "label": "BBoxes List",
+            "dataType": "list"
+          },
+          {
+            "id": "target_folder",
+            "label": "Save Folder",
+            "dataType": "string"
+          }
+        ],
+        "outputs": [
+          {
+            "id": "execute_out",
+            "label": "Execute",
+            "dataType": "execute"
+          },
+          {
+            "id": "saved_count",
+            "label": "Saved Count",
+            "dataType": "number"
+          }
+        ],
+        "config_fields": [
+          {
+            "id": "timeout_limit",
+            "label": "Timeout (s)",
+            "type": "number",
+            "default": 1
+          }
+        ],
+        "className": "CropAndSaveNode",
+        "displayName": "CROP & SAVE ROIS",
+        "timeout_limit": 2
+      },
+      "measured": {
+        "width": 240,
+        "height": 325
+      },
+      "selected": false,
+      "dragging": false
+    }
+  ],
+  "edges": [
+    {
+      "source": "ReceivePayloadNode-1781227630689",
+      "sourceHandle": "execute",
+      "target": "CropAndSaveNode-1781227649799",
+      "targetHandle": "execute_in",
+      "id": "xy-edge__ReceivePayloadNode-1781227630689execute-CropAndSaveNode-1781227649799execute_in"
+    },
+    {
+      "source": "ReceivePayloadNode-1781227630689",
+      "sourceHandle": "image_to_crop",
+      "target": "CropAndSaveNode-1781227649799",
+      "targetHandle": "input_image",
+      "id": "xy-edge__ReceivePayloadNode-1781227630689image_to_crop-CropAndSaveNode-1781227649799input_image"
+    },
+    {
+      "source": "ReceivePayloadNode-1781227630689",
+      "sourceHandle": "xywh_bboxes_list",
+      "target": "CropAndSaveNode-1781227649799",
+      "targetHandle": "bboxes_list",
+      "id": "xy-edge__ReceivePayloadNode-1781227630689xywh_bboxes_list-CropAndSaveNode-1781227649799bboxes_list"
+    },
+    {
+      "source": "ReceivePayloadNode-1781227630689",
+      "sourceHandle": "save_to_folder",
+      "target": "CropAndSaveNode-1781227649799",
+      "targetHandle": "target_folder",
+      "id": "xy-edge__ReceivePayloadNode-1781227630689save_to_folder-CropAndSaveNode-1781227649799target_folder"
+    },
+    {
+      "source": "CropAndSaveNode-1781227649799",
+      "sourceHandle": "execute_out",
+      "target": "SendResponseNode-1781227633888",
+      "targetHandle": "execute",
+      "id": "xy-edge__CropAndSaveNode-1781227649799execute_out-SendResponseNode-1781227633888execute"
+    }
+  ]
+}

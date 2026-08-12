@@ -1,0 +1,311 @@
+{
+  "timeout": 30,
+  "nodes": [
+    {
+      "id": "CalibrateWorldToRobotFrameNode-1786434919515",
+      "type": "1",
+      "position": {
+        "x": 256,
+        "y": 281
+      },
+      "data": {
+        "type": "1",
+        "class": "CalibrateWorldToRobotFrameNode",
+        "label": "Calibrate World To Robot Frame",
+        "description": "Estimate world-to-robot and robot-to-world rigid transforms from corresponding ChArUco-world and robot TCP points",
+        "color": "bg-amber-600",
+        "inputs": [
+          {
+            "id": "execute_in",
+            "label": "execute",
+            "dataType": "execute"
+          },
+          {
+            "id": "calibration_pairs_file_path",
+            "label": "World-Robot Calibration Pairs File Path",
+            "dataType": "string"
+          }
+        ],
+        "outputs": [
+          {
+            "id": "calibration_success",
+            "label": "Calibration Success",
+            "dataType": "boolean"
+          },
+          {
+            "id": "quality_passed",
+            "label": "Calibration Quality Passed",
+            "dataType": "boolean"
+          },
+          {
+            "id": "overall_success",
+            "label": "Overall Success",
+            "dataType": "boolean"
+          },
+          {
+            "id": "robot_from_world_transform_json",
+            "label": "World To Robot Transform",
+            "dataType": "json"
+          },
+          {
+            "id": "world_from_robot_transform_json",
+            "label": "Robot To World Transform",
+            "dataType": "json"
+          },
+          {
+            "id": "calibration_profile_json",
+            "label": "World-Robot Calibration Profile",
+            "dataType": "json"
+          },
+          {
+            "id": "profile_file_path",
+            "label": "Calibration Profile JSON",
+            "dataType": "string"
+          },
+          {
+            "id": "report_file_path",
+            "label": "Calibration Report TXT",
+            "dataType": "string"
+          },
+          {
+            "id": "residual_csv_file_path",
+            "label": "Calibration Residuals CSV",
+            "dataType": "string"
+          },
+          {
+            "id": "execute_success",
+            "label": "success",
+            "dataType": "execute"
+          },
+          {
+            "id": "execute_failed",
+            "label": "failed",
+            "dataType": "execute"
+          }
+        ],
+        "config_fields": [
+          {
+            "id": "timeout_limit",
+            "label": "Timeout (s)",
+            "type": "number",
+            "default": 30
+          },
+          {
+            "id": "output_folder",
+            "label": "Output Folder (empty = automatic)",
+            "type": "text",
+            "default": ""
+          },
+          {
+            "id": "minimum_point_count",
+            "label": "Minimum Calibration Point Count",
+            "type": "number",
+            "default": 4
+          },
+          {
+            "id": "robust_outlier_rejection",
+            "label": "Robust Outlier Rejection",
+            "type": "select",
+            "default": "True",
+            "options": [
+              "True",
+              "False"
+            ]
+          },
+          {
+            "id": "outlier_robust_factor",
+            "label": "Outlier Robust Factor (Median/MAD)",
+            "type": "number",
+            "default": 3.5
+          },
+          {
+            "id": "maximum_outlier_iterations",
+            "label": "Maximum Outlier Iterations",
+            "type": "number",
+            "default": 10
+          },
+          {
+            "id": "maximum_calibration_rmse_mm",
+            "label": "Maximum Calibration RMSE (mm)",
+            "type": "number",
+            "default": 1
+          },
+          {
+            "id": "maximum_point_error_mm",
+            "label": "Maximum Point Error (mm)",
+            "type": "number",
+            "default": 2
+          }
+        ],
+        "className": "CalibrateWorldToRobotFrameNode",
+        "displayName": "Calibrate World To Robot Frame",
+        "output_folder": "/home/hieu/Downloads/lambda_vision_robot_v2/output/robot_2_world"
+      },
+      "measured": {
+        "width": 288,
+        "height": 917
+      },
+      "selected": false
+    },
+    {
+      "id": "ReceivePayloadNode-1786434922271",
+      "type": "1",
+      "position": {
+        "x": -183.03851351351346,
+        "y": 667.627027027027
+      },
+      "data": {
+        "type": "1",
+        "class": "ReceivePayloadNode",
+        "label": "Data In",
+        "description": "Define what data need to receive from FE",
+        "color": "bg-purple-600",
+        "inputs": [],
+        "outputs": [
+          {
+            "id": "execute",
+            "label": "execute",
+            "dataType": "execute"
+          },
+          {
+            "id": "pair_file_path",
+            "label": "pair_file_path",
+            "dataType": "string"
+          }
+        ],
+        "config_fields": [
+          {
+            "id": "timeout_limit",
+            "label": "Timeout (s)",
+            "type": "number",
+            "default": 1
+          }
+        ],
+        "className": "ReceivePayloadNode",
+        "displayName": "Data In"
+      },
+      "measured": {
+        "width": 240,
+        "height": 161
+      },
+      "selected": false
+    },
+    {
+      "id": "SendResponseNode-1786434951421",
+      "type": "1",
+      "position": {
+        "x": 707.9385135135134,
+        "y": 813.8513513513514
+      },
+      "data": {
+        "type": "1",
+        "class": "SendResponseNode",
+        "label": "Data Out",
+        "description": "Define Output Data and Send back to API",
+        "color": "bg-rose-600",
+        "inputs": [
+          {
+            "id": "execute",
+            "label": "execute",
+            "dataType": "execute"
+          },
+          {
+            "id": "calib_sucess",
+            "label": "calib_sucess",
+            "dataType": "boolean"
+          },
+          {
+            "id": "calib_quality_passed",
+            "label": "calib_quality_passed",
+            "dataType": "boolean"
+          },
+          {
+            "id": "overal_success",
+            "label": "overal_success",
+            "dataType": "boolean"
+          },
+          {
+            "id": "world_to_robot_mat",
+            "label": "world_to_robot_mat",
+            "dataType": "json"
+          }
+        ],
+        "outputs": [],
+        "config_fields": [
+          {
+            "id": "timeout_limit",
+            "label": "Timeout (s)",
+            "type": "number",
+            "default": 1
+          }
+        ],
+        "className": "SendResponseNode",
+        "displayName": "Data Out"
+      },
+      "measured": {
+        "width": 304,
+        "height": 257
+      },
+      "selected": true,
+      "dragging": false
+    }
+  ],
+  "edges": [
+    {
+      "source": "ReceivePayloadNode-1786434922271",
+      "sourceHandle": "execute",
+      "target": "CalibrateWorldToRobotFrameNode-1786434919515",
+      "targetHandle": "execute_in",
+      "id": "xy-edge__ReceivePayloadNode-1786434922271execute-CalibrateWorldToRobotFrameNode-1786434919515execute_in"
+    },
+    {
+      "source": "ReceivePayloadNode-1786434922271",
+      "sourceHandle": "pair_file_path",
+      "target": "CalibrateWorldToRobotFrameNode-1786434919515",
+      "targetHandle": "calibration_pairs_file_path",
+      "id": "xy-edge__ReceivePayloadNode-1786434922271pair_file_path-CalibrateWorldToRobotFrameNode-1786434919515calibration_pairs_file_path"
+    },
+    {
+      "source": "CalibrateWorldToRobotFrameNode-1786434919515",
+      "sourceHandle": "execute_success",
+      "target": "SendResponseNode-1786434951421",
+      "targetHandle": "execute",
+      "id": "xy-edge__CalibrateWorldToRobotFrameNode-1786434919515execute_success-SendResponseNode-1786434951421execute"
+    },
+    {
+      "source": "CalibrateWorldToRobotFrameNode-1786434919515",
+      "sourceHandle": "execute_failed",
+      "target": "SendResponseNode-1786434951421",
+      "targetHandle": "execute",
+      "id": "xy-edge__CalibrateWorldToRobotFrameNode-1786434919515execute_failed-SendResponseNode-1786434951421execute"
+    },
+    {
+      "source": "CalibrateWorldToRobotFrameNode-1786434919515",
+      "sourceHandle": "calibration_success",
+      "target": "SendResponseNode-1786434951421",
+      "targetHandle": "calib_sucess",
+      "id": "xy-edge__CalibrateWorldToRobotFrameNode-1786434919515calibration_success-SendResponseNode-1786434951421calib_sucess"
+    },
+    {
+      "source": "CalibrateWorldToRobotFrameNode-1786434919515",
+      "sourceHandle": "quality_passed",
+      "target": "SendResponseNode-1786434951421",
+      "targetHandle": "calib_quality_passed",
+      "id": "xy-edge__CalibrateWorldToRobotFrameNode-1786434919515quality_passed-SendResponseNode-1786434951421calib_quality_passed"
+    },
+    {
+      "source": "CalibrateWorldToRobotFrameNode-1786434919515",
+      "sourceHandle": "overall_success",
+      "target": "SendResponseNode-1786434951421",
+      "targetHandle": "overal_success",
+      "id": "xy-edge__CalibrateWorldToRobotFrameNode-1786434919515overall_success-SendResponseNode-1786434951421overal_success"
+    },
+    {
+      "source": "CalibrateWorldToRobotFrameNode-1786434919515",
+      "sourceHandle": "robot_from_world_transform_json",
+      "target": "SendResponseNode-1786434951421",
+      "targetHandle": "world_to_robot_mat",
+      "id": "xy-edge__CalibrateWorldToRobotFrameNode-1786434919515robot_from_world_transform_json-SendResponseNode-1786434951421world_to_robot_mat"
+    }
+  ]
+}

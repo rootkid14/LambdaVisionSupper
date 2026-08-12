@@ -1,0 +1,378 @@
+{
+  "timeout": 30,
+  "nodes": [
+    {
+      "id": "FindCharucoExtrinsicsNode-1786423761742",
+      "type": "1",
+      "position": {
+        "x": 234.4712267428963,
+        "y": 343.45574266835365
+      },
+      "data": {
+        "type": "1",
+        "class": "FindCharucoExtrinsicsNode",
+        "label": "Find ChArUco Extrinsics",
+        "description": "Estimate world-to-camera and camera-to-world transforms from a ChArUco reference image",
+        "color": "bg-sky-600",
+        "inputs": [
+          {
+            "id": "execute_in",
+            "label": "execute",
+            "dataType": "execute"
+          },
+          {
+            "id": "image_path",
+            "label": "ChArUco Reference Image Path",
+            "dataType": "string"
+          },
+          {
+            "id": "intrinsics_report_file_path",
+            "label": "Intrinsic Calibration Report TXT Path",
+            "dataType": "string"
+          }
+        ],
+        "outputs": [
+          {
+            "id": "pose_success",
+            "label": "Pose Estimation Success",
+            "dataType": "boolean"
+          },
+          {
+            "id": "quality_passed",
+            "label": "Pose Quality Passed",
+            "dataType": "boolean"
+          },
+          {
+            "id": "overall_success",
+            "label": "Overall Success",
+            "dataType": "boolean"
+          },
+          {
+            "id": "world_to_camera_transform_json",
+            "label": "World to Camera Transform",
+            "dataType": "json"
+          },
+          {
+            "id": "camera_to_world_transform_json",
+            "label": "Camera to World Transform",
+            "dataType": "json"
+          },
+          {
+            "id": "extrinsics_profile_json",
+            "label": "Extrinsics Profile",
+            "dataType": "json"
+          },
+          {
+            "id": "profile_file_path",
+            "label": "Extrinsics Profile JSON",
+            "dataType": "string"
+          },
+          {
+            "id": "report_file_path",
+            "label": "Extrinsics Report TXT",
+            "dataType": "string"
+          },
+          {
+            "id": "debug_image_path",
+            "label": "Extrinsics Debug Image",
+            "dataType": "string"
+          },
+          {
+            "id": "execute_success",
+            "label": "success",
+            "dataType": "execute"
+          },
+          {
+            "id": "execute_failed",
+            "label": "failed",
+            "dataType": "execute"
+          }
+        ],
+        "config_fields": [
+          {
+            "id": "timeout_limit",
+            "label": "Timeout (s)",
+            "type": "number",
+            "default": 120
+          },
+          {
+            "id": "output_folder",
+            "label": "Output Folder (empty = automatic)",
+            "type": "text",
+            "default": ""
+          },
+          {
+            "id": "min_marker_count",
+            "label": "Minimum Detected Markers",
+            "type": "number",
+            "default": 4
+          },
+          {
+            "id": "min_charuco_corners",
+            "label": "Minimum ChArUco Corners",
+            "type": "number",
+            "default": 15
+          },
+          {
+            "id": "min_corner_ratio",
+            "label": "Minimum ChArUco Corner Ratio",
+            "type": "number",
+            "default": 0.5
+          },
+          {
+            "id": "min_sharpness",
+            "label": "Minimum Image Sharpness",
+            "type": "number",
+            "default": 80
+          },
+          {
+            "id": "max_reprojection_rmse_px",
+            "label": "Maximum Extrinsics RMSE (px)",
+            "type": "number",
+            "default": 0.8
+          },
+          {
+            "id": "max_reprojection_point_error_px",
+            "label": "Maximum Corner Error (px)",
+            "type": "number",
+            "default": 3
+          },
+          {
+            "id": "save_debug_image",
+            "label": "Save Extrinsics Debug Image",
+            "type": "select",
+            "default": "True",
+            "options": [
+              "True",
+              "False"
+            ]
+          },
+          {
+            "id": "debug_axis_length_mm",
+            "label": "Debug Axis Length (mm, 0 = automatic)",
+            "type": "number",
+            "default": 0
+          }
+        ],
+        "className": "FindCharucoExtrinsicsNode",
+        "displayName": "Find ChArUco Extrinsics",
+        "min_sharpness": 5,
+        "output_folder": "/home/hieu/Downloads/lambda_vision_robot_v2/output/final"
+      },
+      "measured": {
+        "width": 272,
+        "height": 1055
+      },
+      "selected": false,
+      "dragging": false
+    },
+    {
+      "id": "ReceivePayloadNode-1786423769350",
+      "type": "1",
+      "position": {
+        "x": -333.0371621621621,
+        "y": 835.1148648648648
+      },
+      "data": {
+        "type": "1",
+        "class": "ReceivePayloadNode",
+        "label": "Data In",
+        "description": "Define what data need to receive from FE",
+        "color": "bg-purple-600",
+        "inputs": [],
+        "outputs": [
+          {
+            "id": "execute",
+            "label": "execute",
+            "dataType": "execute"
+          },
+          {
+            "id": "ref_image_path",
+            "label": "ref_image_path",
+            "dataType": "string"
+          },
+          {
+            "id": "intrin_report_path",
+            "label": "intrin_report_path",
+            "dataType": "string"
+          }
+        ],
+        "config_fields": [
+          {
+            "id": "timeout_limit",
+            "label": "Timeout (s)",
+            "type": "number",
+            "default": 1
+          }
+        ],
+        "className": "ReceivePayloadNode",
+        "displayName": "Data In"
+      },
+      "measured": {
+        "width": 279,
+        "height": 193
+      },
+      "selected": false
+    },
+    {
+      "id": "SendResponseNode-1786424181834",
+      "type": "1",
+      "position": {
+        "x": 624.1728291709238,
+        "y": 983.409798193187
+      },
+      "data": {
+        "type": "1",
+        "class": "SendResponseNode",
+        "label": "Data Out",
+        "description": "Define Output Data and Send back to API",
+        "color": "bg-rose-600",
+        "inputs": [
+          {
+            "id": "execute",
+            "label": "execute",
+            "dataType": "execute"
+          },
+          {
+            "id": "pose_estimation_success",
+            "label": "pose_estimation_success",
+            "dataType": "boolean"
+          },
+          {
+            "id": "pose_quality_passed",
+            "label": "pose_quality_passed",
+            "dataType": "boolean"
+          },
+          {
+            "id": "overall_sucess",
+            "label": "overall_sucess",
+            "dataType": "boolean"
+          },
+          {
+            "id": "world_2_camera_transform",
+            "label": "world_2_camera_transform",
+            "dataType": "json"
+          },
+          {
+            "id": "camera_to_world_transform",
+            "label": "camera_to_world_transform",
+            "dataType": "json"
+          },
+          {
+            "id": "extrinsic_prof",
+            "label": "extrinsic_prof",
+            "dataType": "json"
+          },
+          {
+            "id": "extrinsic_report_txt",
+            "label": "extrinsic_report_txt",
+            "dataType": "string"
+          }
+        ],
+        "outputs": [],
+        "config_fields": [
+          {
+            "id": "timeout_limit",
+            "label": "Timeout (s)",
+            "type": "number",
+            "default": 1
+          }
+        ],
+        "className": "SendResponseNode",
+        "displayName": "Data Out"
+      },
+      "measured": {
+        "width": 320,
+        "height": 353
+      },
+      "selected": false,
+      "dragging": false
+    }
+  ],
+  "edges": [
+    {
+      "source": "ReceivePayloadNode-1786423769350",
+      "sourceHandle": "execute",
+      "target": "FindCharucoExtrinsicsNode-1786423761742",
+      "targetHandle": "execute_in",
+      "id": "xy-edge__ReceivePayloadNode-1786423769350execute-FindCharucoExtrinsicsNode-1786423761742execute_in"
+    },
+    {
+      "source": "ReceivePayloadNode-1786423769350",
+      "sourceHandle": "ref_image_path",
+      "target": "FindCharucoExtrinsicsNode-1786423761742",
+      "targetHandle": "image_path",
+      "id": "xy-edge__ReceivePayloadNode-1786423769350ref_image_path-FindCharucoExtrinsicsNode-1786423761742image_path"
+    },
+    {
+      "source": "ReceivePayloadNode-1786423769350",
+      "sourceHandle": "intrin_report_path",
+      "target": "FindCharucoExtrinsicsNode-1786423761742",
+      "targetHandle": "intrinsics_report_file_path",
+      "id": "xy-edge__ReceivePayloadNode-1786423769350intrin_report_path-FindCharucoExtrinsicsNode-1786423761742intrinsics_report_file_path"
+    },
+    {
+      "source": "FindCharucoExtrinsicsNode-1786423761742",
+      "sourceHandle": "execute_success",
+      "target": "SendResponseNode-1786424181834",
+      "targetHandle": "execute",
+      "id": "xy-edge__FindCharucoExtrinsicsNode-1786423761742execute_success-SendResponseNode-1786424181834execute"
+    },
+    {
+      "source": "FindCharucoExtrinsicsNode-1786423761742",
+      "sourceHandle": "execute_failed",
+      "target": "SendResponseNode-1786424181834",
+      "targetHandle": "execute",
+      "id": "xy-edge__FindCharucoExtrinsicsNode-1786423761742execute_failed-SendResponseNode-1786424181834execute"
+    },
+    {
+      "source": "FindCharucoExtrinsicsNode-1786423761742",
+      "sourceHandle": "pose_success",
+      "target": "SendResponseNode-1786424181834",
+      "targetHandle": "pose_estimation_success",
+      "id": "xy-edge__FindCharucoExtrinsicsNode-1786423761742pose_success-SendResponseNode-1786424181834pose_estimation_success"
+    },
+    {
+      "source": "FindCharucoExtrinsicsNode-1786423761742",
+      "sourceHandle": "quality_passed",
+      "target": "SendResponseNode-1786424181834",
+      "targetHandle": "pose_quality_passed",
+      "id": "xy-edge__FindCharucoExtrinsicsNode-1786423761742quality_passed-SendResponseNode-1786424181834pose_quality_passed"
+    },
+    {
+      "source": "FindCharucoExtrinsicsNode-1786423761742",
+      "sourceHandle": "overall_success",
+      "target": "SendResponseNode-1786424181834",
+      "targetHandle": "overall_sucess",
+      "id": "xy-edge__FindCharucoExtrinsicsNode-1786423761742overall_success-SendResponseNode-1786424181834overall_sucess"
+    },
+    {
+      "source": "FindCharucoExtrinsicsNode-1786423761742",
+      "sourceHandle": "world_to_camera_transform_json",
+      "target": "SendResponseNode-1786424181834",
+      "targetHandle": "world_2_camera_transform",
+      "id": "xy-edge__FindCharucoExtrinsicsNode-1786423761742world_to_camera_transform_json-SendResponseNode-1786424181834world_2_camera_transform"
+    },
+    {
+      "source": "FindCharucoExtrinsicsNode-1786423761742",
+      "sourceHandle": "camera_to_world_transform_json",
+      "target": "SendResponseNode-1786424181834",
+      "targetHandle": "camera_to_world_transform",
+      "id": "xy-edge__FindCharucoExtrinsicsNode-1786423761742camera_to_world_transform_json-SendResponseNode-1786424181834camera_to_world_transform"
+    },
+    {
+      "source": "FindCharucoExtrinsicsNode-1786423761742",
+      "sourceHandle": "extrinsics_profile_json",
+      "target": "SendResponseNode-1786424181834",
+      "targetHandle": "extrinsic_prof",
+      "id": "xy-edge__FindCharucoExtrinsicsNode-1786423761742extrinsics_profile_json-SendResponseNode-1786424181834extrinsic_prof"
+    },
+    {
+      "source": "FindCharucoExtrinsicsNode-1786423761742",
+      "sourceHandle": "report_file_path",
+      "target": "SendResponseNode-1786424181834",
+      "targetHandle": "extrinsic_report_txt",
+      "id": "xy-edge__FindCharucoExtrinsicsNode-1786423761742report_file_path-SendResponseNode-1786424181834extrinsic_report_txt"
+    }
+  ]
+}
