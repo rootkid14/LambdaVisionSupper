@@ -6,8 +6,6 @@ import { ProgrammingTab } from './Pages/ProgrammingPage';
 import { InspectionPage } from './Pages/InspectionPage';
 import { SequencerPage } from './Pages/SequencerPage';
 import { DatabasePage } from './Pages/DatabasePage';
-import { LabView } from './Pages/LabView';
-import { ImageProcessingLabPage } from './Pages/ImageProcessingLabPage';
 
 // --- CÁC TRANG DUMMY (Chờ bạn chỉ thị để code thật) ---
 const DevicesPage = () => {
@@ -40,8 +38,6 @@ function App() {
 
         {/* --- CÁC LUỒNG KHÁC --- */}
         <Route path="/inspection" element={<InspectionPage />} />
-        <Route path="/labs" element={<LabView />} />
-        <Route path="/labs/image-processing" element={<ImageProcessingLabPage />} />
         <Route path="/sequencer" element={<SequencerPage />} />
         <Route path="/data" element={<DatabasePage />} />
         

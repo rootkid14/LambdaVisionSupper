@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, Database, ChevronUp, Server, User, Network, FlaskConical } from 'lucide-react'; 
+import { Search, Database, ChevronUp, Server, User, Network } from 'lucide-react'; 
 import { TbLambda } from "react-icons/tb"; 
 import { useNavigate } from 'react-router-dom';
 import { NeonActionBar, ActionItem } from '../Commons/NeonActionBar';
@@ -41,7 +41,6 @@ export const MainScreen = () => {
   const homeActions: ActionItem[] = [
     { id: 'fleet', label: 'Resources', icon: Server, activeColor: 'cyan', onClick: () => navigate('/fleet') },
     { id: 'inspection', label: 'App Builder', icon: Search, activeColor: 'emerald', onClick: () => navigate('/inspection') },
-    { id: 'labs', label: 'LAB', icon: FlaskConical, activeColor: 'purple', onClick: () => navigate('/labs') },
     { id: 'data', label: 'DataBase', icon: Database, activeColor: 'orange', onClick: () => navigate('/data') }
   ];
 
