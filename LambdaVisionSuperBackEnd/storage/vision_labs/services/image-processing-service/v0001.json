@@ -1,0 +1,75 @@
+{
+  "service_id": "image-processing-service",
+  "name": "Image Processing Service",
+  "lab_type": "image_processing",
+  "version": 1,
+  "status": "deployed",
+  "inputs": {
+    "image": {
+      "type": "image",
+      "required": true,
+      "label": null
+    }
+  },
+  "outputs": {
+    "zhang_suen_thinning": {
+      "type": "binary_mask",
+      "node_id": "imgop_mu2rflek_4",
+      "port": "mask",
+      "label": "zhang_suen_thinning"
+    }
+  },
+  "pipeline_snapshot": {
+    "version": 1,
+    "nodes": [
+      {
+        "id": "imgop_mu2rf9k2_3",
+        "operator_id": "image.threshold.sauvola",
+        "operator_version": "1.0",
+        "parameters": {
+          "window_size": 25,
+          "k": -0.44,
+          "r": 128,
+          "invert": false
+        },
+        "enabled": true
+      },
+      {
+        "id": "imgop_mu2rflek_4",
+        "operator_id": "image.skeleton.zhang_suen",
+        "operator_version": "1.0",
+        "parameters": {
+          "max_iterations": 128
+        },
+        "enabled": true
+      }
+    ],
+    "connections": [
+      {
+        "source": {
+          "node_id": "imgop_mu2rf9k2_3",
+          "port": "mask"
+        },
+        "target": {
+          "node_id": "imgop_mu2rflek_4",
+          "port": "mask"
+        }
+      }
+    ],
+    "inputs": {
+      "image": {
+        "node_id": "imgop_mu2rf9k2_3",
+        "port": "image"
+      }
+    },
+    "outputs": {
+      "result": {
+        "node_id": "imgop_mu2rflek_4",
+        "port": "mask"
+      }
+    }
+  },
+  "description": null,
+  "created_at": "2026-09-15T14:21:44.242535+00:00",
+  "deployed_at": "2026-09-15T14:21:44.242535+00:00"
+}

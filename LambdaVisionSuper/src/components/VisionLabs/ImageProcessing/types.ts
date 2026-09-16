@@ -75,3 +75,12 @@ export interface ViewerPane {
   id: string;
   sourceKey: string;
 }
+
+export type ImageLabExecutionMode = 'live' | 'manual';
+
+export interface LabServiceOutputSelection {
+  nodeId: string;
+  port: string;
+  name: string;
+  dataType: string;
+}

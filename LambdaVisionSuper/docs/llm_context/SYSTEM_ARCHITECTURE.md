@@ -1,0 +1,574 @@
+# Lambda Vision — System Architecture
+
+> Project-aware architecture snapshot generated from the current source tree.
+
+## 1. High-level architecture
+
+Lambda Vision currently contains two important execution families plus supporting domains:
+
+```text
+Frontend / Desktop
+│
+├─ App Builder / Sequencer UI ───────────────┐
+│                                             ▼
+│                                  Legacy Graph Runtime
+│                                  BaseNode / NODE_REGISTRY
+│                                  LogicObject / LogicPoolManager
+│
+├─ Vision LAB Hub
+│    ├─ Image Processing LAB ────────────────┐
+│    │                                       ▼
+│    │                              Image LAB Session/Runtime
+│    │                              ImageOperator Registry
+│    │
+│    ├─ Sampling / Geometry LAB ─────────────┐
+│    │                                       ▼
+│    │                              SamplingGeometryRuntime
+│    │                              Geometry / Spatial / Spectral
+│    │
+│    └─ Lab Services ────────────────────────┐
+│                                            ▼
+│                                   LabServiceRuntime
+│                                   versioned LAB snapshots
+│
+├─ Fleet / Resource UI ───────────── Device/Infrastructure Backend
+└─ Database UI ───────────────────── Database Backend
+```
+
+## 2. Architectural invariants
+
+1. **General automation and Vision LAB are deliberately separate abstractions.**
+   Legacy automation uses `BaseNode`; Image Processing uses `ImageOperator`.
+2. **Image Processing LAB is raster-centric.** Operators should not know master/query, inspection spec, station OK/NG, or alignment semantics.
+3. **Lab Service is the reusable callable boundary.** A service is a versioned LAB pipeline snapshot with typed inputs and named outputs.
+4. **Interactive LAB sessions and deployed services are different lifecycles.** Interactive sessions optimize editing/tuning; deployed services optimize stable invocation.
+5. **Future cross-LAB composition should use explicit typed contracts/adapters**, not implicit imports between specialized internals.
+
+## 3. Execution flows
+
+### Image Processing LAB
+
+```text
+ImageProcessingLabPage
+  → useImageLabController
+  → imageLabApi
+  → /api/v1/image-lab
+  → ImageLabSessionManager / ImageLabSession
+  → ImagePipelineRuntime
+  → ImageOperatorRegistry
+  → raster operators
+```
+
+### Sampling / Geometry LAB
+
+```text
+SamplingGeometryLabPage
+  → useSamplingGeometryController
+  → samplingGeometryApi
+  → /api/v1/sampling-geometry
+  → SamplingGeometrySession
+  → SamplingGeometryRuntime
+  → workspace operator registry
+  → geometry / profiles / features / spectra
+```
+
+### Lab Service
+
+```text
+LabView / Image LAB deploy UI
+  → labServiceApi
+  → /api/v1/lab-services
+  → LabServiceRepository (versions/snapshots)
+  → LabServiceRuntime
+  → current LAB adapter (Image Processing today)
+  → named service outputs
+```
+
+### Legacy App Builder / Sequencer
+
+```text
+Programming/Sequencer UI
+  → nodeApi / graph API
+  → NODE_REGISTRY / BaseNode
+  → LogicObject graph
+  → LogicPoolManager
+  → registered Nodes / devices / actions
+```
+
+## 4. Detected modules
+
+### Image Processing LAB Backend
+
+ImageFrame/BinaryMask types, ImageOperator registry, pipeline validation/compiler, runtime artifact cache, sessions, operators, repository, and Image LAB REST/WebSocket API.
+
+- Detected files: **13**
+- Boundary: Pure raster processing. Registration/comparison/inspection semantics belong in other LABs.
+- Key files:
+  - `BE:app/services/vision_labs/image/pipeline.py` — Image LAB pipeline schema, validation, compilation, and graph contracts.
+  - `BE:app/services/vision_labs/image/repository.py` — Saved Image LAB pipeline persistence.
+  - `BE:app/services/vision_labs/image/runtime.py` — Image LAB artifact cache and pipeline runtime.
+  - `BE:app/api/v1/endpoints/image_lab_api.py` — Image LAB session/pipeline/operator REST and WebSocket API.
+  - `BE:app/services/vision_labs/image/__init__.py` — ImageFrame/BinaryMask types, ImageOperator registry, pipeline validation/compiler, runtime artifact cache, sessions, operators, repository, and Image LAB REST/WebSocket API.
+  - `BE:app/services/vision_labs/image/operator.py` — ImageFrame/BinaryMask types, ImageOperator registry, pipeline validation/compiler, runtime artifact cache, sessions, operators, repository, and Image LAB REST/WebSocket API.
+  - `BE:app/services/vision_labs/image/operators/__init__.py` — ImageFrame/BinaryMask types, ImageOperator registry, pipeline validation/compiler, runtime artifact cache, sessions, operators, repository, and Image LAB REST/WebSocket API.
+  - `BE:app/services/vision_labs/image/operators/advanced_families.py` — ImageFrame/BinaryMask types, ImageOperator registry, pipeline validation/compiler, runtime artifact cache, sessions, operators, repository, and Image LAB REST/WebSocket API.
+
+### Sampling / Geometry LAB Backend
+
+Typed geometry/signal/feature artifacts, three-workspace operator registry, pipeline/runtime/session, visualization serialization, and Sampling / Geometry REST API.
+
+- Detected files: **17**
+- Boundary: Feature-extraction backbone. It does not decide OK/NG and does not own model representation/training semantics.
+- Key files:
+  - `BE:app/services/vision_labs/sampling_geometry/pipeline.py` — Image LAB pipeline schema, validation, compilation, and graph contracts.
+  - `BE:app/services/vision_labs/sampling_geometry/repository.py` — Saved Image LAB pipeline persistence.
+  - `BE:app/services/vision_labs/sampling_geometry/runtime.py` — Image LAB artifact cache and pipeline runtime.
+  - `BE:app/api/v1/endpoints/sampling_geometry_api.py` — Typed geometry/signal/feature artifacts, three-workspace operator registry, pipeline/runtime/session, visualization serialization, and Sampling / Geometry REST API.
+  - `BE:app/services/vision_labs/sampling_geometry/__init__.py` — Typed geometry/signal/feature artifacts, three-workspace operator registry, pipeline/runtime/session, visualization serialization, and Sampling / Geometry REST API.
+  - `BE:app/services/vision_labs/sampling_geometry/operator.py` — Typed geometry/signal/feature artifacts, three-workspace operator registry, pipeline/runtime/session, visualization serialization, and Sampling / Geometry REST API.
+  - `BE:app/services/vision_labs/sampling_geometry/operators/__init__.py` — Typed geometry/signal/feature artifacts, three-workspace operator registry, pipeline/runtime/session, visualization serialization, and Sampling / Geometry REST API.
+  - `BE:app/services/vision_labs/sampling_geometry/operators/common.py` — Typed geometry/signal/feature artifacts, three-workspace operator registry, pipeline/runtime/session, visualization serialization, and Sampling / Geometry REST API.
+
+### Image Processing LAB UI
+
+Interactive raster-processing editor: operator library, stack, viewers, Live/Manual execution, filter playground, and Image LAB API client.
+
+- Detected files: **11**
+- Boundary: Edits ImagePipelineDefinition and talks to Image LAB sessions. It must not inherit or depend on legacy BaseNode/Sequencer semantics.
+- Key files:
+  - `FE:src/Pages/ImageProcessingLabPage.tsx` — Top-level Image Processing LAB page/layout.
+  - `FE:src/api/imageLabApi.ts` — Frontend Image LAB REST/WebSocket API client.
+  - `FE:src/components/VisionLabs/ImageProcessing/FilterGuideModal.tsx` — Standalone filter documentation and isolated test playground.
+  - `FE:src/components/VisionLabs/ImageProcessing/ImageWorkbench.tsx` — Image LAB upload/run/viewer workbench.
+  - `FE:src/components/VisionLabs/ImageProcessing/OperatorLibrary.tsx` — Image LAB operator selector and per-filter guide launcher.
+  - `FE:src/components/VisionLabs/ImageProcessing/ProcessingStack.tsx` — Image LAB stack editor, ordering, parameters, and exposed service outputs.
+  - `FE:src/components/VisionLabs/ImageProcessing/ZoomPanImageView.tsx` — Reusable zoom/pan/fullscreen raster viewer.
+  - `FE:src/components/VisionLabs/ImageProcessing/operatorGuide.ts` — Filter explanations, tuning guidance, and parameter help.
+
+### Lab Service Backend
+
+Versioned deployable LAB snapshots, repository, generic runtime facade, run store, pruning, and Lab Service REST API.
+
+- Detected files: **5**
+- Boundary: LabServiceRuntime is the future callable boundary for Dataset/Sampling/Sequencer/Agentic integrations; callers should not duplicate LAB execution logic.
+- Key files:
+  - `BE:app/services/vision_labs/service/repository.py` — Versioned Lab Service persistence.
+  - `BE:app/services/vision_labs/service/runtime.py` — Lab Service runtime/pruning/run store.
+  - `BE:app/api/v1/endpoints/lab_service_api.py` — Versioned Lab Service deploy/run/preview REST API.
+  - `BE:app/services/vision_labs/service/__init__.py` — Versioned deployable LAB snapshots, repository, generic runtime facade, run store, pruning, and Lab Service REST API.
+  - `BE:app/services/vision_labs/service/models.py` — Lab Service typed deploy/run contracts.
+
+### Sampling / Geometry LAB UI
+
+Three specialized workspaces for geometry, spatial sampling, and spectral/statistical feature extraction.
+
+- Detected files: **9**
+- Boundary: Consumes raster sources directly or through Lab Services and can deploy typed sampling_geometry services.
+- Key files:
+  - `FE:src/Pages/SamplingGeometryLabPage.tsx` — Three specialized workspaces for geometry, spatial sampling, and spectral/statistical feature extraction.
+  - `FE:src/api/samplingGeometryApi.ts` — Three specialized workspaces for geometry, spatial sampling, and spectral/statistical feature extraction.
+  - `FE:src/components/VisionLabs/SamplingGeometry/SamplingGuideModal.tsx` — Three specialized workspaces for geometry, spatial sampling, and spectral/statistical feature extraction.
+  - `FE:src/components/VisionLabs/SamplingGeometry/SamplingOperatorLibrary.tsx` — Three specialized workspaces for geometry, spatial sampling, and spectral/statistical feature extraction.
+  - `FE:src/components/VisionLabs/SamplingGeometry/SamplingStack.tsx` — Three specialized workspaces for geometry, spatial sampling, and spectral/statistical feature extraction.
+  - `FE:src/components/VisionLabs/SamplingGeometry/SamplingVisuals.tsx` — Three specialized workspaces for geometry, spatial sampling, and spectral/statistical feature extraction.
+  - `FE:src/components/VisionLabs/SamplingGeometry/SamplingWorkbench.tsx` — Three specialized workspaces for geometry, spatial sampling, and spectral/statistical feature extraction.
+  - `FE:src/components/VisionLabs/SamplingGeometry/types.ts` — Three specialized workspaces for geometry, spatial sampling, and spectral/statistical feature extraction.
+
+### Vision LAB Core Contracts
+
+LAB-level shared port/parameter specifications and common Vision LAB package contracts.
+
+- Detected files: **3**
+- Boundary: Common LAB vocabulary only; specialized LABs keep specialized domain models.
+- Key files:
+  - `BE:app/services/vision_labs/__init__.py` — LAB-level shared port/parameter specifications and common Vision LAB package contracts.
+  - `BE:app/services/vision_labs/core/__init__.py` — LAB-level shared port/parameter specifications and common Vision LAB package contracts.
+  - `BE:app/services/vision_labs/core/specs.py` — LAB-level shared port/parameter specifications and common Vision LAB package contracts.
+
+### Lab Service Hub UI
+
+Deployed/versioned Lab Service cards, manual runner, edit navigation, and Lab Service API client.
+
+- Detected files: **2**
+- Boundary: Consumes the generic Lab Service contract; currently Image Processing is the first runtime adapter.
+- Key files:
+  - `FE:src/Pages/LabView.tsx` — Vision LAB launcher and deployed Lab Service hub/manual runner.
+  - `FE:src/api/labServiceApi.ts` — Frontend Lab Service API client.
+
+### App Builder / Sequencer UI
+
+Legacy/general automation graph editor, programming nodes, sequencer compiler/runtime UI, flow state, and node API client.
+
+- Detected files: **30**
+- Boundary: This is the general automation/agentic graph system. Keep its node model separate from Vision LAB ImageOperator.
+- Key files:
+  - `FE:src/Pages/ProgrammingPage.tsx` — Legacy/general automation graph editor, programming nodes, sequencer compiler/runtime UI, flow state, and node API client.
+  - `FE:src/Pages/SequencerPage.tsx` — Legacy/general automation graph editor, programming nodes, sequencer compiler/runtime UI, flow state, and node API client.
+  - `FE:src/Stores/FlowStore.tsx` — Legacy/general automation graph editor, programming nodes, sequencer compiler/runtime UI, flow state, and node API client.
+  - `FE:src/UI_Engine/SequencerComponents/BaseNode.tsx` — Legacy/general automation graph editor, programming nodes, sequencer compiler/runtime UI, flow state, and node API client.
+  - `FE:src/UI_Engine/SequencerComponents/PropertiesSidebar.tsx` — Legacy/general automation graph editor, programming nodes, sequencer compiler/runtime UI, flow state, and node API client.
+  - `FE:src/UI_Engine/SequencerComponents/ScriptApiDocs.ts` — Legacy/general automation graph editor, programming nodes, sequencer compiler/runtime UI, flow state, and node API client.
+  - `FE:src/UI_Engine/SequencerComponents/SequencerNodes.tsx` — Legacy/general automation graph editor, programming nodes, sequencer compiler/runtime UI, flow state, and node API client.
+  - `FE:src/UI_Engine/SequencerComponents/TerminalLog.tsx` — Legacy/general automation graph editor, programming nodes, sequencer compiler/runtime UI, flow state, and node API client.
+
+### Legacy App Builder / Sequencer Runtime
+
+General automation graph runtime built around BaseNode/NODE_REGISTRY, LogicObject, LogicPoolManager, graph API, and registered Nodes.
+
+- Detected files: **34**
+- Boundary: Do not make Vision LAB ImageOperator inherit BaseNode. Integration should occur through explicit adapters/services.
+- Key files:
+  - `BE:app/services/LogicObjects.py` — Legacy compiled graph execution object.
+  - `BE:app/services/LogicPoolManager.py` — Legacy deployed graph/LogicObject pool and execution lifecycle.
+  - `BE:app/services/node_registry.py` — Legacy BaseNode/NODE_REGISTRY contract and node registration.
+  - `BE:app/api/v1/endpoints/graph_api.py` — Legacy App Builder/Sequencer graph deployment and execution API.
+  - `BE:app/schemas/graph.py` — General automation graph runtime built around BaseNode/NODE_REGISTRY, LogicObject, LogicPoolManager, graph API, and registered Nodes.
+  - `BE:app/services/LVSTypes.py` — Legacy sequencer/node UI/runtime type definitions.
+  - `BE:app/services/Nodes/CallAPINode.py` — General automation graph runtime built around BaseNode/NODE_REGISTRY, LogicObject, LogicPoolManager, graph API, and registered Nodes.
+  - `BE:app/services/Nodes/ComparativeNodes.py` — General automation graph runtime built around BaseNode/NODE_REGISTRY, LogicObject, LogicPoolManager, graph API, and registered Nodes.
+
+### Backend Application Shell & API Router
+
+FastAPI application/bootstrap, shared configuration, root health/proxy endpoints, and v1 router composition.
+
+- Detected files: **5**
+- Boundary: Composes feature routers; feature execution belongs to domain services.
+- Key files:
+  - `BE:app/main.py` — FastAPI backend bootstrap/entry point.
+  - `BE:app/api/root_api.py` — FastAPI application/bootstrap, shared configuration, root health/proxy endpoints, and v1 router composition.
+  - `BE:app/api/v1/api.py` — FastAPI application/bootstrap, shared configuration, root health/proxy endpoints, and v1 router composition.
+  - `BE:app/api/v1/endpoints/utils.py` — FastAPI application/bootstrap, shared configuration, root health/proxy endpoints, and v1 router composition.
+  - `BE:app/core/config.py` — FastAPI application/bootstrap, shared configuration, root health/proxy endpoints, and v1 router composition.
+
+### Frontend Application Shell & Routing
+
+React/Vite application entry points, global routes, and the main navigation/home surface.
+
+- Detected files: **4**
+- Boundary: Owns navigation/composition only; domain logic should remain in the feature modules.
+- Key files:
+  - `FE:src/App.tsx` — Frontend route composition / application shell.
+  - `FE:src/App.css` — Frontend route composition / application shell.
+  - `FE:src/Pages/MainScreen.tsx` — React/Vite application entry points, global routes, and the main navigation/home surface.
+  - `FE:src/main.tsx` — Frontend bootstrap entry point.
+
+### Inspection UI Engine
+
+Inspection canvas, floating panels, tags, UI-engine stores, keyboard triggers, and inspection-oriented Konva UI.
+
+- Detected files: **16**
+- Boundary: UI-engine state/canvas layer; treat separately from the Vision LAB editor unless an explicit adapter is introduced.
+- Key files:
+  - `FE:src/Pages/InspectionPage.tsx` — Inspection canvas, floating panels, tags, UI-engine stores, keyboard triggers, and inspection-oriented Konva UI.
+  - `FE:src/UI_Engine/UIEngineComponents/FileManagerModal.tsx` — Inspection canvas, floating panels, tags, UI-engine stores, keyboard triggers, and inspection-oriented Konva UI.
+  - `FE:src/UI_Engine/UIEngineComponents/FloatingPanels.tsx` — Inspection canvas, floating panels, tags, UI-engine stores, keyboard triggers, and inspection-oriented Konva UI.
+  - `FE:src/UI_Engine/UIEngineComponents/GlobalTagsTable.tsx` — Inspection canvas, floating panels, tags, UI-engine stores, keyboard triggers, and inspection-oriented Konva UI.
+  - `FE:src/UI_Engine/UIEngineComponents/InspectionCanvas.tsx` — Inspection canvas, floating panels, tags, UI-engine stores, keyboard triggers, and inspection-oriented Konva UI.
+  - `FE:src/UI_Engine/UIEngineComponents/InspectionSidebar.tsx` — Inspection canvas, floating panels, tags, UI-engine stores, keyboard triggers, and inspection-oriented Konva UI.
+  - `FE:src/UI_Engine/UIEngineComponents/InspectionTopbar.tsx` — Inspection canvas, floating panels, tags, UI-engine stores, keyboard triggers, and inspection-oriented Konva UI.
+  - `FE:src/UI_Engine/UIEngineComponents/KonvaNodes.tsx` — Inspection canvas, floating panels, tags, UI-engine stores, keyboard triggers, and inspection-oriented Konva UI.
+
+### Database Backend
+
+Database CRUD/query API and database manager.
+
+- Detected files: **2**
+- Key files:
+  - `BE:app/api/v1/endpoints/db_api.py` — Database CRUD/query API and database manager.
+  - `BE:app/services/DatabaseManager.py` — Database access and dynamic table management.
+
+### Database UI
+
+Database page, table/query panels and grids, database store, and database API client.
+
+- Detected files: **6**
+- Key files:
+  - `FE:src/Pages/DatabasePage.tsx` — Database page, table/query panels and grids, database store, and database API client.
+  - `FE:src/Stores/DatabaseEngineStore.ts` — Database page, table/query panels and grids, database store, and database API client.
+  - `FE:src/api/dbEngineApi.ts` — Database page, table/query panels and grids, database store, and database API client.
+  - `FE:src/components/DataBaseEngine/DBModals.tsx` — Database page, table/query panels and grids, database store, and database API client.
+  - `FE:src/components/DataBaseEngine/DBPanels.tsx` — Database page, table/query panels and grids, database store, and database API client.
+  - `FE:src/components/DataBaseEngine/DBResultGrid.tsx` — Database page, table/query panels and grids, database store, and database API client.
+
+### Fleet / Device / Infrastructure Backend
+
+Infrastructure APIs, device/resource pools, connection bus, camera integration, and vendor camera SDK bindings.
+
+- Detected files: **12**
+- Key files:
+  - `BE:app/api/v1/endpoints/infra_api.py` — Infrastructure APIs, device/resource pools, connection bus, camera integration, and vendor camera SDK bindings.
+  - `BE:app/external_libs/MvImport/CameraParams_const.py` — Infrastructure APIs, device/resource pools, connection bus, camera integration, and vendor camera SDK bindings.
+  - `BE:app/external_libs/MvImport/CameraParams_header.py` — Infrastructure APIs, device/resource pools, connection bus, camera integration, and vendor camera SDK bindings.
+  - `BE:app/external_libs/MvImport/MvCameraControl_class.py` — Infrastructure APIs, device/resource pools, connection bus, camera integration, and vendor camera SDK bindings.
+  - `BE:app/external_libs/MvImport/MvErrorDefine_const.py` — Infrastructure APIs, device/resource pools, connection bus, camera integration, and vendor camera SDK bindings.
+  - `BE:app/external_libs/MvImport/MvISPErrorDefine_const.py` — Infrastructure APIs, device/resource pools, connection bus, camera integration, and vendor camera SDK bindings.
+  - `BE:app/external_libs/MvImport/PixelType_header.py` — Infrastructure APIs, device/resource pools, connection bus, camera integration, and vendor camera SDK bindings.
+  - `BE:app/external_libs/MvImport/Runtime/x64/CommonParameters.ini` — Infrastructure APIs, device/resource pools, connection bus, camera integration, and vendor camera SDK bindings.
+
+### Fleet / Resource UI
+
+Resource/device dashboard, fleet cards/modals, resource pools, frontend fleet store, and fleet API client.
+
+- Detected files: **7**
+- Key files:
+  - `FE:src/Pages/FleetDashboard.tsx` — Resource/device dashboard, fleet cards/modals, resource pools, frontend fleet store, and fleet API client.
+  - `FE:src/Stores/FleetDashboardStores.ts` — Resource/device dashboard, fleet cards/modals, resource pools, frontend fleet store, and fleet API client.
+  - `FE:src/api/fleetApi.ts` — Resource/device dashboard, fleet cards/modals, resource pools, frontend fleet store, and fleet API client.
+  - `FE:src/components/Fleet/FleetCards.tsx` — Resource/device dashboard, fleet cards/modals, resource pools, frontend fleet store, and fleet API client.
+  - `FE:src/components/Fleet/FleetModals.tsx` — Resource/device dashboard, fleet cards/modals, resource pools, frontend fleet store, and fleet API client.
+  - `FE:src/components/Fleet/PoolsDrawer.tsx` — Resource/device dashboard, fleet cards/modals, resource pools, frontend fleet store, and fleet API client.
+  - `FE:src/components/Fleet/PoolsDrawerTabs.tsx` — Resource/device dashboard, fleet cards/modals, resource pools, frontend fleet store, and fleet API client.
+
+### Project Compiler
+
+Frontend project/compiler utilities used to transform or package project definitions.
+
+- Detected files: **1**
+- Key files:
+  - `FE:src/ProjectCompiler/ProjectCompilerCore/ProjectCompilerCore.ts` — Frontend project/compiler utilities used to transform or package project definitions.
+
+### Shared Backend Utilities
+
+Generic file/image/network helpers shared by backend domains.
+
+- Detected files: **3**
+- Key files:
+  - `BE:app/services/utils/files_loader.py` — Generic file/image/network helpers shared by backend domains.
+  - `BE:app/services/utils/image_utils.py` — Generic file/image/network helpers shared by backend domains.
+  - `BE:app/services/utils/ping_measurer.py` — Generic file/image/network helpers shared by backend domains.
+
+### Shared Frontend UI & Utilities
+
+Reusable navigation/action UI and generic frontend utilities shared by feature modules.
+
+- Detected files: **6**
+- Key files:
+  - `FE:src/Commons/ActionButton.tsx` — Reusable navigation/action UI and generic frontend utilities shared by feature modules.
+  - `FE:src/Commons/MiniProgressBar.tsx` — Reusable navigation/action UI and generic frontend utilities shared by feature modules.
+  - `FE:src/Commons/NeonActionBar.tsx` — Reusable navigation/action UI and generic frontend utilities shared by feature modules.
+  - `FE:src/Commons/NeonNavBar.tsx` — Reusable navigation/action UI and generic frontend utilities shared by feature modules.
+  - `FE:src/utils/ColorConst.ts` — Reusable navigation/action UI and generic frontend utilities shared by feature modules.
+  - `FE:src/utils/imageUtils.ts` — Reusable navigation/action UI and generic frontend utilities shared by feature modules.
+
+### Desktop / Tauri Host
+
+Rust/Tauri desktop shell and its hand-authored configuration.
+
+- Detected files: **6**
+- Key files:
+  - `FE:src-tauri/Cargo.toml` — Rust/Tauri desktop shell and its hand-authored configuration.
+  - `FE:src-tauri/build.rs` — Rust/Tauri desktop shell and its hand-authored configuration.
+  - `FE:src-tauri/capabilities/default.json` — Rust/Tauri desktop shell and its hand-authored configuration.
+  - `FE:src-tauri/src/lib.rs` — Rust/Tauri desktop shell and its hand-authored configuration.
+  - `FE:src-tauri/src/main.rs` — Frontend bootstrap entry point.
+  - `FE:src-tauri/tauri.conf.json` — Rust/Tauri desktop shell and its hand-authored configuration.
+
+### Backend Tests
+
+Regression and integration tests.
+
+- Detected files: **6**
+- Key files:
+  - `BE:tests/vision_labs/image/test_image_lab_advanced_raster.py` — Regression and integration tests.
+  - `BE:tests/vision_labs/image/test_image_lab_basic_families.py` — Regression and integration tests.
+  - `BE:tests/vision_labs/image/test_image_lab_core.py` — Regression and integration tests.
+  - `BE:tests/vision_labs/image/test_image_lab_enum_coercion.py` — Regression and integration tests.
+  - `BE:tests/vision_labs/sampling_geometry/test_sampling_geometry_lab_v0100.py` — Regression and integration tests.
+  - `BE:tests/vision_labs/test_lab_service_core.py` — Regression and integration tests.
+
+### Backend Tools / Updaters
+
+Backend-side updater and maintenance scripts.
+
+- Detected files: **1**
+- Key files:
+  - `BE:update_image_processing_lab_backend_v001.py` — Backend-side updater and maintenance scripts.
+
+### Frontend Tools & LLM Context Docs
+
+Updater scripts, context generators, architectural snapshots, and LLM handoff documentation.
+
+- Detected files: **24**
+- Key files:
+  - `FE:docs/llm_context/README.md` — Updater scripts, context generators, architectural snapshots, and LLM handoff documentation.
+  - `FE:docs/llm_context/SYSTEM_ARCHITECTURE.md` — Updater scripts, context generators, architectural snapshots, and LLM handoff documentation.
+  - `FE:docs/llm_context/SYSTEM_CONTEXT_BUNDLES.md` — Updater scripts, context generators, architectural snapshots, and LLM handoff documentation.
+  - `FE:docs/llm_context/SYSTEM_CONTEXT_INDEX.md` — Updater scripts, context generators, architectural snapshots, and LLM handoff documentation.
+  - `FE:docs/llm_context/SYSTEM_FILE_MAP.md` — Updater scripts, context generators, architectural snapshots, and LLM handoff documentation.
+  - `FE:docs/llm_context/updates/v0041_lab_service_multi_edit.md` — Updater scripts, context generators, architectural snapshots, and LLM handoff documentation.
+  - `FE:docs/llm_context/updates/v0050_filter_guide_system_map.md` — Updater scripts, context generators, architectural snapshots, and LLM handoff documentation.
+  - `FE:docs/llm_context/updates/v0060_context_generator_v2.md` — Updater scripts, context generators, architectural snapshots, and LLM handoff documentation.
+
+### Research / Experiments / Training
+
+Standalone training, metrics, labeling, comparison, and experimental scripts outside the production app package.
+
+- Detected files: **24**
+- Boundary: Treat as research tooling unless a production module imports it explicitly.
+- Key files:
+  - `BE:chuongtrinhchupanh.py` — Standalone training, metrics, labeling, comparison, and experimental scripts outside the production app package.
+  - `BE:clean_req.py` — Standalone training, metrics, labeling, comparison, and experimental scripts outside the production app package.
+  - `BE:concate_image.py` — Standalone training, metrics, labeling, comparison, and experimental scripts outside the production app package.
+  - `BE:e1108D_metrics_extractor.py` — Standalone training, metrics, labeling, comparison, and experimental scripts outside the production app package.
+  - `BE:e1108D_neural_network.py` — Standalone training, metrics, labeling, comparison, and experimental scripts outside the production app package.
+  - `BE:e1108D_run.py` — Standalone training, metrics, labeling, comparison, and experimental scripts outside the production app package.
+  - `BE:e1108D_train.py` — Standalone training, metrics, labeling, comparison, and experimental scripts outside the production app package.
+  - `BE:e5204_metrics_extractor.py` — Standalone training, metrics, labeling, comparison, and experimental scripts outside the production app package.
+
+## 5. Internal module dependency edges
+
+Derived from Python/TypeScript imports. Counts are import edges between source files.
+
+| Source module | Depends on | Edges |
+| --- | --- | ---: |
+| Backend Tests | Image Processing LAB Backend | 16 |
+| Legacy App Builder / Sequencer Runtime | Shared Backend Utilities | 12 |
+| App Builder / Sequencer UI | Inspection UI Engine | 11 |
+| Sampling / Geometry LAB Backend | Image Processing LAB Backend | 9 |
+| Image Processing LAB Backend | Vision LAB Core Contracts | 7 |
+| Sampling / Geometry LAB Backend | Vision LAB Core Contracts | 7 |
+| App Builder / Sequencer UI | Fleet / Resource UI | 6 |
+| Lab Service Backend | Image Processing LAB Backend | 6 |
+| Lab Service Backend | Sampling / Geometry LAB Backend | 6 |
+| Inspection UI Engine | App Builder / Sequencer UI | 5 |
+| Backend Tests | Lab Service Backend | 5 |
+| Backend Application Shell & API Router | Fleet / Device / Infrastructure Backend | 4 |
+| Backend Tests | Sampling / Geometry LAB Backend | 4 |
+| Inspection UI Engine | Fleet / Resource UI | 3 |
+| Project Compiler | Inspection UI Engine | 3 |
+| Fleet / Resource UI | Frontend — Unclassified Source | 2 |
+| Fleet / Resource UI | Shared Frontend UI & Utilities | 2 |
+| Fleet / Resource UI | App Builder / Sequencer UI | 2 |
+| Frontend Application Shell & Routing | App Builder / Sequencer UI | 2 |
+| Inspection UI Engine | Shared Frontend UI & Utilities | 2 |
+| Project Compiler | Fleet / Resource UI | 2 |
+| Backend Application Shell & API Router | Legacy App Builder / Sequencer Runtime | 2 |
+| Backend Tests | Vision LAB Core Contracts | 2 |
+| Database Backend | Backend Application Shell & API Router | 2 |
+| Fleet / Device / Infrastructure Backend | Legacy App Builder / Sequencer Runtime | 2 |
+| Fleet / Device / Infrastructure Backend | Shared Backend Utilities | 2 |
+| Legacy App Builder / Sequencer Runtime | Backend Application Shell & API Router | 2 |
+| Legacy App Builder / Sequencer Runtime | Fleet / Device / Infrastructure Backend | 2 |
+| Research / Experiments / Training | Legacy App Builder / Sequencer Runtime | 2 |
+| App Builder / Sequencer UI | Frontend — Unclassified Source | 1 |
+| App Builder / Sequencer UI | Shared Frontend UI & Utilities | 1 |
+| App Builder / Sequencer UI | Project Compiler | 1 |
+| App Builder / Sequencer UI | Database UI | 1 |
+| Database UI | Frontend — Unclassified Source | 1 |
+| Database UI | Fleet / Resource UI | 1 |
+| Frontend Application Shell & Routing | Database UI | 1 |
+| Frontend Application Shell & Routing | Fleet / Resource UI | 1 |
+| Frontend Application Shell & Routing | Image Processing LAB UI | 1 |
+| Frontend Application Shell & Routing | Inspection UI Engine | 1 |
+| Frontend Application Shell & Routing | Lab Service Hub UI | 1 |
+| Frontend Application Shell & Routing | Sampling / Geometry LAB UI | 1 |
+| Frontend Application Shell & Routing | Shared Frontend UI & Utilities | 1 |
+| Image Processing LAB UI | Frontend — Unclassified Source | 1 |
+| Image Processing LAB UI | Lab Service Hub UI | 1 |
+| Inspection UI Engine | Project Compiler | 1 |
+| Inspection UI Engine | Database UI | 1 |
+| Lab Service Hub UI | Frontend — Unclassified Source | 1 |
+| Lab Service Hub UI | Image Processing LAB UI | 1 |
+| Project Compiler | Frontend — Unclassified Source | 1 |
+| Project Compiler | App Builder / Sequencer UI | 1 |
+| Sampling / Geometry LAB UI | Frontend — Unclassified Source | 1 |
+| Sampling / Geometry LAB UI | Lab Service Hub UI | 1 |
+| Backend Application Shell & API Router | Shared Backend Utilities | 1 |
+| Backend Application Shell & API Router | Backend — Unclassified App Source | 1 |
+| Backend Application Shell & API Router | Database Backend | 1 |
+| Fleet / Device / Infrastructure Backend | Backend Application Shell & API Router | 1 |
+| Image Processing LAB Backend | Backend Application Shell & API Router | 1 |
+| Lab Service Backend | Backend Application Shell & API Router | 1 |
+| Lab Service Backend | Vision LAB Core Contracts | 1 |
+| Research / Experiments / Training | Fleet / Device / Infrastructure Backend | 1 |
+
+## 6. Backend API routes
+
+| File | Method | Path | Handler |
+| --- | --- | --- | --- |
+| `BE:app/api/root_api.py` | `GET` | `/fleetstatus` | `get_fleet_overview_status` |
+| `BE:app/api/root_api.py` | `GET` | `/status` | `check_server_health` |
+| `BE:app/api/v1/endpoints/db_api.py` | `GET` | `/images/{filename}/download` | `download_image` |
+| `BE:app/api/v1/endpoints/db_api.py` | `GET` | `/schema/{table_name}` | `get_table_schema` |
+| `BE:app/api/v1/endpoints/db_api.py` | `GET` | `/tables` | `get_database_tables` |
+| `BE:app/api/v1/endpoints/db_api.py` | `POST` | `/images/upload` | `upload_image` |
+| `BE:app/api/v1/endpoints/db_api.py` | `POST` | `/insert` | `insert_data` |
+| `BE:app/api/v1/endpoints/db_api.py` | `POST` | `/query` | `execute_dynamic_query` |
+| `BE:app/api/v1/endpoints/db_api.py` | `POST` | `/seed` | `seed_database` |
+| `BE:app/api/v1/endpoints/db_api.py` | `POST` | `/tables/create` | `create_new_table` |
+| `BE:app/api/v1/endpoints/db_api.py` | `POST` | `/tables/drop` | `drop_table` |
+| `BE:app/api/v1/endpoints/graph_api.py` | `DELETE` | `/undeploygraph/{logic_object_id}` | `undeploy_graph_from_ram` |
+| `BE:app/api/v1/endpoints/graph_api.py` | `GET` | `/catalog` | `get_node_catalog` |
+| `BE:app/api/v1/endpoints/graph_api.py` | `GET` | `/dependencies` | `get_logic_dependencies` |
+| `BE:app/api/v1/endpoints/graph_api.py` | `GET` | `/getLogicIDs` | `get_logic_id_list` |
+| `BE:app/api/v1/endpoints/graph_api.py` | `GET` | `/getinoutschema/{logic_object_id}` | `get_in_out_schema` |
+| `BE:app/api/v1/endpoints/graph_api.py` | `POST` | `/deploygraph/{graph_file_name}` | `deploy_graph_to_ram` |
+| `BE:app/api/v1/endpoints/graph_api.py` | `POST` | `/executelogic/{logic_object_id}` | `execute_logic` |
+| `BE:app/api/v1/endpoints/graph_api.py` | `POST` | `/preflight` | `preflight_run` |
+| `BE:app/api/v1/endpoints/graph_api.py` | `POST` | `/sync-dependencies` | `sync_logic_dependencies` |
+| `BE:app/api/v1/endpoints/image_lab_api.py` | `DELETE` | `/sessions/{session_id}` | `close_session` |
+| `BE:app/api/v1/endpoints/image_lab_api.py` | `GET` | `/operators` | `get_operator_catalog` |
+| `BE:app/api/v1/endpoints/image_lab_api.py` | `GET` | `/pipelines` | `list_pipelines` |
+| `BE:app/api/v1/endpoints/image_lab_api.py` | `GET` | `/pipelines/{name}` | `load_pipeline` |
+| `BE:app/api/v1/endpoints/image_lab_api.py` | `GET` | `/sessions/{session_id}/preview/node/{node_id}/{port}` | `preview_node` |
+| `BE:app/api/v1/endpoints/image_lab_api.py` | `GET` | `/sessions/{session_id}/preview/source/{source_name}` | `preview_source` |
+| `BE:app/api/v1/endpoints/image_lab_api.py` | `POST` | `/pipelines/save` | `save_pipeline` |
+| `BE:app/api/v1/endpoints/image_lab_api.py` | `POST` | `/pipelines/validate` | `validate_pipeline` |
+| `BE:app/api/v1/endpoints/image_lab_api.py` | `POST` | `/sessions` | `create_session` |
+| `BE:app/api/v1/endpoints/image_lab_api.py` | `POST` | `/sessions/{session_id}/input/{source_name}` | `upload_input` |
+| `BE:app/api/v1/endpoints/image_lab_api.py` | `POST` | `/sessions/{session_id}/run` | `run_session` |
+| `BE:app/api/v1/endpoints/image_lab_api.py` | `PUT` | `/sessions/{session_id}/pipeline` | `set_session_pipeline` |
+| `BE:app/api/v1/endpoints/image_lab_api.py` | `WEBSOCKET` | `/sessions/{session_id}/live` | `image_lab_live` |
+| `BE:app/api/v1/endpoints/infra_api.py` | `DELETE` | `/devices/delete/{device_id}` | `remove_local_device` |
+| `BE:app/api/v1/endpoints/infra_api.py` | `DELETE` | `/resources/delete/{file_type}/{file_name}` | `delete_file` |
+| `BE:app/api/v1/endpoints/infra_api.py` | `DELETE` | `/servers/delete/{server_id}` | `remove_local_server` |
+| `BE:app/api/v1/endpoints/infra_api.py` | `GET` | `/devices` | `get_all_local_devices` |
+| `BE:app/api/v1/endpoints/infra_api.py` | `GET` | `/resources/files/{filetype}/{filename}/content` | `get_file_content` |
+| `BE:app/api/v1/endpoints/infra_api.py` | `GET` | `/resources/files/{filetype}/{filename}/download` | `download_file` |
+| `BE:app/api/v1/endpoints/infra_api.py` | `GET` | `/resources/status` | `get_resource_status` |
+| `BE:app/api/v1/endpoints/infra_api.py` | `GET` | `/servers` | `get_all_local_servers` |
+| `BE:app/api/v1/endpoints/infra_api.py` | `GET` | `/servers/{server_id}` | `get_server_info` |
+| `BE:app/api/v1/endpoints/infra_api.py` | `POST` | `/devices/add` | `add_local_device` |
+| `BE:app/api/v1/endpoints/infra_api.py` | `POST` | `/devices/heartbeat/{new_interval}` | `change_server_bus_heartbeat` |
+| `BE:app/api/v1/endpoints/infra_api.py` | `POST` | `/resources/files/load-to-ram/{filename}` | `load_file_to_memory` |
+| `BE:app/api/v1/endpoints/infra_api.py` | `POST` | `/resources/files/unload-from-ram/{filename}` | `unload_file_from_memory` |
+| `BE:app/api/v1/endpoints/infra_api.py` | `POST` | `/resources/files/{filetype}/upload` | `upload_file` |
+| `BE:app/api/v1/endpoints/infra_api.py` | `POST` | `/servers/add` | `add_local_server` |
+| `BE:app/api/v1/endpoints/infra_api.py` | `POST` | `/servers/heartbeat/{new_interval}` | `change_server_bus_heartbeat` |
+| `BE:app/api/v1/endpoints/lab_service_api.py` | `GET` | `` | `list_lab_services` |
+| `BE:app/api/v1/endpoints/lab_service_api.py` | `GET` | `/runs/{run_id}/outputs/{output_name}` | `preview_run_output` |
+| `BE:app/api/v1/endpoints/lab_service_api.py` | `GET` | `/{service_id}` | `get_lab_service` |
+| `BE:app/api/v1/endpoints/lab_service_api.py` | `GET` | `/{service_id}/versions` | `list_lab_service_versions` |
+| `BE:app/api/v1/endpoints/lab_service_api.py` | `POST` | `/deploy` | `deploy_lab_service` |
+| `BE:app/api/v1/endpoints/lab_service_api.py` | `POST` | `/{service_id}/run` | `run_lab_service` |
+| `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `DELETE` | `/sessions/{session_id}` | `close_session` |
+| `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `GET` | `/operators` | `get_operator_catalog` |
+| `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `GET` | `/pipelines` | `list_pipelines` |
+| `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `GET` | `/pipelines/{name}` | `load_pipeline` |
+| `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `GET` | `/sessions/{session_id}/artifact/{node_id}/{port}` | `get_artifact_json` |
+| `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `GET` | `/sessions/{session_id}/preview/node/{node_id}/{port}` | `preview_artifact` |
+| `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `GET` | `/sessions/{session_id}/preview/source/{source_name}` | `preview_source` |
+| `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `POST` | `/pipelines/save` | `save_pipeline` |
+| `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `POST` | `/pipelines/validate` | `validate_pipeline` |
+| `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `POST` | `/sessions` | `create_session` |
+| `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `POST` | `/sessions/{session_id}/input/{source_name}` | `upload_input` |
+| `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `POST` | `/sessions/{session_id}/input/{source_name}/from-lab-service` | `bind_input_from_lab_service` |
+| `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `POST` | `/sessions/{session_id}/run` | `run_session` |
+| `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `PUT` | `/sessions/{session_id}/pipeline` | `set_session_pipeline` |
+| `BE:app/api/v1/endpoints/utils.py` | `GET` | `/health-check` | `perform_health_check` |
+
+## 7. Frontend routes
+
+| File | Route |
+| --- | --- |
+| `FE:src/App.tsx` | `*` |
+| `FE:src/App.tsx` | `/` |
+| `FE:src/App.tsx` | `/data` |
+| `FE:src/App.tsx` | `/fleet` |
+| `FE:src/App.tsx` | `/fleet/:worker_id/devices` |
+| `FE:src/App.tsx` | `/fleet/:worker_id/logic` |
+| `FE:src/App.tsx` | `/inspection` |
+| `FE:src/App.tsx` | `/labs` |
+| `FE:src/App.tsx` | `/labs/image-processing` |
+| `FE:src/App.tsx` | `/labs/sampling-geometry` |
+| `FE:src/App.tsx` | `/sequencer` |

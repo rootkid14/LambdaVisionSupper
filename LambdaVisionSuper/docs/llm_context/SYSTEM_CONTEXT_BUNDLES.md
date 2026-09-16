@@ -1,0 +1,236 @@
+# Lambda Vision — LLM Context Bundles
+
+> Use these bundles to load only the source needed for a task.
+
+## Usage
+
+- **Minimal**: start here for design/review/small changes.
+- **Deep**: add these when implementing or debugging across boundaries.
+- Always add the latest relevant `docs/llm_context/updates/*.md` note.
+
+## Image Processing LAB
+
+Raster-processing editor, operator framework, sessions/runtime, filter playground, and Image LAB API.
+
+### Minimal context
+
+- `FE:src/Pages/ImageProcessingLabPage.tsx`
+- `FE:src/components/VisionLabs/ImageProcessing/useImageLabController.ts`
+- `FE:src/components/VisionLabs/ImageProcessing/types.ts`
+- `FE:src/api/imageLabApi.ts`
+- `BE:app/services/vision_labs/image/operator.py`
+- `BE:app/services/vision_labs/image/pipeline.py`
+- `BE:app/services/vision_labs/image/runtime.py`
+- `BE:app/services/vision_labs/image/session.py`
+- `BE:app/services/vision_labs/image/types.py`
+- `BE:app/api/v1/endpoints/image_lab_api.py`
+
+### Deep context
+
+- `FE:src/components/VisionLabs/ImageProcessing/OperatorLibrary.tsx`
+- `FE:src/components/VisionLabs/ImageProcessing/FilterGuideModal.tsx`
+- `FE:src/components/VisionLabs/ImageProcessing/operatorGuide.ts`
+- `FE:src/components/VisionLabs/ImageProcessing/ProcessingStack.tsx`
+- `FE:src/components/VisionLabs/ImageProcessing/ImageWorkbench.tsx`
+- `FE:src/components/VisionLabs/ImageProcessing/pipelineUtils.ts`
+- `BE:app/services/vision_labs/image/registry.py`
+- `BE:app/services/vision_labs/image/operators/builtins.py`
+- `BE:app/services/vision_labs/image/operators/basic_families.py`
+- `BE:app/services/vision_labs/image/operators/advanced_families.py`
+- `BE:tests/vision_labs/image/test_image_lab_core.py`
+
+## Sampling / Geometry LAB
+
+Geometry extraction, spatial signal sampling, Fourier/statistical descriptors, and reusable feature-extraction services.
+
+### Minimal context
+
+- `FE:src/Pages/SamplingGeometryLabPage.tsx`
+- `FE:src/components/VisionLabs/SamplingGeometry/useSamplingGeometryController.ts`
+- `FE:src/components/VisionLabs/SamplingGeometry/types.ts`
+- `FE:src/api/samplingGeometryApi.ts`
+- `BE:app/services/vision_labs/sampling_geometry/operator.py`
+- `BE:app/services/vision_labs/sampling_geometry/pipeline.py`
+- `BE:app/services/vision_labs/sampling_geometry/runtime.py`
+- `BE:app/services/vision_labs/sampling_geometry/session.py`
+- `BE:app/api/v1/endpoints/sampling_geometry_api.py`
+
+### Deep context
+
+- `FE:src/components/VisionLabs/SamplingGeometry/SamplingGuideModal.tsx`
+- `FE:src/components/VisionLabs/SamplingGeometry/SamplingOperatorLibrary.tsx`
+- `FE:src/components/VisionLabs/SamplingGeometry/SamplingStack.tsx`
+- `FE:src/components/VisionLabs/SamplingGeometry/SamplingVisuals.tsx`
+- `FE:src/components/VisionLabs/SamplingGeometry/SamplingWorkbench.tsx`
+- `FE:src/components/VisionLabs/SamplingGeometry/types.ts`
+- `FE:src/components/VisionLabs/SamplingGeometry/useSamplingGeometryController.ts`
+- `BE:app/services/vision_labs/sampling_geometry/operators/__init__.py`
+- `BE:app/services/vision_labs/sampling_geometry/operators/common.py`
+- `BE:app/services/vision_labs/sampling_geometry/operators/geometry.py`
+- `BE:app/services/vision_labs/sampling_geometry/operators/spatial.py`
+- `BE:app/services/vision_labs/sampling_geometry/operators/spectral.py`
+- `BE:app/services/vision_labs/sampling_geometry/preview.py`
+- `BE:app/services/vision_labs/sampling_geometry/serialization.py`
+- `BE:tests/vision_labs/sampling_geometry/test_sampling_geometry_lab_v0100.py`
+- `BE:app/services/vision_labs/service/runtime.py`
+
+## Lab Service
+
+Versioned deployable LAB snapshots and the callable/manual-run service boundary.
+
+### Minimal context
+
+- `FE:src/Pages/LabView.tsx`
+- `FE:src/api/labServiceApi.ts`
+- `FE:src/components/VisionLabs/ImageProcessing/useImageLabController.ts`
+- `BE:app/services/vision_labs/service/models.py`
+- `BE:app/services/vision_labs/service/repository.py`
+- `BE:app/services/vision_labs/service/runtime.py`
+- `BE:app/api/v1/endpoints/lab_service_api.py`
+
+### Deep context
+
+- `BE:tests/vision_labs/test_lab_service_core.py`
+- `BE:app/services/vision_labs/image/pipeline.py`
+- `BE:app/services/vision_labs/image/runtime.py`
+
+## App Builder / Sequencer
+
+General automation graph editor/runtime based on BaseNode, LogicObject and LogicPoolManager.
+
+### Minimal context
+
+- `FE:src/Pages/ProgrammingPage.tsx`
+- `FE:src/Pages/SequencerPage.tsx`
+- `FE:src/Stores/FlowStore.tsx`
+- `FE:src/utils/FlowCompiler.ts`
+- `FE:src/api/nodeApi.ts`
+- `BE:app/services/node_registry.py`
+- `BE:app/services/LogicObjects.py`
+- `BE:app/services/LogicPoolManager.py`
+- `BE:app/services/LVSTypes.py`
+- `BE:app/api/v1/endpoints/graph_api.py`
+
+### Deep context
+
+- `FE:src/components/ProgramMode/BaseNodeShell.tsx`
+- `FE:src/components/ProgramMode/DebugPanel.tsx`
+- `FE:src/components/ProgramMode/DynamicMemoryNode.tsx`
+- `FE:src/components/ProgramMode/DynamicTerminalNode.tsx`
+- `FE:src/components/ProgramMode/DynamicUniversalSwitchNode.tsx`
+- `FE:src/components/ProgramMode/FlowControlNode.tsx`
+- `FE:src/components/ProgramMode/InLineNode.tsx`
+- `FE:src/components/ProgramMode/JsonBuilderNode.tsx`
+- `FE:src/components/ProgramMode/JsonExtractorNode.tsx`
+- `FE:src/components/ProgramMode/MemoryReadNode.tsx`
+- `FE:src/components/ProgramMode/NodesMenu.tsx`
+- `FE:src/components/ProgramMode/ObjectNodeIUI.tsx`
+- `FE:src/components/ProgramMode/PinRow.tsx`
+- `FE:src/components/ProgramMode/ProgrammingNode.tsx`
+- `FE:src/components/ProgramMode/SmartDropdown.tsx`
+- `FE:src/components/ProgramMode/TeleportNodes.tsx`
+- `FE:src/components/ProgramMode/UniversalNode.tsx`
+- `FE:src/UI_Engine/SequencerComponents/BaseNode.tsx`
+- `FE:src/UI_Engine/SequencerComponents/PropertiesSidebar.tsx`
+- `FE:src/UI_Engine/SequencerComponents/ScriptApiDocs.ts`
+- `FE:src/UI_Engine/SequencerComponents/SequencerNodes.tsx`
+- `FE:src/UI_Engine/SequencerComponents/TerminalLog.tsx`
+- `FE:src/UI_Engine/SequencerComponents/TokenBlackboard.tsx`
+- `FE:src/UI_Engine/SequencerComponents/TokenLayer.tsx`
+- `BE:app/services/Nodes/caliberate_w2_robot_frame.py`
+- `BE:app/services/Nodes/CallAPINode.py`
+- `BE:app/services/Nodes/charuco_caliberation_update.py`
+- `BE:app/services/Nodes/charuco_find_extrinsics_update.py`
+- `BE:app/services/Nodes/charuco_generator.py`
+- `BE:app/services/Nodes/ComparativeNodes.py`
+- `BE:app/services/Nodes/createJsonNode.py`
+- `BE:app/services/Nodes/ESP32Nodes.py`
+- `BE:app/services/Nodes/ExceptionHandlingNodes.py`
+- `BE:app/services/Nodes/FilterNodes/crop_roi.py`
+- `BE:app/services/Nodes/FilterNodes/ImageFiltersNode.py`
+- `BE:app/services/Nodes/GigeCameraNodes.py`
+- `BE:app/services/Nodes/ImageConversionNodes.py`
+- `BE:app/services/Nodes/InterplexNodes/Classification.py`
+- `BE:app/services/Nodes/InterplexNodes/ConvertBBoxes.py`
+- `BE:app/services/Nodes/InterplexNodes/ESP32_serial_rl_control.py`
+- `BE:app/services/Nodes/InterplexNodes/ESP32_Wireless.py`
+- `BE:app/services/Nodes/InterplexNodes/FindPositions.py`
+- `BE:app/services/Nodes/InterplexNodes/InterplexNodes.py`
+- `BE:app/services/Nodes/InterplexNodes/Sort3Points.py`
+- `BE:app/services/Nodes/InterplexNodes/yolo_labeling.py`
+- `BE:app/services/Nodes/loadImagesNode.py`
+- `BE:app/services/Nodes/LogicGateNodes.py`
+- `BE:app/services/Nodes/pixel_to_worldframe.py`
+- `BE:app/services/Nodes/primitive_nodes.py`
+- `BE:app/services/Nodes/TeleportNodes.py`
+- `BE:app/services/Nodes/update_file.py`
+- `BE:app/services/Nodes/world_to_robot_matrix_cal.py`
+- `BE:app/schemas/graph.py`
+
+## Inspection UI Engine
+
+Inspection canvas/UI-engine state, tags, panels, keyboard triggers and Konva nodes.
+
+### Minimal context
+
+- `FE:src/Pages/InspectionPage.tsx`
+- `FE:src/UI_Engine/UIEngineStores/InspectionStore.ts`
+- `FE:src/UI_Engine/UIEngineComponents/InspectionCanvas.tsx`
+- `FE:src/UI_Engine/UIEngineComponents/InspectionSidebar.tsx`
+- `FE:src/UI_Engine/UIEngineComponents/InspectionTopbar.tsx`
+
+### Deep context
+
+- `FE:src/UI_Engine/UIEngineComponents/FileManagerModal.tsx`
+- `FE:src/UI_Engine/UIEngineComponents/FloatingPanels.tsx`
+- `FE:src/UI_Engine/UIEngineComponents/GlobalTagsTable.tsx`
+- `FE:src/UI_Engine/UIEngineComponents/InspectionCanvas.tsx`
+- `FE:src/UI_Engine/UIEngineComponents/InspectionSidebar.tsx`
+- `FE:src/UI_Engine/UIEngineComponents/InspectionTopbar.tsx`
+- `FE:src/UI_Engine/UIEngineComponents/KonvaNodes.tsx`
+- `FE:src/UI_Engine/UIEngineComponents/SettingModal.tsx`
+- `FE:src/UI_Engine/UIEngineStores/GlobalTagsStore.ts`
+- `FE:src/UI_Engine/UIEngineStores/InspectionStore.ts`
+- `FE:src/UI_Engine/UIEngineStores/KeyboardTriggerStore.ts`
+- `FE:src/UI_Engine/UIEngineStores/SequencerEngine.ts`
+- `FE:src/UI_Engine/UIEngineStores/SequencerStores.ts`
+- `FE:src/UI_Engine/UIEngineHelper/useTagHelper.ts`
+
+## Fleet / Device
+
+Resource/device discovery, pools, connections and camera/device infrastructure.
+
+### Minimal context
+
+- `FE:src/Pages/FleetDashboard.tsx`
+- `FE:src/api/fleetApi.ts`
+- `BE:app/api/v1/endpoints/infra_api.py`
+- `BE:app/services/ConnectionBus.py`
+- `BE:app/services/DevicePoolManager.py`
+
+### Deep context
+
+- `FE:src/components/Fleet/FleetCards.tsx`
+- `FE:src/components/Fleet/FleetModals.tsx`
+- `FE:src/components/Fleet/PoolsDrawer.tsx`
+- `FE:src/components/Fleet/PoolsDrawerTabs.tsx`
+- `FE:src/Stores/FleetDashboardStores.ts`
+- `BE:app/external_libs/camera_core.py`
+
+## Database
+
+Database UI, dynamic table/query API, and database manager.
+
+### Minimal context
+
+- `FE:src/Pages/DatabasePage.tsx`
+- `FE:src/api/dbEngineApi.ts`
+- `FE:src/Stores/DatabaseEngineStore.ts`
+- `BE:app/api/v1/endpoints/db_api.py`
+- `BE:app/services/DatabaseManager.py`
+
+### Deep context
+
+- `FE:src/components/DataBaseEngine/DBModals.tsx`
+- `FE:src/components/DataBaseEngine/DBPanels.tsx`
+- `FE:src/components/DataBaseEngine/DBResultGrid.tsx`

@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ImageLabAPI } from '../../../api/imageLabApi';
+import { LabServiceAPI } from '../../../api/labServiceApi';
 import type {
   OperatorManifest,
   StackOperatorInstance,
   ViewerPane,
   ViewerSource,
+  ImageLabExecutionMode,
+  LabServiceOutputSelection,
 } from './types';
 import {
   buildPipelineDefinition,
@@ -30,7 +33,33 @@ const initialViewerPanes = (): ViewerPane[] => [
   { id: makeViewerId(), sourceKey: 'latest' },
 ];
 
-export const useImageLabController = () => {
+const sanitizeServiceOutputName = (value: string): string => {
+  let normalized = value
+    .trim()
+    .replace(/[^A-Za-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+
+  if (!normalized) normalized = 'output';
+  if (!/^[A-Za-z]/.test(normalized)) normalized = `output_${normalized}`;
+  return normalized;
+};
+
+const defaultServiceOutputName = (label: string): string => {
+  return sanitizeServiceOutputName(label.toLowerCase().replace(/\s+/g, '_'));
+};
+
+const stackFromServiceSnapshot = (snapshot: any): StackOperatorInstance[] => {
+  const nodes = Array.isArray(snapshot?.nodes) ? snapshot.nodes : [];
+  return nodes.map((node: any) => ({
+    id: String(node.id),
+    operatorId: String(node.operator_id),
+    parameters: { ...(node.parameters ?? {}) },
+    enabled: node.enabled !== false,
+    expanded: true,
+  }));
+};
+
+export const useImageLabController = (editServiceId?: string | null) => {
   const [operators, setOperators] = useState<OperatorManifest[]>([]);
   const [stack, setStackState] = useState<StackOperatorInstance[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -43,6 +72,14 @@ export const useImageLabController = () => {
   const [viewerPanes, setViewerPanesState] = useState<ViewerPane[]>(initialViewerPanes);
   const [previewUrls, setPreviewUrls] = useState<Record<string, string>>({});
 
+  const [executionMode, setExecutionModeState] = useState<ImageLabExecutionMode>('live');
+  const [dirty, setDirty] = useState(false);
+  const [serviceMode, setServiceMode] = useState(false);
+  const [serviceName, setServiceNameState] = useState('Image Processing Service');
+  const [serviceId, setServiceId] = useState<string | null>(null);
+  const [serviceVersion, setServiceVersion] = useState<number | null>(null);
+  const [serviceOutputs, setServiceOutputs] = useState<LabServiceOutputSelection[]>([]);
+
   const stackRef = useRef(stack);
   const sourceLoadedRef = useRef(sourceLoaded);
   const viewerPanesRef = useRef(viewerPanes);
@@ -52,6 +89,8 @@ export const useImageLabController = () => {
   const refreshVisiblePreviewsRef = useRef<(skipKeys?: Set<string>) => Promise<void>>(async () => undefined);
   const clientRevisionRef = useRef(0);
   const debounceRef = useRef<Record<string, number>>({});
+  const executionModeRef = useRef<ImageLabExecutionMode>('live');
+  const dirtyRef = useRef(false);
 
   const manifests = useMemo(
     () => new Map(operators.map((operator) => [operator.id, operator])),
@@ -63,6 +102,8 @@ export const useImageLabController = () => {
   useEffect(() => { sourceLoadedRef.current = sourceLoaded; }, [sourceLoaded]);
   useEffect(() => { viewerPanesRef.current = viewerPanes; }, [viewerPanes]);
   useEffect(() => { manifestsRef.current = manifests; }, [manifests]);
+  useEffect(() => { executionModeRef.current = executionMode; }, [executionMode]);
+  useEffect(() => { dirtyRef.current = dirty; }, [dirty]);
 
   const setPreviewBlob = useCallback((key: string, blob: Blob) => {
     const nextUrl = URL.createObjectURL(blob);
@@ -245,10 +286,50 @@ export const useImageLabController = () => {
         }
 
         createdSession = session.session_id;
+        const catalogMap = new Map(catalog.map((operator) => [operator.id, operator]));
+        manifestsRef.current = catalogMap;
         setOperators(catalog);
         setSessionId(session.session_id);
-        setStatus(`LAB session ${session.session_id.slice(-8)} ready`);
         connectWebSocket(session.session_id);
+
+        if (editServiceId) {
+          const service = await LabServiceAPI.get(editServiceId);
+          if (cancelled) return;
+
+          const nextStack = stackFromServiceSnapshot(service.pipeline_snapshot);
+          const missingOperators = nextStack
+            .filter((item) => !catalogMap.has(item.operatorId))
+            .map((item) => item.operatorId);
+          if (missingOperators.length > 0) {
+            throw new Error(
+              `Service references unavailable operators: ${missingOperators.join(', ')}`,
+            );
+          }
+
+          const nextOutputs: LabServiceOutputSelection[] = Object.entries(service.outputs).map(
+            ([name, binding]) => ({
+              nodeId: binding.node_id,
+              port: binding.port,
+              name,
+              dataType: binding.type,
+            }),
+          );
+
+          stackRef.current = nextStack;
+          setStackState(nextStack);
+          setServiceOutputs(nextOutputs);
+          setServiceMode(true);
+          setServiceNameState(service.name);
+          setServiceId(service.service_id);
+          setServiceVersion(service.version);
+          executionModeRef.current = 'manual';
+          setExecutionModeState('manual');
+          dirtyRef.current = false;
+          setDirty(false);
+          setStatus(`Editing ${service.name} v${service.version} · Manual execution`);
+        } else {
+          setStatus(`LAB session ${session.session_id.slice(-8)} ready`);
+        }
       } catch (cause: any) {
         setError(
           cause?.response?.data?.detail
@@ -277,7 +358,7 @@ export const useImageLabController = () => {
         ).catch(() => undefined);
       }
     };
-  }, [connectWebSocket]);
+  }, [connectWebSocket, editServiceId]);
 
   const applyStack = useCallback(async (
     nextStack: StackOperatorInstance[],
@@ -292,6 +373,21 @@ export const useImageLabController = () => {
     if (!validity.ok) {
       setError(validity.reason || 'Invalid processing stack');
       return false;
+    }
+
+    const nodeIds = new Set(nextStack.map((item) => item.id));
+    setServiceOutputs((current) => (
+      current.filter((output) => nodeIds.has(output.nodeId))
+    ));
+
+    if (executionModeRef.current === 'manual') {
+      stackRef.current = nextStack;
+      setStackState(nextStack);
+      normalizeViewerPanes(nextStack);
+      dirtyRef.current = true;
+      setDirty(true);
+      setStatus('Manual mode · changes pending Run');
+      return true;
     }
 
     if (!sessionId) {
@@ -325,6 +421,8 @@ export const useImageLabController = () => {
       stackRef.current = nextStack;
       setStackState(nextStack);
       normalizeViewerPanes(nextStack);
+      dirtyRef.current = false;
+      setDirty(false);
 
       if (sourceLoadedRef.current) {
         await refreshVisiblePreviews();
@@ -374,24 +472,34 @@ export const useImageLabController = () => {
       setPreviewBlob('source:image', original);
 
       if (stackRef.current.length > 0) {
-        const definition = buildPipelineDefinition(
-          stackRef.current,
-          manifestsRef.current,
-        );
+        if (executionModeRef.current === 'manual') {
+          dirtyRef.current = true;
+          setDirty(true);
+          setStatus(`Loaded ${file.name} · Manual mode pending Run`);
+        } else {
+          const definition = buildPipelineDefinition(
+            stackRef.current,
+            manifestsRef.current,
+          );
 
-        await ImageLabAPI.setPipeline(
-          sessionId,
-          definition,
-        );
+          await ImageLabAPI.setPipeline(
+            sessionId,
+            definition,
+          );
 
-        const result = await ImageLabAPI.run(sessionId);
-        setTimings(result.result?.timings_ms ?? {});
-        await refreshVisiblePreviews();
+          const result = await ImageLabAPI.run(sessionId);
+          setTimings(result.result?.timings_ms ?? {});
+          await refreshVisiblePreviews();
+          dirtyRef.current = false;
+          setDirty(false);
+          setStatus(`Loaded ${file.name}`);
+        }
       } else {
         setPreviewBlob('latest', original);
+        dirtyRef.current = false;
+        setDirty(false);
+        setStatus(`Loaded ${file.name}`);
       }
-
-      setStatus(`Loaded ${file.name}`);
     } catch (cause: any) {
       setError(
         cause?.response?.data?.detail
@@ -553,6 +661,13 @@ export const useImageLabController = () => {
     stackRef.current = next;
     setStackState(next);
 
+    if (executionModeRef.current === 'manual') {
+      dirtyRef.current = true;
+      setDirty(true);
+      setStatus('Manual mode · parameter changes pending Run');
+      return;
+    }
+
     const debounceKey = `${id}:${key}`;
 
     if (debounceRef.current[debounceKey]) {
@@ -697,6 +812,8 @@ export const useImageLabController = () => {
       const result = await ImageLabAPI.run(sessionId);
       setTimings(result.result?.timings_ms ?? {});
       await refreshVisiblePreviews();
+      dirtyRef.current = false;
+      setDirty(false);
 
       setStatus('Final pipeline run complete');
     } catch (cause: any) {
@@ -709,6 +826,144 @@ export const useImageLabController = () => {
       setBusy(false);
     }
   }, [sessionId, refreshVisiblePreviews]);
+
+  const setExecutionMode = useCallback(async (mode: ImageLabExecutionMode) => {
+    executionModeRef.current = mode;
+    setExecutionModeState(mode);
+
+    if (mode === 'manual') {
+      setStatus('Manual execution · pipeline runs only when Run is pressed');
+      return;
+    }
+
+    if (
+      dirtyRef.current
+      && sourceLoadedRef.current
+      && stackRef.current.length > 0
+    ) {
+      await runNow();
+    } else {
+      setStatus('Live execution enabled');
+    }
+  }, [runNow]);
+
+  const toggleServiceOutput = useCallback((nodeId: string) => {
+    const existing = serviceOutputs.find((item) => item.nodeId === nodeId);
+    if (existing) {
+      setServiceOutputs((current) => current.filter((item) => item.nodeId !== nodeId));
+      return;
+    }
+
+    const instance = stackRef.current.find((item) => item.id === nodeId);
+    if (!instance) return;
+    const manifest = manifestsRef.current.get(instance.operatorId);
+    const output = manifest ? firstEntry(manifest.outputs) : null;
+    if (!manifest || !output) return;
+
+    const usedNames = new Set(serviceOutputs.map((item) => item.name));
+    const base = defaultServiceOutputName(manifest.label);
+    let candidate = base;
+    let suffix = 2;
+    while (usedNames.has(candidate)) {
+      candidate = `${base}_${suffix}`;
+      suffix += 1;
+    }
+
+    setServiceOutputs((current) => [
+      ...current,
+      {
+        nodeId,
+        port: output[0],
+        name: candidate,
+        dataType: output[1].type,
+      },
+    ]);
+  }, [serviceOutputs]);
+
+  const renameServiceOutput = useCallback((nodeId: string, value: string) => {
+    const normalized = sanitizeServiceOutputName(value);
+    setServiceOutputs((current) => (
+      current.map((item) => (
+        item.nodeId === nodeId
+          ? { ...item, name: normalized }
+          : item
+      ))
+    ));
+  }, []);
+
+  const setServiceName = useCallback((value: string) => {
+    setServiceNameState(value);
+  }, []);
+
+  const startNewServiceDraft = useCallback(() => {
+    setServiceId(null);
+    setServiceVersion(null);
+    setServiceMode(true);
+    setStatus('New Lab Service draft · current stack and checkpoints retained');
+  }, []);
+
+  const deployService = useCallback(async (asNew = false) => {
+    const name = serviceName.trim();
+    if (!name) {
+      setError('Lab Service name is required');
+      return;
+    }
+    if (stackRef.current.length === 0) {
+      setError('Cannot deploy an empty processing stack');
+      return;
+    }
+    if (serviceOutputs.length === 0) {
+      setError('Expose at least one stack checkpoint as a Lab Service output');
+      return;
+    }
+
+    const names = serviceOutputs.map((item) => item.name);
+    if (new Set(names).size !== names.length) {
+      setError('Lab Service output names must be unique');
+      return;
+    }
+
+    try {
+      setBusy(true);
+      setError('');
+      const definition = buildPipelineDefinition(
+        stackRef.current,
+        manifestsRef.current,
+      );
+
+      const outputs = Object.fromEntries(
+        serviceOutputs.map((item) => [
+          item.name,
+          {
+            node_id: item.nodeId,
+            port: item.port,
+            label: item.name,
+          },
+        ]),
+      );
+
+      const deployed = await LabServiceAPI.deploy({
+        service_id: asNew ? null : serviceId,
+        name,
+        lab_type: 'image_processing',
+        pipeline_snapshot: definition,
+        outputs,
+      });
+
+      setServiceId(deployed.service_id);
+      setServiceVersion(deployed.version);
+      setServiceNameState(deployed.name);
+      setStatus(`Lab Service ${deployed.name} v${deployed.version} deployed`);
+    } catch (cause: any) {
+      setError(
+        cause?.response?.data?.detail
+        || cause?.message
+        || 'Failed to deploy Lab Service',
+      );
+    } finally {
+      setBusy(false);
+    }
+  }, [serviceId, serviceName, serviceOutputs]);
 
   const canAppend = useCallback((
     operator: OperatorManifest,
@@ -734,7 +989,21 @@ export const useImageLabController = () => {
     viewerPanes,
     previewUrls,
     availableSources,
+    executionMode,
+    dirty,
+    serviceMode,
+    serviceName,
+    serviceId,
+    serviceVersion,
+    serviceOutputs,
     setError,
+    setExecutionMode,
+    setServiceMode,
+    setServiceName,
+    toggleServiceOutput,
+    renameServiceOutput,
+    deployService,
+    startNewServiceDraft,
     canAppend,
     addOperator,
     deleteOperator,

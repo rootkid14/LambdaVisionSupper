@@ -6,12 +6,14 @@ import {
   EyeOff,
   GripVertical,
   RotateCcw,
+  Share2,
   Trash2,
 } from 'lucide-react';
 import type {
   OperatorManifest,
   ParameterManifest,
   StackOperatorInstance,
+  LabServiceOutputSelection,
 } from './types';
 
 interface Props {
@@ -31,6 +33,10 @@ interface Props {
     value: any,
     commit?: boolean,
   ) => void;
+  serviceMode: boolean;
+  serviceOutputs: LabServiceOutputSelection[];
+  onToggleServiceOutput: (nodeId: string) => void;
+  onRenameServiceOutput: (nodeId: string, name: string) => void;
 }
 
 const NumericEditor = ({
@@ -305,6 +311,10 @@ export const ProcessingStack = ({
   onReset,
   onReorder,
   onParameterChange,
+  serviceMode,
+  serviceOutputs,
+  onToggleServiceOutput,
+  onRenameServiceOutput,
 }: Props) => {
   const [dragIndex, setDragIndex] =
     useState<number | null>(null);
@@ -323,7 +333,7 @@ export const ProcessingStack = ({
         </div>
 
         <p className="mt-1 text-[10px] text-[#9aa0a6]">
-          Drag only the grip handle to reorder · sliders never drag the block.
+          Drag by the grip · tune parameters · expose checkpoints when Lab Service mode is on.
         </p>
       </div>
 
@@ -367,6 +377,10 @@ export const ProcessingStack = ({
             inputTypes.length === 1
             && outputTypes.length === 1
             && inputTypes[0] === outputTypes[0];
+
+          const serviceOutput = serviceOutputs.find(
+            (output) => output.nodeId === instance.id,
+          );
 
           return (
             <div
@@ -436,6 +450,26 @@ export const ProcessingStack = ({
                     {manifest.label}
                   </span>
                 </button>
+
+                {serviceMode && (
+                  <button
+                    onClick={() => {
+                      onToggleServiceOutput(instance.id);
+                    }}
+                    title={
+                      serviceOutput
+                        ? `Remove Lab Service output: ${serviceOutput.name}`
+                        : 'Expose this checkpoint as a Lab Service output'
+                    }
+                    className={`p-1 rounded transition-colors ${
+                      serviceOutput
+                        ? 'bg-[#174ea6] text-[#d2e3fc]'
+                        : 'text-[#9aa0a6] hover:bg-[#3c4043] hover:text-[#8ab4f8]'
+                    }`}
+                  >
+                    <Share2 size={13} />
+                  </button>
+                )}
 
                 <button
                   onClick={() => {
@@ -518,6 +552,31 @@ export const ProcessingStack = ({
                         )
                       }
                     </div>
+
+                    {serviceMode && serviceOutput && (
+                      <div className="rounded-md border border-[#8ab4f8]/45 bg-[#1f2b3d] p-2.5">
+                        <div className="mb-1.5 flex items-center justify-between gap-2">
+                          <span className="text-[9px] font-black tracking-[0.14em] text-[#8ab4f8]">
+                            LAB SERVICE OUTPUT
+                          </span>
+                          <span className="rounded bg-[#202124] px-1.5 py-0.5 text-[9px] text-[#bdc1c6]">
+                            {serviceOutput.dataType}
+                          </span>
+                        </div>
+                        <input
+                          value={serviceOutput.name}
+                          onChange={(event: any) => {
+                            onRenameServiceOutput(instance.id, event.target.value);
+                          }}
+                          onPointerDown={(event) => event.stopPropagation()}
+                          className="w-full rounded border border-[#5f6368] bg-[#202124] px-2 py-1.5 text-xs font-mono text-[#e8eaed] outline-none focus:border-[#8ab4f8]"
+                          title="Stable output name used by the Lab Service contract"
+                        />
+                        <div className="mt-1 text-[9px] text-[#9aa0a6]">
+                          {instance.id} → {serviceOutput.port}
+                        </div>
+                      </div>
+                    )}
 
                     {
                       Object.keys(

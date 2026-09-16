@@ -1,0 +1,336 @@
+from __future__ import annotations
+
+from typing import Any
+
+import cv2
+import numpy as np
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import Response
+from pydantic import BaseModel
+
+from app.services.vision_labs.core import ExecutionMode
+from app.services.vision_labs.image.types import BinaryMask, ColorSpace, ImageFrame
+from app.services.vision_labs.sampling_geometry.operators import (
+    load_sampling_geometry_operators,
+)
+from app.services.vision_labs.sampling_geometry.pipeline import (
+    SamplingPipelineDefinition,
+    SamplingPipelineValidator,
+    model_to_dict,
+)
+from app.services.vision_labs.sampling_geometry.preview import SamplingPreviewEncoder
+from app.services.vision_labs.sampling_geometry.registry import (
+    SAMPLING_OPERATOR_REGISTRY,
+)
+from app.services.vision_labs.sampling_geometry.repository import (
+    SamplingPipelineRepository,
+)
+from app.services.vision_labs.sampling_geometry.serialization import artifact_to_json
+from app.services.vision_labs.sampling_geometry.session import (
+    SamplingGeometrySessionManager,
+)
+from app.services.vision_labs.service import (
+    LAB_SERVICE_REPOSITORY,
+    LAB_SERVICE_RUNTIME,
+)
+
+
+load_sampling_geometry_operators()
+
+router = APIRouter()
+session_manager = SamplingGeometrySessionManager()
+pipeline_repository = SamplingPipelineRepository()
+
+
+class SavePipelineRequest(BaseModel):
+    name: str
+    pipeline: SamplingPipelineDefinition
+
+
+def _http_error(exc: Exception, status_code: int = 400) -> HTTPException:
+    if isinstance(exc, HTTPException):
+        return exc
+    if isinstance(exc, (KeyError, FileNotFoundError)):
+        return HTTPException(status_code=404, detail=str(exc))
+    return HTTPException(status_code=status_code, detail=str(exc))
+
+
+def _decode_image(raw: bytes, *, source_id: str) -> ImageFrame:
+    if not raw:
+        raise ValueError("Uploaded image body is empty")
+    array = np.frombuffer(raw, dtype=np.uint8)
+    image = cv2.imdecode(array, cv2.IMREAD_UNCHANGED)
+    if image is None:
+        raise ValueError("Uploaded body could not be decoded as an image")
+    if image.ndim == 2:
+        color_space = ColorSpace.GRAY
+    elif image.ndim == 3 and image.shape[2] == 4:
+        image = cv2.cvtColor(image, cv2.COLOR_BGRA2BGR)
+        color_space = ColorSpace.BGR
+    else:
+        color_space = ColorSpace.BGR
+    return ImageFrame(data=image, color_space=color_space, source_id=source_id)
+
+
+def _decode_mask(raw: bytes) -> BinaryMask:
+    if not raw:
+        raise ValueError("Uploaded mask body is empty")
+    array = np.frombuffer(raw, dtype=np.uint8)
+    image = cv2.imdecode(array, cv2.IMREAD_GRAYSCALE)
+    if image is None:
+        raise ValueError("Uploaded body could not be decoded as a mask")
+    return BinaryMask(data=(image > 0).astype(np.uint8) * 255)
+
+
+def _source_manifest(value: Any) -> dict[str, Any]:
+    if isinstance(value, ImageFrame):
+        return {
+            "type": "image",
+            "shape": list(value.shape),
+            "color_space": value.color_space.value,
+        }
+    if isinstance(value, BinaryMask):
+        return {"type": "binary_mask", "shape": list(value.shape)}
+    return {"type": type(value).__name__}
+
+
+@router.get("/operators", summary="Sampling / Geometry LAB operator catalog")
+def get_operator_catalog(workspace: str | None = None):
+    return {
+        "success": True,
+        "operators": SAMPLING_OPERATOR_REGISTRY.manifests(workspace),
+    }
+
+
+@router.post("/pipelines/validate", summary="Validate Sampling / Geometry pipeline")
+def validate_pipeline(pipeline: SamplingPipelineDefinition):
+    errors = SamplingPipelineValidator().validate(
+        pipeline,
+        raise_on_error=False,
+    )
+    return {"success": not errors, "valid": not errors, "errors": errors}
+
+
+@router.get("/pipelines", summary="List saved Sampling / Geometry pipelines")
+def list_pipelines():
+    return {"success": True, "pipelines": pipeline_repository.list()}
+
+
+@router.get("/pipelines/{name}", summary="Load saved Sampling / Geometry pipeline")
+def load_pipeline(name: str):
+    try:
+        pipeline = pipeline_repository.load(name)
+        return {"success": True, "pipeline": model_to_dict(pipeline)}
+    except Exception as exc:
+        raise _http_error(exc)
+
+
+@router.post("/pipelines/save", summary="Save Sampling / Geometry pipeline")
+def save_pipeline(request: SavePipelineRequest):
+    try:
+        errors = SamplingPipelineValidator().validate(
+            request.pipeline,
+            raise_on_error=False,
+        )
+        if errors:
+            raise ValueError("Pipeline is invalid: " + "; ".join(errors))
+        path = pipeline_repository.save(request.name, request.pipeline)
+        return {"success": True, "name": request.name, "path": str(path)}
+    except Exception as exc:
+        raise _http_error(exc)
+
+
+@router.post("/sessions", summary="Create Sampling / Geometry interactive session")
+def create_session():
+    session = session_manager.create()
+    return {
+        "success": True,
+        "session_id": session.session_id,
+        "revision": session.revision,
+    }
+
+
+@router.delete("/sessions/{session_id}", summary="Close Sampling / Geometry session")
+def close_session(session_id: str):
+    closed = session_manager.close(session_id)
+    if not closed:
+        raise HTTPException(status_code=404, detail=f"Unknown session: {session_id}")
+    return {"success": True}
+
+
+@router.post("/sessions/{session_id}/input/{source_name}", summary="Upload Sampling / Geometry source")
+async def upload_input(
+    session_id: str,
+    source_name: str,
+    request: Request,
+    input_type: str = Query("image", regex="^(image|binary_mask)$"),
+):
+    try:
+        raw = await request.body()
+        value: Any
+        if input_type == "binary_mask":
+            value = _decode_mask(raw)
+        else:
+            value = _decode_image(raw, source_id=source_name)
+        session = session_manager.get(session_id)
+        session.set_source(source_name, value)
+        return {
+            "success": True,
+            "session_id": session_id,
+            "source_name": source_name,
+            "revision": session.revision,
+            "source": _source_manifest(value),
+        }
+    except Exception as exc:
+        raise _http_error(exc)
+
+
+@router.post(
+    "/sessions/{session_id}/input/{source_name}/from-lab-service",
+    summary="Resolve a Sampling / Geometry source by directly invoking a deployed Lab Service",
+)
+async def bind_input_from_lab_service(
+    session_id: str,
+    source_name: str,
+    request: Request,
+    service_id: str,
+    output_name: str,
+    version: int | None = None,
+):
+    try:
+        service = LAB_SERVICE_REPOSITORY.get(service_id, version=version)
+        if service.lab_type != "image_processing":
+            raise ValueError(
+                "Sampling / Geometry v1 currently accepts upstream image_processing Lab Services"
+            )
+        image_inputs = [
+            name
+            for name, port in service.inputs.items()
+            if port.type == "image"
+        ]
+        if len(service.inputs) != 1 or len(image_inputs) != 1:
+            raise ValueError(
+                "Upstream service must currently expose exactly one Image input"
+            )
+        if output_name not in service.outputs:
+            raise KeyError(f"Unknown upstream service output: {output_name}")
+        binding = service.outputs[output_name]
+        if binding.type not in {"image", "binary_mask"}:
+            raise ValueError(
+                "Sampling / Geometry source binding currently supports Image or BinaryMask service outputs"
+            )
+
+        raw = await request.body()
+        frame = _decode_image(raw, source_id="upstream_service_input")
+        run = LAB_SERVICE_RUNTIME.run(
+            service,
+            {image_inputs[0]: frame},
+        )
+        value = run.outputs[output_name]
+        if not isinstance(value, (ImageFrame, BinaryMask)):
+            raise TypeError(
+                f"Upstream output {output_name!r} is not a raster source"
+            )
+
+        session = session_manager.get(session_id)
+        session.set_source(source_name, value)
+        return {
+            "success": True,
+            "session_id": session_id,
+            "source_name": source_name,
+            "revision": session.revision,
+            "source": _source_manifest(value),
+            "upstream": {
+                "service_id": service.service_id,
+                "service_version": service.version,
+                "output_name": output_name,
+                "lab_type": service.lab_type,
+            },
+        }
+    except Exception as exc:
+        raise _http_error(exc)
+
+
+@router.put("/sessions/{session_id}/pipeline", summary="Set Sampling / Geometry session pipeline")
+def set_session_pipeline(
+    session_id: str,
+    pipeline: SamplingPipelineDefinition,
+):
+    try:
+        session = session_manager.get(session_id)
+        session.set_pipeline(pipeline)
+        return {
+            "success": True,
+            "revision": session.revision,
+            "pipeline": model_to_dict(pipeline),
+        }
+    except Exception as exc:
+        raise _http_error(exc)
+
+
+@router.post("/sessions/{session_id}/run", summary="Run Sampling / Geometry session")
+def run_session(session_id: str):
+    try:
+        session = session_manager.get(session_id)
+        result = session.run(mode=ExecutionMode.FINAL)
+        return {
+            "success": True,
+            "revision": session.revision,
+            "result": result.manifest(),
+        }
+    except Exception as exc:
+        raise _http_error(exc)
+
+
+@router.get("/sessions/{session_id}/preview/source/{source_name}")
+def preview_source(
+    session_id: str,
+    source_name: str,
+    max_width: int = Query(1600, ge=64, le=4096),
+    quality: int = Query(90, ge=20, le=100),
+):
+    try:
+        session = session_manager.get(session_id)
+        payload, mime = SamplingPreviewEncoder.encode(
+            session.get_source(source_name),
+            max_width=max_width,
+            quality=quality,
+        )
+        return Response(content=payload, media_type=mime)
+    except Exception as exc:
+        raise _http_error(exc)
+
+
+@router.get("/sessions/{session_id}/artifact/{node_id}/{port}")
+def get_artifact_json(session_id: str, node_id: str, port: str):
+    try:
+        artifact = session_manager.get(session_id).get_artifact(node_id, port)
+        return {
+            "success": True,
+            "artifact_id": artifact.artifact_id,
+            "node_id": node_id,
+            "port": port,
+            "artifact": artifact_to_json(artifact.value),
+        }
+    except Exception as exc:
+        raise _http_error(exc)
+
+
+@router.get("/sessions/{session_id}/preview/node/{node_id}/{port}")
+def preview_artifact(
+    session_id: str,
+    node_id: str,
+    port: str,
+    max_width: int = Query(1600, ge=64, le=4096),
+    quality: int = Query(90, ge=20, le=100),
+):
+    try:
+        artifact = session_manager.get(session_id).get_artifact(node_id, port)
+        payload, mime = SamplingPreviewEncoder.encode(
+            artifact.value,
+            max_width=max_width,
+            quality=quality,
+        )
+        return Response(content=payload, media_type=mime)
+    except Exception as exc:
+        raise _http_error(exc)
