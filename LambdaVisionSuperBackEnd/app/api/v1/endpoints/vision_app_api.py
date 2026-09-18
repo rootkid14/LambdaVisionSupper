@@ -9,9 +9,13 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 
 from app.services.vision_app.camera_runtime import CameraController
+from app.services.vision_app.automation_manager import AutomationManager
 from app.services.vision_app.debug_store import VISION_DEBUG_STORE
 from app.services.vision_app.io_runtime import ModbusIOController
 from app.services.vision_app.models import VisionProgramDefinition, model_to_dict
+from app.services.vision_app.endpoint_registry import safe_alias
+from app.services.vision_app.frame_slot_store import VISION_FRAME_SLOTS
+from app.services.vision_app.workspace_runtime import projected_program, workspace_by_alias
 from app.services.vision_app.repository import VisionProgramRepository
 from app.services.vision_app.roi_search import blur_preview, locate_all
 from app.services.vision_app.runner import VisionTriggerRunnerManager
@@ -22,6 +26,7 @@ repository = VisionProgramRepository()
 runtime = VisionProgramRuntime()
 io_controller = ModbusIOController()
 camera_controller = CameraController()
+automation_manager = AutomationManager(repository, runtime, camera_controller, io_controller)
 runner_manager = VisionTriggerRunnerManager(repository, runtime, camera_controller, io_controller)
 
 
@@ -116,6 +121,7 @@ def save_program(program_id: str, program: VisionProgramDefinition):
 def delete_program(program_id: str):
     try:
         runner_manager.stop(program_id)
+        automation_manager.stop(program_id)
         if not repository.delete(program_id):
             raise FileNotFoundError(f"Vision Program not found: {program_id}")
         return {"success": True}
@@ -125,34 +131,39 @@ def delete_program(program_id: str):
         raise _error(exc)
 
 
-@router.post("/programs/{program_id}/master", summary="Upload/replace master sample image")
-async def upload_master(program_id: str, request: Request):
+@router.post("/programs/{program_id}/master", summary="Upload/replace workspace master sample image")
+async def upload_master(program_id: str, request: Request, workspace_id: str | None = None):
     try:
         program = repository.get(program_id)
-        shape = repository.save_master_bytes(program_id, await request.body())
-        program.master.master_shape = shape
+        workspace = workspace_by_alias(program, workspace_id)
+        shape = repository.save_master_bytes(program_id, await request.body(), workspace.workspace_id)
+        workspace.master.master_shape = shape
+        if workspace.workspace_id == "workspace_1":
+            program.master.master_shape = shape
         repository.save(program)
-        return {"success": True, "shape": shape}
+        return {"success": True, "shape": shape, "workspace_id": workspace.workspace_id}
     except FileNotFoundError as exc:
         raise _error(exc, 404)
     except Exception as exc:
         raise _error(exc)
 
 
-@router.get("/programs/{program_id}/master", summary="Preview master sample image")
-def master_preview(program_id: str, quality: int = 92):
+@router.get("/programs/{program_id}/master", summary="Preview workspace master sample image")
+def master_preview(program_id: str, quality: int = 92, workspace_id: str | None = None):
     try:
-        return Response(content=_encode_jpeg(repository.load_master(program_id), quality), media_type="image/jpeg")
+        program = repository.get(program_id); workspace = workspace_by_alias(program, workspace_id)
+        return Response(content=_encode_jpeg(repository.load_master(program_id, workspace.workspace_id), quality), media_type="image/jpeg")
     except FileNotFoundError as exc:
         raise _error(exc, 404)
     except Exception as exc:
         raise _error(exc)
 
 
-@router.get("/programs/{program_id}/master/blur-preview", summary="Visualize Master Sample blur used by locator")
-def master_blur_preview(program_id: str, kernel: int = 9, quality: int = 92):
+@router.get("/programs/{program_id}/master/blur-preview", summary="Visualize workspace Master Sample blur used by locator")
+def master_blur_preview(program_id: str, kernel: int = 9, quality: int = 92, workspace_id: str | None = None):
     try:
-        image = blur_preview(repository.load_master(program_id), kernel)
+        program = repository.get(program_id); workspace = workspace_by_alias(program, workspace_id)
+        image = blur_preview(repository.load_master(program_id, workspace.workspace_id), kernel)
         return Response(content=_encode_jpeg(image, quality), media_type="image/jpeg")
     except FileNotFoundError as exc:
         raise _error(exc, 404)
@@ -160,13 +171,13 @@ def master_blur_preview(program_id: str, kernel: int = 9, quality: int = 92):
         raise _error(exc)
 
 
-@router.post("/programs/{program_id}/locate-rois", summary="Locate all Master Sample ROIs on a test image")
-async def locate_rois(program_id: str, request: Request):
+@router.post("/programs/{program_id}/locate-rois", summary="Locate workspace Master ROIs on a test image")
+async def locate_rois(program_id: str, request: Request, workspace_id: str | None = None):
     try:
-        program = repository.get(program_id)
-        master = repository.load_master(program_id)
+        program = repository.get(program_id); workspace = workspace_by_alias(program, workspace_id)
+        master = repository.load_master(program_id, workspace.workspace_id)
         test = _decode(await request.body())
-        located = locate_all(program.master.rois, master, test, program.master.locator)
+        located = locate_all(workspace.master.rois, master, test, workspace.master.locator)
         return {"success": True, "rois": [model_to_dict(item) for item in located]}
     except FileNotFoundError as exc:
         raise _error(exc, 404)
@@ -174,12 +185,33 @@ async def locate_rois(program_id: str, request: Request):
         raise _error(exc)
 
 
-@router.post("/programs/{program_id}/test-run", summary="Run Global -> ROI -> Local inspection program")
-async def test_run(program_id: str, request: Request):
+@router.post("/programs/{program_id}/test-run", summary="Run one workspace inspection program")
+async def test_run(program_id: str, request: Request, workspace_id: str | None = None):
     try:
-        program = repository.get(program_id)
-        result = runtime.run_test(program, repository.load_master(program_id), _decode(await request.body()))
-        return {"success": True, "run": model_to_dict(result)}
+        result = automation_manager.run_inspection(program_id, _decode(await request.body()), workspace_alias=workspace_id)
+        return {"success": True, "run": model_to_dict(result), "system_state": model_to_dict(automation_manager.state(program_id))}
+    except FileNotFoundError as exc:
+        raise _error(exc, 404)
+    except Exception as exc:
+        raise _error(exc)
+
+
+@router.post("/programs/{program_id}/workspaces/{workspace_alias}/activate", summary="Activate one workspace without running inspection")
+def workspace_activate(program_id: str, workspace_alias: str):
+    try:
+        state = automation_manager.activate_workspace(program_id, workspace_alias)
+        return {"success": True, "state": model_to_dict(state)}
+    except FileNotFoundError as exc:
+        raise _error(exc, 404)
+    except Exception as exc:
+        raise _error(exc)
+
+
+@router.post("/programs/{program_id}/workspaces/{workspace_alias}/run", summary="Run workspace using its configured input binding")
+def workspace_run(program_id: str, workspace_alias: str):
+    try:
+        result = automation_manager.run_inspection(program_id, workspace_alias=workspace_alias)
+        return {"success": True, "run": model_to_dict(result), "system_state": model_to_dict(automation_manager.state(program_id))}
     except FileNotFoundError as exc:
         raise _error(exc, 404)
     except Exception as exc:
@@ -187,21 +219,23 @@ async def test_run(program_id: str, request: Request):
 
 
 @router.post("/programs/{program_id}/scope-preview/{scope_id}", summary="Preview the configured filter stack for Global or one station")
-async def scope_preview(program_id: str, scope_id: str, request: Request):
+async def scope_preview(program_id: str, scope_id: str, request: Request, workspace_id: str | None = None):
     try:
         program = repository.get(program_id)
+        workspace = workspace_by_alias(program, workspace_id)
+        projected = projected_program(program, workspace)
         raw = await request.body()
         if raw:
             preview_image = _decode(raw)
             preview_source = "test"
             # Global Filter preview does not semantically require a Master Sample.
             # ROI preview still does because ROI location is defined from the Master.
-            master = preview_image if scope_id == "global" else repository.load_master(program_id)
+            master = preview_image if scope_id == "global" else repository.load_master(program_id, workspace.workspace_id)
         else:
-            master = repository.load_master(program_id)
+            master = repository.load_master(program_id, workspace.workspace_id)
             preview_image, preview_source = _decode_or_master(raw, master)
         run_id, refs, benchmarks = runtime.preview_scope_filters(
-            program,
+            projected,
             master,
             preview_image,
             scope_id=scope_id,
@@ -239,7 +273,7 @@ def basler_scan():
 def camera_capture(program_id: str, quality: int = 94):
     try:
         program = repository.get(program_id)
-        image = camera_controller.capture(program.camera)
+        image = automation_manager.capture(program_id)
         return Response(content=_encode_jpeg(image, quality), media_type="image/jpeg", headers={"X-Camera-Driver": program.camera.driver})
     except FileNotFoundError as exc:
         raise _error(exc, 404)
@@ -301,3 +335,202 @@ def runner_stop(program_id: str):
 @router.get("/programs/{program_id}/runner/status", summary="Automatic trigger runner status")
 def runner_status(program_id: str):
     return {"success": True, "status": model_to_dict(runner_manager.status(program_id))}
+
+
+class SimPointRequest(BaseModel):
+    value: Any
+
+
+@router.post("/programs/{program_id}/cameras/{camera_alias}/capture", summary="Capture one declared camera into its image slot")
+def declared_camera_capture(program_id: str, camera_alias: str, quality: int = 94):
+    try:
+        image = automation_manager.capture(program_id, camera_alias)
+        return Response(content=_encode_jpeg(image, quality), media_type="image/jpeg", headers={"X-Camera-Alias": camera_alias})
+    except Exception as exc:
+        raise _error(exc)
+
+
+@router.get("/programs/{program_id}/cameras/{camera_alias}/stream-frame", summary="Engineering stream preview frame")
+def declared_camera_stream_frame(program_id: str, camera_alias: str, quality: int = 88):
+    try:
+        program = automation_manager._active_program(repository.get(program_id)); camera = automation_manager._camera(program, camera_alias)
+        image = automation_manager.camera_resources.stream_frame(program_id, camera)
+        return Response(content=_encode_jpeg(image, quality), media_type="image/jpeg", headers={"X-Stream-Preview": "poll"})
+    except Exception as exc:
+        raise _error(exc)
+
+
+@router.post("/programs/{program_id}/cameras/{camera_alias}/sim-frame", summary="Upload simulated camera frame")
+async def simulated_camera_frame(program_id: str, camera_alias: str, request: Request):
+    try:
+        program = automation_manager._active_program(repository.get(program_id)); camera = automation_manager._camera(program, camera_alias)
+        image = _decode(await request.body())
+        if camera.driver != "simulated": raise ValueError("Camera driver must be simulated")
+        VISION_FRAME_SLOTS.put(program_id, automation_manager.camera_resources.stream_slot_path(camera), image)
+        VISION_FRAME_SLOTS.put(program_id, automation_manager.camera_resources.image_slot_path(camera), image)
+        return {"success": True, "shape": list(image.shape)}
+    except Exception as exc:
+        raise _error(exc)
+
+
+@router.post("/programs/{program_id}/simulator/iot/{device_alias}/{point_alias}", summary="Set simulated IOT point")
+def simulator_iot(program_id: str, device_alias: str, point_alias: str, request: SimPointRequest):
+    try:
+        program = automation_manager._active_program(repository.get(program_id))
+        hit = automation_manager._declared_point(program, f"device.{device_alias}.{point_alias}")
+        if hit is None: raise FileNotFoundError("Declared IOT point not found")
+        device, point = hit
+        if device.driver != "simulated": raise ValueError("Device driver must be simulated")
+        io_controller.set_simulated_point(device, point, request.value)
+        return {"success": True, "value": io_controller.read_declared_point(device, point)}
+    except FileNotFoundError as exc:
+        raise _error(exc, 404)
+    except Exception as exc:
+        raise _error(exc)
+
+
+@router.post("/programs/{program_id}/online", summary="Put all enabled Automation services online")
+def program_online(program_id: str):
+    try:
+        repository.get(program_id)
+        return {"success": True, "state": model_to_dict(automation_manager.online(program_id))}
+    except Exception as exc:
+        raise _error(exc)
+
+
+@router.post("/programs/{program_id}/offline", summary="Take whole Computer Vision program offline")
+def program_offline(program_id: str):
+    return {"success": True, "state": model_to_dict(automation_manager.offline(program_id))}
+
+
+class AutomationValidateRequest(BaseModel):
+    script: str = ""
+
+
+
+
+class KeyboardStateRequest(BaseModel):
+    key: str
+    pressed: bool
+
+
+@router.post("/programs/{program_id}/automation/keyboard", summary="Update application keyboard signal state")
+def automation_keyboard(program_id: str, request: KeyboardStateRequest):
+    try:
+        repository.get(program_id)
+        return {"success": True, "state": model_to_dict(automation_manager.set_keyboard_state(program_id, request.key, request.pressed))}
+    except Exception as exc:
+        raise _error(exc)
+
+@router.post("/programs/{program_id}/automation/endpoints/preview", summary="Preview live typed endpoints from the unsaved editor program")
+def automation_endpoints_preview(program_id: str, program: VisionProgramDefinition):
+    try:
+        if program.program_id != program_id:
+            raise ValueError("program_id in payload does not match route")
+        workspace = workspace_by_alias(program, program.active_workspace_id)
+        preview_program = projected_program(program, workspace)
+        return {
+            "success": True,
+            "endpoints": automation_manager.registry.as_dict(
+                preview_program,
+                automation_manager.snapshot(program_id),
+                automation_manager.state(program_id),
+            ),
+        }
+    except Exception as exc:
+        raise _error(exc)
+
+
+@router.get("/programs/{program_id}/automation/endpoints", summary="List typed Automation IDE endpoints")
+def automation_endpoints(program_id: str):
+    try:
+        repository.get(program_id)
+        return {"success": True, "endpoints": automation_manager.catalog(program_id)}
+    except FileNotFoundError as exc:
+        raise _error(exc, 404)
+    except Exception as exc:
+        raise _error(exc)
+
+
+@router.post("/programs/{program_id}/automation/validate", summary="Validate safe Automation DSL without executing it")
+def automation_validate(program_id: str, request: AutomationValidateRequest):
+    try:
+        repository.get(program_id)
+        return {"success": True, "issues": [model_to_dict(item) for item in automation_manager.validate(request.script)]}
+    except FileNotFoundError as exc:
+        raise _error(exc, 404)
+    except Exception as exc:
+        raise _error(exc)
+
+
+@router.post("/programs/{program_id}/automation/services/{service_id}/run", summary="Run or dry-run one Automation service")
+def automation_run_service(program_id: str, service_id: str, dry_run: bool = False):
+    try:
+        result = automation_manager.run_service(program_id, service_id, dry_run=dry_run)
+        return {"success": result.ok, "execution": model_to_dict(result), "state": model_to_dict(automation_manager.state(program_id))}
+    except FileNotFoundError as exc:
+        raise _error(exc, 404)
+    except Exception as exc:
+        raise _error(exc)
+
+
+@router.post("/programs/{program_id}/automation/start", summary="Start Loop Automation scheduler")
+def automation_start(program_id: str):
+    try:
+        repository.get(program_id)
+        return {"success": True, "state": model_to_dict(automation_manager.start(program_id))}
+    except Exception as exc:
+        raise _error(exc)
+
+
+@router.post("/programs/{program_id}/automation/stop", summary="Stop Loop Automation scheduler")
+def automation_stop(program_id: str):
+    return {"success": True, "state": model_to_dict(automation_manager.stop(program_id))}
+
+
+@router.get("/programs/{program_id}/automation/state", summary="Read Automation/System state")
+def automation_state(program_id: str):
+    try:
+        repository.get(program_id)
+        return {"success": True, "state": model_to_dict(automation_manager.state(program_id))}
+    except FileNotFoundError as exc:
+        raise _error(exc, 404)
+
+
+@router.get("/programs/{program_id}/automation/trace", summary="Read Automation execution trace")
+def automation_trace(program_id: str):
+    try:
+        repository.get(program_id)
+        return {"success": True, "trace": [model_to_dict(item) for item in automation_manager.trace(program_id)]}
+    except FileNotFoundError as exc:
+        raise _error(exc, 404)
+
+
+@router.delete("/programs/{program_id}/automation/trace", summary="Clear Automation execution trace")
+def automation_clear_trace(program_id: str):
+    automation_manager.clear_trace(program_id)
+    return {"success": True}
+
+
+@router.get("/programs/{program_id}/automation/latest-frame", summary="Read latest frame captured/used by Automation runtime")
+def automation_latest_frame(program_id: str, workspace_id: str | None = None):
+    try:
+        repository.get(program_id)
+        return Response(content=automation_manager.latest_frame_jpeg(program_id, workspace_alias=workspace_id), media_type="image/jpeg")
+    except FileNotFoundError as exc:
+        raise _error(exc, 404)
+    except Exception as exc:
+        raise _error(exc)
+
+
+@router.post("/programs/{program_id}/automation/latest-frame", summary="Upload current manual/test frame into Automation runtime")
+async def automation_set_latest_frame(program_id: str, request: Request, workspace_id: str | None = None):
+    try:
+        repository.get(program_id)
+        image = _decode(await request.body())
+        automation_manager.set_latest_frame(program_id, image, workspace_alias=workspace_id, announce=False)
+        return {"success": True, "shape": list(image.shape)}
+    except FileNotFoundError as exc:
+        raise _error(exc, 404)
+    except Exception as exc:
+        raise _error(exc)

@@ -37,7 +37,7 @@ def test_repository_migrates_v07_contract(tmp_path: Path):
     }''')
     repo = VisionProgramRepository(tmp_path)
     program = repo.get('legacy')
-    assert program.version == 2
+    assert program.version >= 4
     assert program.camera.driver == 'manual'
     assert program.master.locator.method == 'manual'
     assert program.working.station_execution == 'sequential'

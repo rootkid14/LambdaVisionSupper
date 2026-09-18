@@ -226,13 +226,13 @@ def _profiles() -> tuple[ModuleProfile, ...]:
             "fe_vision_app",
             "FE",
             "Computer Vision Program UI",
-            "Production Computer Vision application: Control Mapper + Modbus I/O, Camera acquisition (Basler or generic URL), program-wide Master ROI locator, Global/Station Filter→Logic orchestration, expandable scope controls, unified lazy Debug Stack Workspace and benchmarking. Decision/glue is reserved for the future IDE/sandbox.",
+            "Production Computer Vision application with v0.13.6 strict Workspace ownership: each Workspace owns IOT declarations, Camera declarations/binding, Master/ROI, Working scopes and run/debug context; typed dynamic Endpoint Registry and Automation IDE project only the active Workspace resources.",
             (
                 "exact:src/Pages/ComputerVisionPage.tsx",
                 "prefix:src/components/ComputerVision/",
                 "exact:src/api/visionAppApi.ts",
             ),
-            "Computer Vision is the production orchestration layer. Control Mapper maps keyboard/Modbus events to primitive actions; Global filtering precedes ROI location and station scopes. Filter uses Image Processing services and Logic extracts data. New programs reserve decision/glue for the future IDE/sandbox; legacy v2 Decision DSL remains runtime-compatible only. Debug Stack is observational and lazy-loads artifacts.",
+            "Computer Vision is the production orchestration layer. v0.13.6 treats each Workspace as a fully independent inspection program: its own IOT declarations, Camera declarations/binding, Master image, ROI/locator definition, Working filter/logic scopes and debug/run context. New Workspaces start hardware-empty and no runtime resource may fall back to another Workspace.",
             3,
         ),
         ModuleProfile(
@@ -1161,16 +1161,19 @@ BUNDLE_DEFINITIONS = {
         ),
     },
     "Computer Vision Program": {
-        "purpose": "Production Computer Vision application: Control Mapper + Modbus I/O, Basler/URL camera acquisition, stored Master Sample with one locator family for all stations, Global-first Filter→Logic execution, Local station scopes, expandable quick controls, unified lazy Debug Stack and benchmark timings. Decision/glue is future IDE ownership.",
+        "purpose": "Production Computer Vision application with v0.13.6 Workspace-owned resources: per-Workspace IOT + Camera declarations/binding, Master/ROI/Working state, active-Workspace Endpoint Registry/Automation IDE projection, Online/Offline scheduler, VisionRunSnapshot, Filter→Logic execution and lazy Debug Stack.",
         "minimal": (
             ("FE", "src/Pages/ComputerVisionPage.tsx"),
             ("FE", "src/components/ComputerVision/VisionViewport.tsx"),
-            ("FE", "src/components/ComputerVision/IotModulePanel.tsx"),
+            ("FE", "src/components/ComputerVision/IotDeclarationWorkspace.tsx"),
+            ("FE", "src/components/ComputerVision/AutomationCodeEditor.tsx"),
+            ("FE", "src/components/ComputerVision/EndpointObjectTree.tsx"),
             ("FE", "src/components/ComputerVision/CameraModulePanel.tsx"),
             ("FE", "src/components/ComputerVision/MasterSamplePanel.tsx"),
             ("FE", "src/components/ComputerVision/WorkingModulePanel.tsx"),
             ("FE", "src/components/ComputerVision/ScopeEditorModal.tsx"),
             ("FE", "src/components/ComputerVision/DebugWorkspace.tsx"),
+            ("FE", "src/components/ComputerVision/AutomationIdeWorkspace.tsx"),
             ("FE", "src/api/visionAppApi.ts"),
             ("BE", "app/services/vision_app/models.py"),
             ("BE", "app/services/vision_app/repository.py"),
@@ -1181,6 +1184,10 @@ BUNDLE_DEFINITIONS = {
             ("BE", "app/services/vision_app/decision_runtime.py"),
             ("BE", "app/services/vision_app/debug_store.py"),
             ("BE", "app/services/vision_app/runner.py"),
+            ("BE", "app/services/vision_app/automation_models.py"),
+            ("BE", "app/services/vision_app/endpoint_registry.py"),
+            ("BE", "app/services/vision_app/automation_runtime.py"),
+            ("BE", "app/services/vision_app/automation_manager.py"),
             ("BE", "app/api/v1/endpoints/vision_app_api.py"),
         ),
         "deep": (
@@ -1192,6 +1199,7 @@ BUNDLE_DEFINITIONS = {
             ("FE", "docs/llm_context/updates/v0800_computer_vision_production_pipeline.md"),
             ("FE", "docs/llm_context/updates/v0900_computer_vision_control_workspace.md"),
             ("FE", "docs/llm_context/updates/v1000_computer_vision_scope_debug_stack.md"),
+            ("FE", "docs/llm_context/updates/v1100_computer_vision_automation_ide.md"),
         ),
     },
     "Lab Service": {
@@ -1446,7 +1454,7 @@ def render_architecture(
         "   Legacy automation uses `BaseNode`; Image Processing uses `ImageOperator`.",
         "2. **Image Processing LAB is raster-centric.** Operators should not know master/query, inspection spec, station OK/NG, or alignment semantics.",
         "3. **Lab Service is the reusable callable boundary.** A service is a versioned LAB pipeline snapshot with typed inputs and named outputs.",
-        "4. **Computer Vision is an orchestration/application layer.** It binds Modbus I/O, Master Sample/ROI station localization and deployed Lab Services; it does not own LAB algorithms.",
+        "4. **Computer Vision is an orchestration/application layer.** IOT and Camera are shared declared resources; each Workspace is an independent inspection program with its own Master image, ROIs/locator, Working scopes and runtime/debug context. No workspace may inherit another workspace's inspection state. Automation IDE is the glue plane over typed endpoints and must not absorb LAB algorithms.",
         "5. **Interactive LAB sessions and deployed services are different lifecycles.** Interactive sessions optimize editing/tuning; deployed services optimize stable invocation.",
 
         "6. **Future cross-LAB composition should use explicit typed contracts/adapters**, not implicit imports between specialized internals.",
@@ -1504,14 +1512,24 @@ def render_architecture(
         "  → visionAppApi",
         "  → /api/v1/computer-vision",
         "  → VisionProgramRepository",
-        "  → IOT: Modbus trigger / OK-NG pulse",
+        "  → IOT Declaration Engine: declare multiple Modbus TCP devices + aliased points",
         "  → Camera: Manual / Basler pypylon / generic HTTP capture + focus URL",
         "  → Trigger runner: rising edge → capture → inspect → pulse OK/NG",
         "  → Master Sample: one locator family for all ROI/stations + blur preview",
         "  → Global Scope: expandable Filter stack → expandable Logic stack",
         "  → ROI location runs on the globally filtered image (master filtered equivalently)",
         "  → Local station scopes: Filter → Logic; sequential or parallel",
-        "  → future IDE/sandbox owns decision/glue/actions; legacy v2 Decision DSL remains compatible",
+        "  → VisionRunSnapshot freezes Global/ROI Logic outputs for one run",
+        "  → Endpoint Registry builds a live object graph from draft declarations: device.<alias>.<point>, vision.roi.<alias>.logic.<alias>, system, camera",
+        "  → Declared object roots exist before runtime; VisionRunSnapshot enriches them with actual output leaves/values",
+        "  → Camera Declaration Engine: Basler / HTTP cameras expose capture, stream slots and custom APIs",
+        "  → Workspaces: multiple independent Master/Working contexts; each workspace binds exactly one declared camera",
+        "  → Automation IDE: colored safe-DSL editor + registry-backed dot completion + hierarchical Object/Endpoint Explorer",
+        "  → Keyboard object: keyboard.space / enter / escape / arrows / F1-F12 are live ON/OFF endpoints",
+        "  → Online/Offline: arm/disarm all Loop/Event automation at program level; simulator drivers remain legacy-hidden",
+        "  → Event lifecycle: system.run_started → vision.logic_ready → system.commit_result → system.run_finish",
+        "  → Dry Run suppresses physical side effects; Execution Trace records endpoint reads/actions/writes",
+        "  → legacy v2 Decision DSL remains runtime-compatible but is not the new decision/glue path",
         "  → unified Debug Stack Workspace: lazy image artifacts + Logic outputs + benchmark trace",
         "```",
         "",
@@ -1953,3 +1971,17 @@ if __name__ == "__main__":
 # v0.9 Computer Vision: Control Mapper, module-specific viewports, lazy Debug Workspace, future IDE/sandbox decision ownership.
 # v0.10 Computer Vision: expandable Scope quick controls; unified lazy Debug Stack Workspace modeled after Image Processing LAB; Decision/Glue absent from scope UI.
 # v0.10.1 Computer Vision: Debug input is scope-correct (ROI crop for ROI scopes); Filter Debug falls back to Master Sample when no test/camera image is present.
+
+# v0.11 Computer Vision: Automation IDE/control plane with Endpoint Registry, safe Loop/Event/One-shot DSL, VisionRunSnapshot, Dry Run and Execution Trace.
+
+# v0.12 Computer Vision: IOT Declaration Engine + dynamic object Endpoint Registry + colored object-aware Automation IDE/IntelliSense.
+
+# v0.13 Computer Vision: Camera Declaration Engine + multi-Workspace inspection contexts + frame-slot bindings + Online/Offline + Developer Simulator.
+
+# v0.13.1 Computer Vision: one-camera-per-workspace binding, Simulator UI retired, named HTTP Camera API parameters, keyboard.* Automation endpoints, stronger ONLINE/OFFLINE operator state.
+
+# v0.13.4 Computer Vision: strict workspace isolation; no Master/ROI/Working fallback across workspaces; compatibility vision.* follows active/latest workspace.
+
+# v0.13.5 Computer Vision: atomic fresh-workspace creation; parent-owned workspace transactions; workspace-keyed UI remount prevents React state leakage across inspection programs.
+
+# v0.13.6 Computer Vision: IOT + Camera declarations are Workspace-owned; legacy globals migrate only into Workspace 1; active runtime projection prevents device/camera state leakage across workspaces.

@@ -51,7 +51,7 @@ Frontend / Desktop
    Legacy automation uses `BaseNode`; Image Processing uses `ImageOperator`.
 2. **Image Processing LAB is raster-centric.** Operators should not know master/query, inspection spec, station OK/NG, or alignment semantics.
 3. **Lab Service is the reusable callable boundary.** A service is a versioned LAB pipeline snapshot with typed inputs and named outputs.
-4. **Computer Vision is an orchestration/application layer.** It binds Modbus I/O, Master Sample/ROI station localization and deployed Lab Services; it does not own LAB algorithms.
+4. **Computer Vision is an orchestration/application layer.** IOT and Camera are shared declared resources; each Workspace is an independent inspection program with its own Master image, ROIs/locator, Working scopes and runtime/debug context. No workspace may inherit another workspace's inspection state. Automation IDE is the glue plane over typed endpoints and must not absorb LAB algorithms.
 5. **Interactive LAB sessions and deployed services are different lifecycles.** Interactive sessions optimize editing/tuning; deployed services optimize stable invocation.
 6. **Future cross-LAB composition should use explicit typed contracts/adapters**, not implicit imports between specialized internals.
 
@@ -108,14 +108,24 @@ MainScreen → /computer-vision
   → visionAppApi
   → /api/v1/computer-vision
   → VisionProgramRepository
-  → IOT: Modbus trigger / OK-NG pulse
+  → IOT Declaration Engine: declare multiple Modbus TCP devices + aliased points
   → Camera: Manual / Basler pypylon / generic HTTP capture + focus URL
   → Trigger runner: rising edge → capture → inspect → pulse OK/NG
   → Master Sample: one locator family for all ROI/stations + blur preview
   → Global Scope: expandable Filter stack → expandable Logic stack
   → ROI location runs on the globally filtered image (master filtered equivalently)
   → Local station scopes: Filter → Logic; sequential or parallel
-  → future IDE/sandbox owns decision/glue/actions; legacy v2 Decision DSL remains compatible
+  → VisionRunSnapshot freezes Global/ROI Logic outputs for one run
+  → Endpoint Registry builds a live object graph from draft declarations: device.<alias>.<point>, vision.roi.<alias>.logic.<alias>, system, camera
+  → Declared object roots exist before runtime; VisionRunSnapshot enriches them with actual output leaves/values
+  → Camera Declaration Engine: Basler / HTTP cameras expose capture, stream slots and custom APIs
+  → Workspaces: multiple independent Master/Working contexts; each workspace binds exactly one declared camera
+  → Automation IDE: colored safe-DSL editor + registry-backed dot completion + hierarchical Object/Endpoint Explorer
+  → Keyboard object: keyboard.space / enter / escape / arrows / F1-F12 are live ON/OFF endpoints
+  → Online/Offline: arm/disarm all Loop/Event automation at program level; simulator drivers remain legacy-hidden
+  → Event lifecycle: system.run_started → vision.logic_ready → system.commit_result → system.run_finish
+  → Dry Run suppresses physical side effects; Execution Trace records endpoint reads/actions/writes
+  → legacy v2 Decision DSL remains runtime-compatible but is not the new decision/glue path
   → unified Debug Stack Workspace: lazy image artifacts + Logic outputs + benchmark trace
 ```
 
@@ -148,33 +158,33 @@ Programming/Sequencer UI
 
 Persisted Vision Programs, Modbus trigger/result, Basler/URL camera acquisition, automatic trigger runner, program-wide ROI locator, Filter→Logic→Decision scope runtime, debug image store and per-step benchmarks.
 
-- Detected files: **18**
+- Detected files: **33**
 - Boundary: Owns production-program orchestration only. Image Processing services form sequential filter stacks; logic services are independent extractors; a restricted decision DSL produces scope OK/NG. ROI stations may run sequentially or in parallel. Future Rule/AI services can replace/extend the built-in decision frame.
 - Key files:
   - `BE:app/services/vision_app/repository.py` — Saved Image LAB pipeline persistence.
   - `BE:app/services/vision_app/runtime.py` — Image LAB artifact cache and pipeline runtime.
   - `BE:app/api/v1/endpoints/vision_app_api.py` — Persisted Vision Programs, Modbus trigger/result, Basler/URL camera acquisition, automatic trigger runner, program-wide ROI locator, Filter→Logic→Decision scope runtime, debug image store and per-step benchmarks.
   - `BE:app/services/vision_app/__init__.py` — Persisted Vision Programs, Modbus trigger/result, Basler/URL camera acquisition, automatic trigger runner, program-wide ROI locator, Filter→Logic→Decision scope runtime, debug image store and per-step benchmarks.
-  - `BE:app/services/vision_app/camera_runtime.py` — Persisted Vision Programs, Modbus trigger/result, Basler/URL camera acquisition, automatic trigger runner, program-wide ROI locator, Filter→Logic→Decision scope runtime, debug image store and per-step benchmarks.
-  - `BE:app/services/vision_app/control_runtime.py` — Persisted Vision Programs, Modbus trigger/result, Basler/URL camera acquisition, automatic trigger runner, program-wide ROI locator, Filter→Logic→Decision scope runtime, debug image store and per-step benchmarks.
-  - `BE:app/services/vision_app/debug_store.py` — Persisted Vision Programs, Modbus trigger/result, Basler/URL camera acquisition, automatic trigger runner, program-wide ROI locator, Filter→Logic→Decision scope runtime, debug image store and per-step benchmarks.
-  - `BE:app/services/vision_app/decision_runtime.py` — Persisted Vision Programs, Modbus trigger/result, Basler/URL camera acquisition, automatic trigger runner, program-wide ROI locator, Filter→Logic→Decision scope runtime, debug image store and per-step benchmarks.
+  - `BE:app/services/vision_app/automation_manager.py` — Persisted Vision Programs, Modbus trigger/result, Basler/URL camera acquisition, automatic trigger runner, program-wide ROI locator, Filter→Logic→Decision scope runtime, debug image store and per-step benchmarks.
+  - `BE:app/services/vision_app/automation_models.py` — Persisted Vision Programs, Modbus trigger/result, Basler/URL camera acquisition, automatic trigger runner, program-wide ROI locator, Filter→Logic→Decision scope runtime, debug image store and per-step benchmarks.
+  - `BE:app/services/vision_app/automation_runtime.py` — Persisted Vision Programs, Modbus trigger/result, Basler/URL camera acquisition, automatic trigger runner, program-wide ROI locator, Filter→Logic→Decision scope runtime, debug image store and per-step benchmarks.
+  - `BE:app/services/vision_app/camera_resource_runtime.py` — Persisted Vision Programs, Modbus trigger/result, Basler/URL camera acquisition, automatic trigger runner, program-wide ROI locator, Filter→Logic→Decision scope runtime, debug image store and per-step benchmarks.
 
 ### Computer Vision Program UI
 
-Production Computer Vision application: Control Mapper + Modbus I/O, Camera acquisition (Basler or generic URL), program-wide Master ROI locator, Global/Station Filter→Logic orchestration, expandable scope controls, unified lazy Debug Stack Workspace and benchmarking. Decision/glue is reserved for the future IDE/sandbox.
+Production Computer Vision application with v0.13.6 strict Workspace ownership: each Workspace owns IOT declarations, Camera declarations/binding, Master/ROI, Working scopes and run/debug context; typed dynamic Endpoint Registry and Automation IDE project only the active Workspace resources.
 
-- Detected files: **11**
-- Boundary: Computer Vision is the production orchestration layer. Control Mapper maps keyboard/Modbus events to primitive actions; Global filtering precedes ROI location and station scopes. Filter uses Image Processing services and Logic extracts data. New programs reserve decision/glue for the future IDE/sandbox; legacy v2 Decision DSL remains runtime-compatible only. Debug Stack is observational and lazy-loads artifacts.
+- Detected files: **18**
+- Boundary: Computer Vision is the production orchestration layer. v0.13.6 treats each Workspace as a fully independent inspection program: its own IOT declarations, Camera declarations/binding, Master image, ROI/locator definition, Working filter/logic scopes and debug/run context. New Workspaces start hardware-empty and no runtime resource may fall back to another Workspace.
 - Key files:
-  - `FE:src/Pages/ComputerVisionPage.tsx` — Production Computer Vision application: Control Mapper + Modbus I/O, Camera acquisition (Basler or generic URL), program-wide Master ROI locator, Global/Station Filter→Logic orchestration, expandable scope controls, unified lazy Debug Stack Workspace and benchmarking. Decision/glue is reserved for the future IDE/sandbox.
-  - `FE:src/api/visionAppApi.ts` — Production Computer Vision application: Control Mapper + Modbus I/O, Camera acquisition (Basler or generic URL), program-wide Master ROI locator, Global/Station Filter→Logic orchestration, expandable scope controls, unified lazy Debug Stack Workspace and benchmarking. Decision/glue is reserved for the future IDE/sandbox.
-  - `FE:src/components/ComputerVision/CameraModulePanel.tsx` — Production Computer Vision application: Control Mapper + Modbus I/O, Camera acquisition (Basler or generic URL), program-wide Master ROI locator, Global/Station Filter→Logic orchestration, expandable scope controls, unified lazy Debug Stack Workspace and benchmarking. Decision/glue is reserved for the future IDE/sandbox.
-  - `FE:src/components/ComputerVision/ComputerVision.css` — Production Computer Vision application: Control Mapper + Modbus I/O, Camera acquisition (Basler or generic URL), program-wide Master ROI locator, Global/Station Filter→Logic orchestration, expandable scope controls, unified lazy Debug Stack Workspace and benchmarking. Decision/glue is reserved for the future IDE/sandbox.
-  - `FE:src/components/ComputerVision/DebugWorkspace.tsx` — Production Computer Vision application: Control Mapper + Modbus I/O, Camera acquisition (Basler or generic URL), program-wide Master ROI locator, Global/Station Filter→Logic orchestration, expandable scope controls, unified lazy Debug Stack Workspace and benchmarking. Decision/glue is reserved for the future IDE/sandbox.
-  - `FE:src/components/ComputerVision/IotIdePlaceholder.tsx` — Production Computer Vision application: Control Mapper + Modbus I/O, Camera acquisition (Basler or generic URL), program-wide Master ROI locator, Global/Station Filter→Logic orchestration, expandable scope controls, unified lazy Debug Stack Workspace and benchmarking. Decision/glue is reserved for the future IDE/sandbox.
-  - `FE:src/components/ComputerVision/IotModulePanel.tsx` — Production Computer Vision application: Control Mapper + Modbus I/O, Camera acquisition (Basler or generic URL), program-wide Master ROI locator, Global/Station Filter→Logic orchestration, expandable scope controls, unified lazy Debug Stack Workspace and benchmarking. Decision/glue is reserved for the future IDE/sandbox.
-  - `FE:src/components/ComputerVision/MasterSamplePanel.tsx` — Production Computer Vision application: Control Mapper + Modbus I/O, Camera acquisition (Basler or generic URL), program-wide Master ROI locator, Global/Station Filter→Logic orchestration, expandable scope controls, unified lazy Debug Stack Workspace and benchmarking. Decision/glue is reserved for the future IDE/sandbox.
+  - `FE:src/Pages/ComputerVisionPage.tsx` — Production Computer Vision application with v0.13.6 strict Workspace ownership: each Workspace owns IOT declarations, Camera declarations/binding, Master/ROI, Working scopes and run/debug context; typed dynamic Endpoint Registry and Automation IDE project only the active Workspace resources.
+  - `FE:src/api/visionAppApi.ts` — Production Computer Vision application with v0.13.6 strict Workspace ownership: each Workspace owns IOT declarations, Camera declarations/binding, Master/ROI, Working scopes and run/debug context; typed dynamic Endpoint Registry and Automation IDE project only the active Workspace resources.
+  - `FE:src/components/ComputerVision/AutomationCodeEditor.tsx` — Production Computer Vision application with v0.13.6 strict Workspace ownership: each Workspace owns IOT declarations, Camera declarations/binding, Master/ROI, Working scopes and run/debug context; typed dynamic Endpoint Registry and Automation IDE project only the active Workspace resources.
+  - `FE:src/components/ComputerVision/AutomationIdeWorkspace.tsx` — Production Computer Vision application with v0.13.6 strict Workspace ownership: each Workspace owns IOT declarations, Camera declarations/binding, Master/ROI, Working scopes and run/debug context; typed dynamic Endpoint Registry and Automation IDE project only the active Workspace resources.
+  - `FE:src/components/ComputerVision/CameraDeclarationWorkspace.tsx` — Production Computer Vision application with v0.13.6 strict Workspace ownership: each Workspace owns IOT declarations, Camera declarations/binding, Master/ROI, Working scopes and run/debug context; typed dynamic Endpoint Registry and Automation IDE project only the active Workspace resources.
+  - `FE:src/components/ComputerVision/CameraModulePanel.tsx` — Production Computer Vision application with v0.13.6 strict Workspace ownership: each Workspace owns IOT declarations, Camera declarations/binding, Master/ROI, Working scopes and run/debug context; typed dynamic Endpoint Registry and Automation IDE project only the active Workspace resources.
+  - `FE:src/components/ComputerVision/ComputerVision.css` — Production Computer Vision application with v0.13.6 strict Workspace ownership: each Workspace owns IOT declarations, Camera declarations/binding, Master/ROI, Working scopes and run/debug context; typed dynamic Endpoint Registry and Automation IDE project only the active Workspace resources.
+  - `FE:src/components/ComputerVision/DebugWorkspace.tsx` — Production Computer Vision application with v0.13.6 strict Workspace ownership: each Workspace owns IOT declarations, Camera declarations/binding, Master/ROI, Working scopes and run/debug context; typed dynamic Endpoint Registry and Automation IDE project only the active Workspace resources.
 
 ### Contour Extractor LAB Backend
 
@@ -499,7 +509,7 @@ Backend-side updater and maintenance scripts.
 
 Updater scripts, context generators, architectural snapshots, and LLM handoff documentation.
 
-- Detected files: **46**
+- Detected files: **66**
 - Key files:
   - `FE:docs/llm_context/README.md` — Updater scripts, context generators, architectural snapshots, and LLM handoff documentation.
   - `FE:docs/llm_context/SYSTEM_ARCHITECTURE.md` — Updater scripts, context generators, architectural snapshots, and LLM handoff documentation.
@@ -553,6 +563,7 @@ Derived from Python/TypeScript imports. Counts are import edges between source f
 | Inspection UI Engine | Fleet / Resource UI | 3 |
 | Project Compiler | Inspection UI Engine | 3 |
 | Backend Tests | Vision LAB Core Contracts | 3 |
+| Computer Vision Program Backend / Control Mapper / Camera / Working Pipeline | Backend Application Shell & API Router | 3 |
 | Lab Service Backend | Contour Extractor LAB Backend | 3 |
 | Fleet / Resource UI | Frontend — Unclassified Source | 2 |
 | Fleet / Resource UI | Shared Frontend UI & Utilities | 2 |
@@ -591,7 +602,6 @@ Derived from Python/TypeScript imports. Counts are import edges between source f
 | Frontend Application Shell & Routing | Shared Frontend UI & Utilities | 1 |
 | Frontend — Unclassified Source | Lab Service Hub UI | 1 |
 | Image Processing LAB UI | Frontend — Unclassified Source | 1 |
-| Image Processing LAB UI | Lab Service Hub UI | 1 |
 
 ## 6. Backend API routes
 
@@ -686,24 +696,44 @@ Derived from Python/TypeScript imports. Counts are import edges between source f
 | `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `PUT` | `/sessions/{session_id}/pipeline` | `set_session_pipeline` |
 | `BE:app/api/v1/endpoints/utils.py` | `GET` | `/health-check` | `perform_health_check` |
 | `BE:app/api/v1/endpoints/vision_app_api.py` | `DELETE` | `/programs/{program_id}` | `delete_program` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `DELETE` | `/programs/{program_id}/automation/trace` | `automation_clear_trace` |
 | `BE:app/api/v1/endpoints/vision_app_api.py` | `GET` | `/cameras/basler/scan` | `basler_scan` |
 | `BE:app/api/v1/endpoints/vision_app_api.py` | `GET` | `/debug/{run_id}/{key}` | `debug_image` |
 | `BE:app/api/v1/endpoints/vision_app_api.py` | `GET` | `/programs` | `list_programs` |
 | `BE:app/api/v1/endpoints/vision_app_api.py` | `GET` | `/programs/{program_id}` | `get_program` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `GET` | `/programs/{program_id}/automation/endpoints` | `automation_endpoints` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `GET` | `/programs/{program_id}/automation/latest-frame` | `automation_latest_frame` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `GET` | `/programs/{program_id}/automation/state` | `automation_state` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `GET` | `/programs/{program_id}/automation/trace` | `automation_trace` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `GET` | `/programs/{program_id}/cameras/{camera_alias}/stream-frame` | `declared_camera_stream_frame` |
 | `BE:app/api/v1/endpoints/vision_app_api.py` | `GET` | `/programs/{program_id}/iot/trigger` | `read_trigger` |
 | `BE:app/api/v1/endpoints/vision_app_api.py` | `GET` | `/programs/{program_id}/master` | `master_preview` |
 | `BE:app/api/v1/endpoints/vision_app_api.py` | `GET` | `/programs/{program_id}/master/blur-preview` | `master_blur_preview` |
 | `BE:app/api/v1/endpoints/vision_app_api.py` | `GET` | `/programs/{program_id}/runner/status` | `runner_status` |
 | `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/new` | `create_program` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/automation/endpoints/preview` | `automation_endpoints_preview` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/automation/keyboard` | `automation_keyboard` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/automation/latest-frame` | `automation_set_latest_frame` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/automation/services/{service_id}/run` | `automation_run_service` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/automation/start` | `automation_start` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/automation/stop` | `automation_stop` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/automation/validate` | `automation_validate` |
 | `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/camera/capture` | `camera_capture` |
 | `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/camera/focus` | `camera_focus` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/cameras/{camera_alias}/capture` | `declared_camera_capture` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/cameras/{camera_alias}/sim-frame` | `simulated_camera_frame` |
 | `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/iot/pulse` | `pulse_output` |
 | `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/locate-rois` | `locate_rois` |
 | `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/master` | `upload_master` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/offline` | `program_offline` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/online` | `program_online` |
 | `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/runner/start` | `runner_start` |
 | `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/runner/stop` | `runner_stop` |
 | `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/scope-preview/{scope_id}` | `scope_preview` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/simulator/iot/{device_alias}/{point_alias}` | `simulator_iot` |
 | `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/test-run` | `test_run` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/workspaces/{workspace_alias}/activate` | `workspace_activate` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/workspaces/{workspace_alias}/run` | `workspace_run` |
 | `BE:app/api/v1/endpoints/vision_app_api.py` | `PUT` | `/programs/{program_id}` | `save_program` |
 
 ## 7. Frontend routes

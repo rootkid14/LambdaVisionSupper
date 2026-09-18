@@ -111,18 +111,21 @@ Hierarchical Global/Local Sampling Program that turns one inspected image into s
 
 ## Computer Vision Program
 
-Production Computer Vision application: Control Mapper + Modbus I/O, Basler/URL camera acquisition, stored Master Sample with one locator family for all stations, Global-first Filter→Logic execution, Local station scopes, expandable quick controls, unified lazy Debug Stack and benchmark timings. Decision/glue is future IDE ownership.
+Production Computer Vision application with v0.13.6 Workspace-owned resources: per-Workspace IOT + Camera declarations/binding, Master/ROI/Working state, active-Workspace Endpoint Registry/Automation IDE projection, Online/Offline scheduler, VisionRunSnapshot, Filter→Logic execution and lazy Debug Stack.
 
 ### Minimal context
 
 - `FE:src/Pages/ComputerVisionPage.tsx`
 - `FE:src/components/ComputerVision/VisionViewport.tsx`
-- `FE:src/components/ComputerVision/IotModulePanel.tsx`
+- `FE:src/components/ComputerVision/IotDeclarationWorkspace.tsx`
+- `FE:src/components/ComputerVision/AutomationCodeEditor.tsx`
+- `FE:src/components/ComputerVision/EndpointObjectTree.tsx`
 - `FE:src/components/ComputerVision/CameraModulePanel.tsx`
 - `FE:src/components/ComputerVision/MasterSamplePanel.tsx`
 - `FE:src/components/ComputerVision/WorkingModulePanel.tsx`
 - `FE:src/components/ComputerVision/ScopeEditorModal.tsx`
 - `FE:src/components/ComputerVision/DebugWorkspace.tsx`
+- `FE:src/components/ComputerVision/AutomationIdeWorkspace.tsx`
 - `FE:src/api/visionAppApi.ts`
 - `BE:app/services/vision_app/models.py`
 - `BE:app/services/vision_app/repository.py`
@@ -133,6 +136,10 @@ Production Computer Vision application: Control Mapper + Modbus I/O, Basler/URL 
 - `BE:app/services/vision_app/decision_runtime.py`
 - `BE:app/services/vision_app/debug_store.py`
 - `BE:app/services/vision_app/runner.py`
+- `BE:app/services/vision_app/automation_models.py`
+- `BE:app/services/vision_app/endpoint_registry.py`
+- `BE:app/services/vision_app/automation_runtime.py`
+- `BE:app/services/vision_app/automation_manager.py`
 - `BE:app/api/v1/endpoints/vision_app_api.py`
 
 ### Deep context
@@ -143,6 +150,14 @@ Production Computer Vision application: Control Mapper + Modbus I/O, Basler/URL 
 - `BE:tests/vision_app/test_vision_app_v0900.py`
 - `BE:tests/vision_app/test_vision_app_v1000.py`
 - `BE:tests/vision_app/test_vision_app_v1010.py`
+- `BE:tests/vision_app/test_vision_app_v1100.py`
+- `BE:tests/vision_app/test_vision_app_v1200.py`
+- `BE:tests/vision_app/test_vision_app_v1300.py`
+- `BE:tests/vision_app/test_vision_app_v1310.py`
+- `BE:tests/vision_app/test_vision_app_v1330.py`
+- `BE:tests/vision_app/test_vision_app_v1340.py`
+- `BE:tests/vision_app/test_vision_app_v1350.py`
+- `BE:tests/vision_app/test_vision_app_v1360.py`
 - `BE:app/services/vision_labs/service/runtime.py`
 - `BE:app/services/vision_labs/service/repository.py`
 - `FE:src/Pages/LabView.tsx`
@@ -150,6 +165,7 @@ Production Computer Vision application: Control Mapper + Modbus I/O, Basler/URL 
 - `FE:docs/llm_context/updates/v0800_computer_vision_production_pipeline.md`
 - `FE:docs/llm_context/updates/v0900_computer_vision_control_workspace.md`
 - `FE:docs/llm_context/updates/v1000_computer_vision_scope_debug_stack.md`
+- `FE:docs/llm_context/updates/v1100_computer_vision_automation_ide.md`
 
 ## Lab Service
 

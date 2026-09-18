@@ -3,10 +3,10 @@
 > Start here when opening a new LLM conversation about this codebase.
 
 - Generator: `v2.1`
-- Generated: `2026-09-18T16:25:13+07:00`
-- Source files indexed: **355** (FE 190 / BE 165)
-- Frontend git: `main` @ `fa07cac` · **DIRTY**
-- Backend git: `main` @ `fa07cac` · **DIRTY**
+- Generated: `2026-09-18T23:08:26+07:00`
+- Source files indexed: **397** (FE 217 / BE 180)
+- Frontend git: `main` @ `83f6c0f` · **DIRTY**
+- Backend git: `main` @ `83f6c0f` · **DIRTY**
 
 ## Recommended handoff order
 
@@ -37,8 +37,8 @@ Do **not** start by dumping the whole codebase into context.
 | Backend Tools / Updaters | 1 |
 | Backend — Unclassified App Source | 2 |
 | Backend — Unclassified Project Source | 2 |
-| Computer Vision Program Backend / Control Mapper / Camera / Working Pipeline | 18 |
-| Computer Vision Program UI | 11 |
+| Computer Vision Program Backend / Control Mapper / Camera / Working Pipeline | 33 |
+| Computer Vision Program UI | 18 |
 | Contour Extractor LAB Backend | 8 |
 | Contour Extractor LAB UI | 6 |
 | Database Backend | 2 |
@@ -48,7 +48,7 @@ Do **not** start by dumping the whole codebase into context.
 | Fleet / Device / Infrastructure Backend | 12 |
 | Fleet / Resource UI | 7 |
 | Frontend Application Shell & Routing | 4 |
-| Frontend Tools & LLM Context Docs | 46 |
+| Frontend Tools & LLM Context Docs | 66 |
 | Frontend — Project / Config | 9 |
 | Frontend — Unclassified Source | 12 |
 | Image Processing LAB Backend | 13 |
@@ -69,121 +69,155 @@ Do **not** start by dumping the whole codebase into context.
 
 ### FE dirty files
 
-- ` D dist/assets/index-B4vbtfiU.js`
-- ` D dist/assets/index-CjfZrce7.css`
+- ` D dist/assets/index-CZvA8jJp.css`
+- ` D dist/assets/index-cLewrI27.js`
 - ` M dist/index.html`
 - ` M docs/llm_context/SYSTEM_ARCHITECTURE.md`
 - ` M docs/llm_context/SYSTEM_CONTEXT_BUNDLES.md`
 - ` M docs/llm_context/SYSTEM_CONTEXT_INDEX.md`
 - ` M docs/llm_context/SYSTEM_FILE_MAP.md`
-- ` M src/App.tsx`
-- ` M src/Pages/MainScreen.tsx`
-- ` M src/Pages/SamplingGeometryLabPage.tsx`
-- ` M src/api/samplingGeometryApi.ts`
+- ` M src/Pages/ComputerVisionPage.tsx`
+- ` M src/api/visionAppApi.ts`
+- ` M src/components/ComputerVision/ComputerVision.css`
+- ` M src/components/ComputerVision/MasterSamplePanel.tsx`
 - ` M tools/generate_llm_context_map.py`
-- ` M ../LambdaVisionSuperBackEnd/app/api/v1/api.py`
-- ` M ../LambdaVisionSuperBackEnd/app/api/v1/endpoints/lab_service_api.py`
-- ` M ../LambdaVisionSuperBackEnd/app/api/v1/endpoints/sampling_geometry_api.py`
-- ` M ../LambdaVisionSuperBackEnd/app/services/vision_labs/sampling_geometry/session.py`
-- ` M ../LambdaVisionSuperBackEnd/app/services/vision_labs/service/runtime.py`
-- `?? .lambda_updater_backups/computer_vision_v0700_20260918_121654/`
-- `?? .lambda_updater_backups/computer_vision_v0800_20260918_134404/`
-- `?? .lambda_updater_backups/computer_vision_v0801_20260918_134934/`
-- `?? .lambda_updater_backups/computer_vision_v0900_20260918_145405/`
-- `?? .lambda_updater_backups/computer_vision_v1000_20260918_153222/`
-- `?? .lambda_updater_backups/computer_vision_v1010_20260918_162456/`
-- `?? .lambda_updater_backups/sampling_lab_v0500_20260918_110013/`
-- `?? .lambda_updater_backups/sampling_lab_v0600_20260918_113500/`
-- `?? dist/assets/index-CZvA8jJp.css`
-- `?? dist/assets/index-cLewrI27.js`
-- `?? docs/llm_context/updates/v0500_sampling_program_global_local.md`
-- `?? docs/llm_context/updates/v0600_sampling_output_formulation.md`
-- `?? docs/llm_context/updates/v0700_computer_vision_frame.md`
-- `?? docs/llm_context/updates/v0800_computer_vision_production_pipeline.md`
-- `?? docs/llm_context/updates/v0801_blur_template_refinement.md`
-- `?? docs/llm_context/updates/v0900_computer_vision_control_workspace.md`
-- `?? docs/llm_context/updates/v1000_computer_vision_scope_debug_stack.md`
-- `?? docs/llm_context/updates/v1010_computer_vision_debug_source_hotfix.md`
-- `?? src/Pages/ComputerVisionPage.tsx`
-- `?? src/api/visionAppApi.ts`
-- `?? src/components/ComputerVision/`
-- `?? src/components/VisionLabs/SamplingProgram/`
-- `?? update_computer_vision_blur_template_hotfix_v0801.py`
-- `?? update_computer_vision_control_workspace_v0900.py`
-- `?? update_computer_vision_debug_source_hotfix_v1010.py`
-- `?? update_computer_vision_frame_v0700.py`
-- `?? update_computer_vision_production_v0800.py`
-- `?? update_computer_vision_scope_debug_v1000.py`
-- `?? update_sampling_lab_global_local_v0500.py`
-- `?? update_sampling_output_formulation_v0600.py`
-- `?? ../LambdaVisionSuperBackEnd/app/api/v1/endpoints/vision_app_api.py`
-- `?? ../LambdaVisionSuperBackEnd/app/services/vision_app/`
-- `?? ../LambdaVisionSuperBackEnd/app/services/vision_labs/sampling_geometry/program.py`
-- `?? ../LambdaVisionSuperBackEnd/app/services/vision_labs/sampling_geometry/program_runtime.py`
-- `?? ../LambdaVisionSuperBackEnd/storage/vision_apps/`
-- `?? ../LambdaVisionSuperBackEnd/storage/vision_labs/services/canny-edge/`
-- `?? ../LambdaVisionSuperBackEnd/tests/vision_app/`
-- `?? ../LambdaVisionSuperBackEnd/tests/vision_labs/sampling_geometry/test_sampling_program_v0500.py`
-- `?? ../LambdaVisionSuperBackEnd/tests/vision_labs/sampling_geometry/test_sampling_program_v0600.py`
+- ` M ../LambdaVisionSuperBackEnd/app/api/v1/endpoints/vision_app_api.py`
+- ` M ../LambdaVisionSuperBackEnd/app/services/vision_app/io_runtime.py`
+- ` M ../LambdaVisionSuperBackEnd/app/services/vision_app/models.py`
+- ` M ../LambdaVisionSuperBackEnd/app/services/vision_app/repository.py`
+- ` M ../LambdaVisionSuperBackEnd/storage/vision_apps/programs/vision-program/program.json`
+- ` M ../LambdaVisionSuperBackEnd/tests/vision_app/test_vision_app_v0800.py`
+- ` M ../LambdaVisionSuperBackEnd/tests/vision_app/test_vision_app_v0900.py`
+- `?? .lambda_updater_backups/computer_vision_v1100_20260918_175513/`
+- `?? .lambda_updater_backups/computer_vision_v1110_20260918_175851/`
+- `?? .lambda_updater_backups/computer_vision_v1200_20260918_181839/`
+- `?? .lambda_updater_backups/computer_vision_v1300_20260918_213020/`
+- `?? .lambda_updater_backups/computer_vision_v1310_20260918_222507/`
+- `?? .lambda_updater_backups/computer_vision_v1320_20260918_222828/`
+- `?? .lambda_updater_backups/computer_vision_v1330_20260918_223819/`
+- `?? .lambda_updater_backups/computer_vision_v1340_20260918_224611/`
+- `?? .lambda_updater_backups/computer_vision_v1350_20260918_225224/`
+- `?? .lambda_updater_backups/computer_vision_v1360_20260918_230815/`
+- `?? dist/assets/index-CDe9ZOYg.js`
+- `?? dist/assets/index-CFAK3L4z.css`
+- `?? docs/llm_context/updates/v1100_computer_vision_automation_ide.md`
+- `?? docs/llm_context/updates/v1110_automation_ide_lucide_build_hotfix.md`
+- `?? docs/llm_context/updates/v1200_iot_declaration_dynamic_ide.md`
+- `?? docs/llm_context/updates/v1300_multicamera_workspaces_simulator.md`
+- `?? docs/llm_context/updates/v1310_workspace_camera_keyboard_cleanup.md`
+- `?? docs/llm_context/updates/v1320_context_generator_hotfix.md`
+- `?? docs/llm_context/updates/v1330_workspace_activation_sync_hotfix.md`
+- `?? docs/llm_context/updates/v1340_workspace_isolation_hotfix.md`
+- `?? docs/llm_context/updates/v1350_workspace_transaction_isolation.md`
+- `?? docs/llm_context/updates/v1360_workspace_owned_io_camera.md`
+- `?? src/components/ComputerVision/AutomationCodeEditor.tsx`
+- `?? src/components/ComputerVision/AutomationIdeWorkspace.tsx`
+- `?? src/components/ComputerVision/CameraDeclarationWorkspace.tsx`
+- `?? src/components/ComputerVision/DeveloperSimulatorWorkspace.tsx`
+- `?? src/components/ComputerVision/EndpointObjectTree.tsx`
+- `?? src/components/ComputerVision/IotDeclarationWorkspace.tsx`
+- `?? src/components/ComputerVision/WorkspaceTabs.tsx`
+- `?? update_computer_vision_automation_ide_hotfix_v1110.py`
+- `?? update_computer_vision_automation_ide_v1100.py`
+- `?? update_computer_vision_context_hotfix_v1320.py`
+- `?? update_computer_vision_dynamic_objects_v1200.py`
+- `?? update_computer_vision_multicamera_workspaces_v1300.py`
+- `?? update_computer_vision_workspace_activation_hotfix_v1330.py`
+- `?? update_computer_vision_workspace_camera_keyboard_v1310.py`
+- `?? update_computer_vision_workspace_isolation_v1340.py`
+- `?? update_computer_vision_workspace_owned_resources_v1360.py`
+- `?? update_computer_vision_workspace_transaction_v1350.py`
+- `?? ../LambdaVisionSuperBackEnd/app/services/vision_app/automation_manager.py`
+- `?? ../LambdaVisionSuperBackEnd/app/services/vision_app/automation_models.py`
+- `?? ../LambdaVisionSuperBackEnd/app/services/vision_app/automation_runtime.py`
+- `?? ../LambdaVisionSuperBackEnd/app/services/vision_app/camera_resource_runtime.py`
+- `?? ../LambdaVisionSuperBackEnd/app/services/vision_app/endpoint_registry.py`
+- `?? ../LambdaVisionSuperBackEnd/app/services/vision_app/frame_slot_store.py`
+- `?? ../LambdaVisionSuperBackEnd/app/services/vision_app/workspace_runtime.py`
+- `?? ../LambdaVisionSuperBackEnd/tests/vision_app/test_vision_app_v1100.py`
+- `?? ../LambdaVisionSuperBackEnd/tests/vision_app/test_vision_app_v1200.py`
+- `?? ../LambdaVisionSuperBackEnd/tests/vision_app/test_vision_app_v1300.py`
+- `?? ../LambdaVisionSuperBackEnd/tests/vision_app/test_vision_app_v1310.py`
+- `?? ../LambdaVisionSuperBackEnd/tests/vision_app/test_vision_app_v1330.py`
+- `?? ../LambdaVisionSuperBackEnd/tests/vision_app/test_vision_app_v1340.py`
+- `?? ../LambdaVisionSuperBackEnd/tests/vision_app/test_vision_app_v1350.py`
+- `?? ../LambdaVisionSuperBackEnd/tests/vision_app/test_vision_app_v1360.py`
 
 ### BE dirty files
 
-- ` D ../LambdaVisionSuper/dist/assets/index-B4vbtfiU.js`
-- ` D ../LambdaVisionSuper/dist/assets/index-CjfZrce7.css`
+- ` D ../LambdaVisionSuper/dist/assets/index-CZvA8jJp.css`
+- ` D ../LambdaVisionSuper/dist/assets/index-cLewrI27.js`
 - ` M ../LambdaVisionSuper/dist/index.html`
 - ` M ../LambdaVisionSuper/docs/llm_context/SYSTEM_ARCHITECTURE.md`
 - ` M ../LambdaVisionSuper/docs/llm_context/SYSTEM_CONTEXT_BUNDLES.md`
 - ` M ../LambdaVisionSuper/docs/llm_context/SYSTEM_CONTEXT_INDEX.md`
 - ` M ../LambdaVisionSuper/docs/llm_context/SYSTEM_FILE_MAP.md`
-- ` M ../LambdaVisionSuper/src/App.tsx`
-- ` M ../LambdaVisionSuper/src/Pages/MainScreen.tsx`
-- ` M ../LambdaVisionSuper/src/Pages/SamplingGeometryLabPage.tsx`
-- ` M ../LambdaVisionSuper/src/api/samplingGeometryApi.ts`
+- ` M ../LambdaVisionSuper/src/Pages/ComputerVisionPage.tsx`
+- ` M ../LambdaVisionSuper/src/api/visionAppApi.ts`
+- ` M ../LambdaVisionSuper/src/components/ComputerVision/ComputerVision.css`
+- ` M ../LambdaVisionSuper/src/components/ComputerVision/MasterSamplePanel.tsx`
 - ` M ../LambdaVisionSuper/tools/generate_llm_context_map.py`
-- ` M app/api/v1/api.py`
-- ` M app/api/v1/endpoints/lab_service_api.py`
-- ` M app/api/v1/endpoints/sampling_geometry_api.py`
-- ` M app/services/vision_labs/sampling_geometry/session.py`
-- ` M app/services/vision_labs/service/runtime.py`
-- `?? ../LambdaVisionSuper/.lambda_updater_backups/computer_vision_v0700_20260918_121654/`
-- `?? ../LambdaVisionSuper/.lambda_updater_backups/computer_vision_v0800_20260918_134404/`
-- `?? ../LambdaVisionSuper/.lambda_updater_backups/computer_vision_v0801_20260918_134934/`
-- `?? ../LambdaVisionSuper/.lambda_updater_backups/computer_vision_v0900_20260918_145405/`
-- `?? ../LambdaVisionSuper/.lambda_updater_backups/computer_vision_v1000_20260918_153222/`
-- `?? ../LambdaVisionSuper/.lambda_updater_backups/computer_vision_v1010_20260918_162456/`
-- `?? ../LambdaVisionSuper/.lambda_updater_backups/sampling_lab_v0500_20260918_110013/`
-- `?? ../LambdaVisionSuper/.lambda_updater_backups/sampling_lab_v0600_20260918_113500/`
-- `?? ../LambdaVisionSuper/dist/assets/index-CZvA8jJp.css`
-- `?? ../LambdaVisionSuper/dist/assets/index-cLewrI27.js`
-- `?? ../LambdaVisionSuper/docs/llm_context/updates/v0500_sampling_program_global_local.md`
-- `?? ../LambdaVisionSuper/docs/llm_context/updates/v0600_sampling_output_formulation.md`
-- `?? ../LambdaVisionSuper/docs/llm_context/updates/v0700_computer_vision_frame.md`
-- `?? ../LambdaVisionSuper/docs/llm_context/updates/v0800_computer_vision_production_pipeline.md`
-- `?? ../LambdaVisionSuper/docs/llm_context/updates/v0801_blur_template_refinement.md`
-- `?? ../LambdaVisionSuper/docs/llm_context/updates/v0900_computer_vision_control_workspace.md`
-- `?? ../LambdaVisionSuper/docs/llm_context/updates/v1000_computer_vision_scope_debug_stack.md`
-- `?? ../LambdaVisionSuper/docs/llm_context/updates/v1010_computer_vision_debug_source_hotfix.md`
-- `?? ../LambdaVisionSuper/src/Pages/ComputerVisionPage.tsx`
-- `?? ../LambdaVisionSuper/src/api/visionAppApi.ts`
-- `?? ../LambdaVisionSuper/src/components/ComputerVision/`
-- `?? ../LambdaVisionSuper/src/components/VisionLabs/SamplingProgram/`
-- `?? ../LambdaVisionSuper/update_computer_vision_blur_template_hotfix_v0801.py`
-- `?? ../LambdaVisionSuper/update_computer_vision_control_workspace_v0900.py`
-- `?? ../LambdaVisionSuper/update_computer_vision_debug_source_hotfix_v1010.py`
-- `?? ../LambdaVisionSuper/update_computer_vision_frame_v0700.py`
-- `?? ../LambdaVisionSuper/update_computer_vision_production_v0800.py`
-- `?? ../LambdaVisionSuper/update_computer_vision_scope_debug_v1000.py`
-- `?? ../LambdaVisionSuper/update_sampling_lab_global_local_v0500.py`
-- `?? ../LambdaVisionSuper/update_sampling_output_formulation_v0600.py`
-- `?? app/api/v1/endpoints/vision_app_api.py`
-- `?? app/services/vision_app/`
-- `?? app/services/vision_labs/sampling_geometry/program.py`
-- `?? app/services/vision_labs/sampling_geometry/program_runtime.py`
-- `?? storage/vision_apps/`
-- `?? storage/vision_labs/services/canny-edge/`
-- `?? tests/vision_app/`
-- `?? tests/vision_labs/sampling_geometry/test_sampling_program_v0500.py`
-- `?? tests/vision_labs/sampling_geometry/test_sampling_program_v0600.py`
+- ` M app/api/v1/endpoints/vision_app_api.py`
+- ` M app/services/vision_app/io_runtime.py`
+- ` M app/services/vision_app/models.py`
+- ` M app/services/vision_app/repository.py`
+- ` M storage/vision_apps/programs/vision-program/program.json`
+- ` M tests/vision_app/test_vision_app_v0800.py`
+- ` M tests/vision_app/test_vision_app_v0900.py`
+- `?? ../LambdaVisionSuper/.lambda_updater_backups/computer_vision_v1100_20260918_175513/`
+- `?? ../LambdaVisionSuper/.lambda_updater_backups/computer_vision_v1110_20260918_175851/`
+- `?? ../LambdaVisionSuper/.lambda_updater_backups/computer_vision_v1200_20260918_181839/`
+- `?? ../LambdaVisionSuper/.lambda_updater_backups/computer_vision_v1300_20260918_213020/`
+- `?? ../LambdaVisionSuper/.lambda_updater_backups/computer_vision_v1310_20260918_222507/`
+- `?? ../LambdaVisionSuper/.lambda_updater_backups/computer_vision_v1320_20260918_222828/`
+- `?? ../LambdaVisionSuper/.lambda_updater_backups/computer_vision_v1330_20260918_223819/`
+- `?? ../LambdaVisionSuper/.lambda_updater_backups/computer_vision_v1340_20260918_224611/`
+- `?? ../LambdaVisionSuper/.lambda_updater_backups/computer_vision_v1350_20260918_225224/`
+- `?? ../LambdaVisionSuper/.lambda_updater_backups/computer_vision_v1360_20260918_230815/`
+- `?? ../LambdaVisionSuper/dist/assets/index-CDe9ZOYg.js`
+- `?? ../LambdaVisionSuper/dist/assets/index-CFAK3L4z.css`
+- `?? ../LambdaVisionSuper/docs/llm_context/updates/v1100_computer_vision_automation_ide.md`
+- `?? ../LambdaVisionSuper/docs/llm_context/updates/v1110_automation_ide_lucide_build_hotfix.md`
+- `?? ../LambdaVisionSuper/docs/llm_context/updates/v1200_iot_declaration_dynamic_ide.md`
+- `?? ../LambdaVisionSuper/docs/llm_context/updates/v1300_multicamera_workspaces_simulator.md`
+- `?? ../LambdaVisionSuper/docs/llm_context/updates/v1310_workspace_camera_keyboard_cleanup.md`
+- `?? ../LambdaVisionSuper/docs/llm_context/updates/v1320_context_generator_hotfix.md`
+- `?? ../LambdaVisionSuper/docs/llm_context/updates/v1330_workspace_activation_sync_hotfix.md`
+- `?? ../LambdaVisionSuper/docs/llm_context/updates/v1340_workspace_isolation_hotfix.md`
+- `?? ../LambdaVisionSuper/docs/llm_context/updates/v1350_workspace_transaction_isolation.md`
+- `?? ../LambdaVisionSuper/docs/llm_context/updates/v1360_workspace_owned_io_camera.md`
+- `?? ../LambdaVisionSuper/src/components/ComputerVision/AutomationCodeEditor.tsx`
+- `?? ../LambdaVisionSuper/src/components/ComputerVision/AutomationIdeWorkspace.tsx`
+- `?? ../LambdaVisionSuper/src/components/ComputerVision/CameraDeclarationWorkspace.tsx`
+- `?? ../LambdaVisionSuper/src/components/ComputerVision/DeveloperSimulatorWorkspace.tsx`
+- `?? ../LambdaVisionSuper/src/components/ComputerVision/EndpointObjectTree.tsx`
+- `?? ../LambdaVisionSuper/src/components/ComputerVision/IotDeclarationWorkspace.tsx`
+- `?? ../LambdaVisionSuper/src/components/ComputerVision/WorkspaceTabs.tsx`
+- `?? ../LambdaVisionSuper/update_computer_vision_automation_ide_hotfix_v1110.py`
+- `?? ../LambdaVisionSuper/update_computer_vision_automation_ide_v1100.py`
+- `?? ../LambdaVisionSuper/update_computer_vision_context_hotfix_v1320.py`
+- `?? ../LambdaVisionSuper/update_computer_vision_dynamic_objects_v1200.py`
+- `?? ../LambdaVisionSuper/update_computer_vision_multicamera_workspaces_v1300.py`
+- `?? ../LambdaVisionSuper/update_computer_vision_workspace_activation_hotfix_v1330.py`
+- `?? ../LambdaVisionSuper/update_computer_vision_workspace_camera_keyboard_v1310.py`
+- `?? ../LambdaVisionSuper/update_computer_vision_workspace_isolation_v1340.py`
+- `?? ../LambdaVisionSuper/update_computer_vision_workspace_owned_resources_v1360.py`
+- `?? ../LambdaVisionSuper/update_computer_vision_workspace_transaction_v1350.py`
+- `?? app/services/vision_app/automation_manager.py`
+- `?? app/services/vision_app/automation_models.py`
+- `?? app/services/vision_app/automation_runtime.py`
+- `?? app/services/vision_app/camera_resource_runtime.py`
+- `?? app/services/vision_app/endpoint_registry.py`
+- `?? app/services/vision_app/frame_slot_store.py`
+- `?? app/services/vision_app/workspace_runtime.py`
+- `?? tests/vision_app/test_vision_app_v1100.py`
+- `?? tests/vision_app/test_vision_app_v1200.py`
+- `?? tests/vision_app/test_vision_app_v1300.py`
+- `?? tests/vision_app/test_vision_app_v1310.py`
+- `?? tests/vision_app/test_vision_app_v1330.py`
+- `?? tests/vision_app/test_vision_app_v1340.py`
+- `?? tests/vision_app/test_vision_app_v1350.py`
+- `?? tests/vision_app/test_vision_app_v1360.py`
 
 ## Generated context documents
 

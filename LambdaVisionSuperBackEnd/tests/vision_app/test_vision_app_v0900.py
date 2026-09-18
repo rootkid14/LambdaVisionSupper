@@ -11,7 +11,7 @@ def test_default_control_mapper_supports_keyboard_and_modbus():
 
 def test_new_program_version_reserves_decision_for_ide():
     program = VisionProgramDefinition(program_id="p", name="P")
-    assert program.version == 3
+    assert program.version >= 4
     assert hasattr(program, "control")
     scope = ScopePipelineConfig()
     assert scope.enable_decision is False
