@@ -24,6 +24,8 @@ class SamplingGeometrySession:
     source_board_manifest: dict[str, Any] = field(default_factory=dict)
     pipeline_definition: SamplingPipelineDefinition | None = None
     runtime: SamplingGeometryRuntime | None = None
+    program_sample: Any | None = None
+    program_sample_signature: str | None = None
     revision: int = 0
     last_activity: float = field(default_factory=time.time)
     _lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
@@ -38,6 +40,7 @@ class SamplingGeometrySession:
             self.touch()
             if self.runtime is not None:
                 self.runtime.clear()
+            self.clear_program_sample()
 
 
     def set_source_board(self, sources: dict[str, Any], manifest: dict[str, Any]) -> None:
@@ -48,6 +51,7 @@ class SamplingGeometrySession:
             self.touch()
             if self.runtime is not None:
                 self.runtime.clear()
+            self.clear_program_sample()
 
     def set_pipeline(self, definition: SamplingPipelineDefinition) -> None:
         with self._lock:
@@ -70,6 +74,26 @@ class SamplingGeometrySession:
                 self.sources,
             )
             return self.runtime.run(resolved_inputs, mode=mode)
+
+
+    def clear_program_sample(self) -> None:
+        self.program_sample = None
+        self.program_sample_signature = None
+
+    def set_program_sample(self, sample: Any, signature: str) -> None:
+        with self._lock:
+            self.program_sample = sample
+            self.program_sample_signature = signature
+            self.touch()
+
+    def get_program_sample(self, signature: str) -> Any:
+        with self._lock:
+            if self.program_sample is None:
+                raise RuntimeError("No cached Sampling Program Data Blocks. Run Program first.")
+            if self.program_sample_signature != signature:
+                raise RuntimeError("Sampling definition changed. Run Program again before Formulate.")
+            self.touch()
+            return self.program_sample
 
     def get_source(self, name: str) -> Any:
         try:

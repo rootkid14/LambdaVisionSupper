@@ -1,0 +1,188 @@
+{
+  "version": 2,
+  "program_id": "vision-program",
+  "name": "Vision Program",
+  "description": "",
+  "io": {
+    "enabled": false,
+    "host": "192.168.1.177",
+    "port": 502,
+    "device_id": 1,
+    "trigger_kind": "discrete_input",
+    "trigger_address": 0,
+    "trigger_active_high": true,
+    "ok_coil": 0,
+    "ng_coil": 1,
+    "pulse_seconds": 1.0,
+    "poll_interval_ms": 50
+  },
+  "camera": {
+    "enabled": false,
+    "driver": "url",
+    "basler_device_id": "",
+    "exposure_us": 5000.0,
+    "grab_timeout_ms": 5000,
+    "capture_url": "http://pi3b.local:8000/capture",
+    "focus_url_template": "http://pi3b.local:8000/focus?x={x}&y={y}&w={w}&h={h}",
+    "http_timeout_s": 8.0
+  },
+  "control": {
+    "bindings": [
+      {
+        "binding_id": "keyboard_run",
+        "enabled": true,
+        "source": "keyboard",
+        "key": "F8",
+        "action": "run_inspection"
+      },
+      {
+        "binding_id": "keyboard_camera",
+        "enabled": true,
+        "source": "keyboard",
+        "key": "F7",
+        "action": "trigger_camera"
+      },
+      {
+        "binding_id": "keyboard_ok",
+        "enabled": true,
+        "source": "keyboard",
+        "key": "F9",
+        "action": "out_ok"
+      },
+      {
+        "binding_id": "keyboard_ng",
+        "enabled": true,
+        "source": "keyboard",
+        "key": "F10",
+        "action": "out_ng"
+      },
+      {
+        "binding_id": "keyboard_clear",
+        "enabled": true,
+        "source": "keyboard",
+        "key": "Escape",
+        "action": "clear_working_screen"
+      },
+      {
+        "binding_id": "modbus_run",
+        "enabled": true,
+        "source": "modbus_trigger",
+        "key": "",
+        "action": "run_inspection"
+      }
+    ]
+  },
+  "master": {
+    "rois": [
+      {
+        "roi_id": "roi_1789714385528_2qys",
+        "name": "Station 1",
+        "rect": {
+          "x": 0.43143079478463403,
+          "y": 0.31026170798898073,
+          "w": 0.03486570357852975,
+          "h": 0.2699724517906336
+        },
+        "enabled": true,
+        "search": null
+      },
+      {
+        "roi_id": "roi_1789714390175_wr1c",
+        "name": "Station 2",
+        "rect": {
+          "x": 0.5964617917230083,
+          "y": 0.31852617079889806,
+          "w": 0.036415290404242295,
+          "h": 0.27823691460055094
+        },
+        "enabled": true,
+        "search": null
+      },
+      {
+        "roi_id": "roi_1789714393511_ou5b",
+        "name": "Station 3",
+        "rect": {
+          "x": 0.7607179952485265,
+          "y": 0.3240358126721763,
+          "w": 0.027117769449967577,
+          "h": 0.29476584022038566
+        },
+        "enabled": true,
+        "search": null
+      }
+    ],
+    "master_shape": [
+      2592,
+      4608,
+      3
+    ],
+    "locator": {
+      "method": "fourier",
+      "blur_kernel": 60,
+      "template_threshold": 0.65,
+      "geometry": {
+        "enabled": true,
+        "search_margin_px": 80,
+        "max_shift_px": 120
+      }
+    }
+  },
+  "working": {
+    "global_scope": {
+      "enable_filter": false,
+      "filter_services": [],
+      "enable_logic": false,
+      "logic_services": [],
+      "enable_decision": false,
+      "decision": {
+        "script": "if logic_ok:\n    result = 'OK'\nelse:\n    result = 'NG'\n"
+      }
+    },
+    "station_scopes": {
+      "roi_1789714385528_2qys": {
+        "enable_filter": true,
+        "filter_services": [
+          {
+            "binding_id": "bind_1789717068050_ygkb8",
+            "service_id": "image-processing-service-2",
+            "version": null,
+            "enabled": true,
+            "label": "",
+            "alias": "logic_1",
+            "decision": null
+          }
+        ],
+        "enable_logic": false,
+        "logic_services": [],
+        "enable_decision": false,
+        "decision": {
+          "script": "if logic_ok:\n    result = 'OK'\nelse:\n    result = 'NG'\n"
+        }
+      },
+      "roi_1789714390175_wr1c": {
+        "enable_filter": true,
+        "filter_services": [
+          {
+            "binding_id": "bind_1789723622310_0i7u6",
+            "service_id": "canny-edge",
+            "version": null,
+            "enabled": true,
+            "label": "",
+            "alias": "logic_1",
+            "decision": null
+          }
+        ],
+        "enable_logic": true,
+        "logic_services": [],
+        "enable_decision": false,
+        "decision": {
+          "script": "if logic_ok:\n    result = 'OK'\nelse:\n    result = 'NG'\n"
+        }
+      }
+    },
+    "station_execution": "sequential",
+    "global_services": [],
+    "station_services": {}
+  },
+  "saved_at": "2026-09-18T09:47:57.566363+00:00"
+}

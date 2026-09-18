@@ -1,0 +1,159 @@
+{
+  "version": 1,
+  "program_id": "vision-program-2",
+  "name": "Vision Program",
+  "description": "",
+  "io": {
+    "enabled": false,
+    "host": "192.168.1.177",
+    "port": 502,
+    "device_id": 1,
+    "trigger_kind": "discrete_input",
+    "trigger_address": 0,
+    "trigger_active_high": true,
+    "ok_coil": 0,
+    "ng_coil": 1,
+    "pulse_seconds": 1.0,
+    "poll_interval_ms": 50
+  },
+  "master": {
+    "rois": [
+      {
+        "roi_id": "roi_1789710609269_qwl5",
+        "name": "Station 1",
+        "rect": {
+          "x": 0.43717277486910994,
+          "y": 0.2704190969000322,
+          "w": 0.022687609075043635,
+          "h": 0.29009487378567234
+        },
+        "search": {
+          "method": "blur_template",
+          "blur_kernel": 9,
+          "template_threshold": 0.65,
+          "geometry": {
+            "enabled": true,
+            "search_margin_px": 80,
+            "max_shift_px": 120
+          }
+        },
+        "enabled": true
+      },
+      {
+        "roi_id": "roi_1789710626733_tb3q",
+        "name": "Station 2",
+        "rect": {
+          "x": 0.5968586387434555,
+          "y": 0.2843808822693961,
+          "w": 0.029668411867364797,
+          "h": 0.27303046944533865
+        },
+        "search": {
+          "method": "blur_template",
+          "blur_kernel": 9,
+          "template_threshold": 0.65,
+          "geometry": {
+            "enabled": true,
+            "search_margin_px": 80,
+            "max_shift_px": 120
+          }
+        },
+        "enabled": true
+      },
+      {
+        "roi_id": "roi_1789710632909_tk26",
+        "name": "Station 3",
+        "rect": {
+          "x": 0.7600349040139616,
+          "y": 0.2905861202113356,
+          "w": 0.02530541012216414,
+          "h": 0.27923570738727815
+        },
+        "search": {
+          "method": "blur_template",
+          "blur_kernel": 9,
+          "template_threshold": 0.65,
+          "geometry": {
+            "enabled": true,
+            "search_margin_px": 80,
+            "max_shift_px": 120
+          }
+        },
+        "enabled": true
+      },
+      {
+        "roi_id": "roi_1789710638254_nyg7",
+        "name": "Station 4",
+        "rect": {
+          "x": 0.36910994764397903,
+          "y": 0.6846187295244949,
+          "w": 0.021815008726003504,
+          "h": 0.17995190031624597
+        },
+        "search": {
+          "method": "blur_template",
+          "blur_kernel": 9,
+          "template_threshold": 0.65,
+          "geometry": {
+            "enabled": true,
+            "search_margin_px": 80,
+            "max_shift_px": 120
+          }
+        },
+        "enabled": true
+      },
+      {
+        "roi_id": "roi_1789710642254_g467",
+        "name": "Station 5",
+        "rect": {
+          "x": 0.5322862129144852,
+          "y": 0.6877213484954646,
+          "w": 0.027923211169284423,
+          "h": 0.18615713825818547
+        },
+        "search": {
+          "method": "blur_template",
+          "blur_kernel": 9,
+          "template_threshold": 0.65,
+          "geometry": {
+            "enabled": true,
+            "search_margin_px": 80,
+            "max_shift_px": 120
+          }
+        },
+        "enabled": true
+      },
+      {
+        "roi_id": "roi_1789710648845_qvbj",
+        "name": "Station 6",
+        "rect": {
+          "x": 0.699825479930192,
+          "y": 0.6923752769519192,
+          "w": 0.022687609075043635,
+          "h": 0.18615713825818547
+        },
+        "search": {
+          "method": "blur_template",
+          "blur_kernel": 9,
+          "template_threshold": 0.65,
+          "geometry": {
+            "enabled": true,
+            "search_margin_px": 80,
+            "max_shift_px": 120
+          }
+        },
+        "enabled": true
+      }
+    ],
+    "master_shape": [
+      2592,
+      4608,
+      3
+    ]
+  },
+  "working": {
+    "global_services": [],
+    "station_services": {}
+  },
+  "saved_at": "2026-09-18T06:25:01.663426+00:00"
+}

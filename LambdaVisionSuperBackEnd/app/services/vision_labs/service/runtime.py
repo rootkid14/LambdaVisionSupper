@@ -15,6 +15,8 @@ from app.services.vision_labs.sampling_geometry.operators import load_sampling_g
 from app.services.vision_labs.sampling_geometry.pipeline import SamplingPipelineDefinition, model_to_dict as sampling_model_to_dict
 from app.services.vision_labs.sampling_geometry.runtime import SamplingGeometryRuntime, artifact_shape
 from app.services.vision_labs.sampling_geometry.source_board import resolve_pipeline_inputs, resolve_source_board
+from app.services.vision_labs.sampling_geometry.program import LegacySamplingProgramDefinition, SamplingProgramDefinition
+from app.services.vision_labs.sampling_geometry.program_runtime import SamplingProgramRuntime
 from app.services.vision_labs.service.models import LabServiceDefinition, LabServiceRunManifest
 from app.services.vision_labs.contour_extractor.models import ContourExtractorDefinition
 from app.services.vision_labs.contour_extractor.runtime import ContourExtractorRuntime
@@ -100,6 +102,53 @@ class LabServiceRuntime:
         return LabServiceRun(manifest=manifest, outputs=values)
 
     def _run_sampling_geometry(self, service, inputs):
+        program_kind = service.pipeline_snapshot.get("program_kind")
+        if program_kind in {"sampling_program_v1", "sampling_program_v2"}:
+            definition = (
+                LegacySamplingProgramDefinition(**service.pipeline_snapshot)
+                if program_kind == "sampling_program_v1"
+                else SamplingProgramDefinition(**service.pipeline_snapshot)
+            )
+            raw_image = inputs.get("image")
+            if raw_image is None:
+                raw_image = next((value for value in inputs.values() if value.__class__.__name__ == "ImageFrame"), None)
+            if raw_image is None:
+                raise ValueError("Sampling Program service requires one raw Image input")
+            from app.services.vision_labs.service.repository import LabServiceRepository
+            repository = LabServiceRepository()
+            board = resolve_source_board(
+                raw_image,
+                {**dict(definition.source_board or {}), "enable_geometry": False},
+                load_service=lambda service_id, version: repository.get(service_id, version=version),
+                run_service=self.run,
+            )
+            source_name = str(definition.input_source or "inspected_image")
+            if source_name not in board.sources:
+                raise KeyError(f"Sampling Program source is unavailable: {source_name}")
+            start = perf_counter()
+            program_run = SamplingProgramRuntime(definition).run(board.sources[source_name])
+            total_ms = (perf_counter() - start) * 1000.0
+            port_values = {
+                "global_data": program_run.global_data,
+                "local_data": program_run.local_data,
+                "combined_data": program_run.combined_data,
+            }
+            values, meta = {}, {}
+            for name, binding in service.outputs.items():
+                value = port_values[binding.port]
+                values[name] = value
+                meta[name] = {
+                    "type": "composed_data",
+                    "node_id": "sampling_program",
+                    "port": binding.port,
+                    "shape": artifact_shape(value),
+                    "artifact_id": None,
+                }
+            manifest = self._manifest(service, values, meta, program_run.timings_ms, total_ms)
+            manifest.workspace_type = service.workspace_type or "sampling"
+            return LabServiceRun(manifest=manifest, outputs=values)
+
+        # Backward compatibility for v0.1-v0.4 Sampling/Geometry snapshots.
         load_sampling_geometry_operators()
         editor = SamplingPipelineDefinition(**service.pipeline_snapshot)
         definition = _prune_sampling_pipeline(editor, service)

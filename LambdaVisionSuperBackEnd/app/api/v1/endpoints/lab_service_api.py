@@ -14,6 +14,7 @@ from app.services.vision_labs.image.pipeline import ImagePipelineDefinition, Pip
 from app.services.vision_labs.image.types import BinaryMask, ColorSpace, ImageFrame
 from app.services.vision_labs.sampling_geometry.operators import load_sampling_geometry_operators
 from app.services.vision_labs.sampling_geometry.pipeline import SamplingPipelineCompiler, SamplingPipelineDefinition, model_to_dict as sampling_model_to_dict
+from app.services.vision_labs.sampling_geometry.program import SamplingProgramDefinition
 from app.services.vision_labs.sampling_geometry.preview import SamplingPreviewEncoder
 from app.services.vision_labs.contour_extractor.models import ContourExtractorDefinition
 from app.services.vision_labs.service import (
@@ -56,10 +57,15 @@ def _derive_contract(request: DeployLabServiceRequest):
         compiled = PipelineCompiler().compile(pipeline)
         serializer = model_to_dict
     elif request.lab_type == "sampling_geometry":
-        load_sampling_geometry_operators()
-        pipeline = SamplingPipelineDefinition(**request.pipeline_snapshot)
-        compiled = SamplingPipelineCompiler().compile(pipeline)
-        serializer = sampling_model_to_dict
+        if request.pipeline_snapshot.get("program_kind") == "sampling_program_v1":
+            pipeline = SamplingProgramDefinition(**request.pipeline_snapshot)
+            compiled = None
+            serializer = lambda model: model.model_dump() if hasattr(model, "model_dump") else model.dict()
+        else:
+            load_sampling_geometry_operators()
+            pipeline = SamplingPipelineDefinition(**request.pipeline_snapshot)
+            compiled = SamplingPipelineCompiler().compile(pipeline)
+            serializer = sampling_model_to_dict
     elif request.lab_type == "contour_extractor":
         pipeline = ContourExtractorDefinition(**request.pipeline_snapshot)
         compiled = None
@@ -70,10 +76,12 @@ def _derive_contract(request: DeployLabServiceRequest):
     inputs: dict[str, LabServicePort] = {}
     if request.lab_type == "contour_extractor":
         inputs["image"] = LabServicePort(type="image", required=True)
-    elif request.lab_type == "sampling_geometry" and bool(getattr(pipeline, "source_board", {})):
-        # A deployed Sampling/Geometry service reproduces the editor Source Board
-        # internally. Its public contract therefore needs only the original raw
-        # image; upstream image-processing pins remain implementation details.
+    elif request.lab_type == "sampling_geometry" and (
+        getattr(pipeline, "program_kind", None) == "sampling_program_v1"
+        or bool(getattr(pipeline, "source_board", {}))
+    ):
+        # Sampling services reproduce the Source Board internally and therefore
+        # expose only the original raw image as their public input.
         inputs["image"] = LabServicePort(type="image", required=True)
     else:
         for input_name, endpoint in pipeline.inputs.items():
@@ -94,6 +102,19 @@ def _derive_contract(request: DeployLabServiceRequest):
                 raise ValueError("Contour Extractor Service currently exposes only the final contours output")
             outputs[output_name] = LabServiceOutputBinding(type="contour_set", node_id="contour_runtime", port="contours", label=binding.label)
             continue
+        if request.lab_type == "sampling_geometry" and getattr(pipeline, "program_kind", None) == "sampling_program_v1":
+            valid_ports = {"global_data", "local_data", "combined_data"}
+            if binding.port not in valid_ports:
+                raise ValueError(
+                    f"Sampling Program output port must be one of {sorted(valid_ports)}; got {binding.port!r}"
+                )
+            outputs[output_name] = LabServiceOutputBinding(
+                type="composed_data",
+                node_id="sampling_program",
+                port=binding.port,
+                label=binding.label,
+            )
+            continue
         node = compiled.nodes.get(binding.node_id)
         if node is None: raise ValueError(f"Unknown service output node: {binding.node_id}")
         port_spec = node.operator_class.OUTPUTS.get(binding.port)
@@ -103,7 +124,9 @@ def _derive_contract(request: DeployLabServiceRequest):
 
     workspace_type = request.workspace_type
     if request.lab_type == "sampling_geometry":
-        workspace_type = workspace_type or pipeline.workspace
+        workspace_type = workspace_type or (
+            "sampling" if getattr(pipeline, "program_kind", None) == "sampling_program_v1" else pipeline.workspace
+        )
     return pipeline, inputs, outputs, workspace_type, serializer
 
 

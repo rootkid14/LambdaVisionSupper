@@ -4,6 +4,7 @@ from app.api.v1.endpoints import lab_service_api
 from app.api.v1.endpoints import sampling_geometry_api
 from app.api.v1.endpoints import contour_extractor_api
 from app.api.v1.endpoints import image_lab_api
+from app.api.v1.endpoints import vision_app_api
 
 api_router = APIRouter()
 
@@ -15,3 +16,4 @@ api_router.include_router(image_lab_api.router, prefix="/image-lab", tags=["Imag
 api_router.include_router(lab_service_api.router, prefix="/lab-services", tags=["Lab Services"])
 api_router.include_router(sampling_geometry_api.router, prefix="/sampling-geometry", tags=["Sampling / Geometry LAB"])
 api_router.include_router(contour_extractor_api.router, prefix="/contour-extractor", tags=["Contour Extractor LAB"])
+api_router.include_router(vision_app_api.router, prefix="/computer-vision", tags=["Computer Vision"])

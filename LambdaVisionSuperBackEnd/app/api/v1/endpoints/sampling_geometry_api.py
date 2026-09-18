@@ -538,3 +538,93 @@ def channel_preview(
         return Response(content=payload, media_type=mime)
     except Exception as exc:
         raise _http_error(exc)
+
+# ---------------------------------------------------------------------------
+# Sampling Program v0.6 — Global / Local sampling + cached formulation.
+# The editor/runtime intentionally stops at Vector or 2-D Matrix. Tensor depth
+# belongs to the future Representation LAB. Legacy pipeline endpoints above stay
+# available for v0.1-v0.4 snapshots.
+# ---------------------------------------------------------------------------
+from app.services.vision_labs.sampling_geometry.program import (
+    SamplingProgramDefinition,
+    sampling_program_catalog,
+    sampling_program_sample_signature,
+)
+from app.services.vision_labs.sampling_geometry.program_runtime import (
+    SamplingProgramRuntime,
+)
+
+
+def _sampling_program_response(program, result, *, formulation_only: bool) -> dict[str, Any]:
+    return {
+        "success": True,
+        "program_kind": program.program_kind,
+        "formulation_only": bool(formulation_only),
+        "manifest": result.manifest(),
+        "global_blocks": artifact_to_json(result.global_blocks),
+        "global_data": artifact_to_json(result.global_data),
+        "local": {
+            "grid": {
+                "rows": program.local_domain.grid.rows,
+                "cols": program.local_domain.grid.cols,
+            },
+            "patch_bounds": result.local_patch_bounds,
+            "patches": [artifact_to_json(patch) for patch in result.local_patch_blocks],
+        },
+        "local_data": artifact_to_json(result.local_data),
+        "combined_data": artifact_to_json(result.combined_data),
+    }
+
+
+@router.get("/program/methods", summary="List Sampling Program methods")
+def list_sampling_program_methods():
+    return {
+        "success": True,
+        "program_kind": "sampling_program_v2",
+        "methods": sampling_program_catalog(),
+    }
+
+
+@router.post(
+    "/sessions/{session_id}/program/run",
+    summary="Sample the image and formulate the hierarchical Sampling Program",
+)
+def run_sampling_program(
+    session_id: str,
+    program: SamplingProgramDefinition,
+):
+    try:
+        session = session_manager.get(session_id)
+        source_name = str(program.input_source or "inspected_image")
+        value = session.get_source(source_name)
+        if not isinstance(value, ImageFrame):
+            raise TypeError(
+                f"Sampling Program source {source_name!r} must be an Image"
+            )
+        runtime = SamplingProgramRuntime(program)
+        sample = runtime.sample(value)
+        signature = sampling_program_sample_signature(program)
+        session.set_program_sample(sample, signature)
+        result = runtime.formulate(sample, program.output_shape)
+        return _sampling_program_response(program, result, formulation_only=False)
+    except Exception as exc:
+        raise _http_error(exc)
+
+
+@router.post(
+    "/sessions/{session_id}/program/formulate",
+    summary="Re-formulate cached Sampling Data Blocks without re-sampling the image",
+)
+def formulate_sampling_program(
+    session_id: str,
+    program: SamplingProgramDefinition,
+):
+    try:
+        session = session_manager.get(session_id)
+        signature = sampling_program_sample_signature(program)
+        sample = session.get_program_sample(signature)
+        runtime = SamplingProgramRuntime(program)
+        result = runtime.formulate(sample, program.output_shape)
+        return _sampling_program_response(program, result, formulation_only=True)
+    except Exception as exc:
+        raise _http_error(exc)
