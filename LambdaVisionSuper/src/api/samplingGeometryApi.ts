@@ -1,5 +1,6 @@
 import { axiosClient, api_version } from './axiosClient';
 import type { SamplingArtifact, SamplingOperatorManifest, SamplingPipelineDefinition, SamplingRunResponse, SamplingWorkspace, SourceBoardConfig, SourceBoardManifest } from '../components/VisionLabs/SamplingGeometry/types';
+import type { SamplingMethodCatalogItem, SamplingProgramDefinition, SamplingProgramRun } from '../components/VisionLabs/SamplingProgram/types';
 
 export const SamplingGeometryAPI = {
   operators: async (workspace?: SamplingWorkspace): Promise<SamplingOperatorManifest[]> => {
@@ -29,4 +30,27 @@ export const SamplingGeometryAPI = {
   artifact: async (sessionId: string, nodeId: string, port: string): Promise<SamplingArtifact> => (await axiosClient.get(`${api_version}/sampling-geometry/sessions/${encodeURIComponent(sessionId)}/artifact/${encodeURIComponent(nodeId)}/${encodeURIComponent(port)}`)).data.artifact,
   artifactPreview: async (sessionId: string, nodeId: string, port: string): Promise<Blob> => (await axiosClient.get(`${api_version}/sampling-geometry/sessions/${encodeURIComponent(sessionId)}/preview/node/${encodeURIComponent(nodeId)}/${encodeURIComponent(port)}`, { params:{max_width:2200,quality:94}, responseType:'blob' })).data,
   fftReconstruction: async (sessionId: string, nodeId: string, params: Record<string, any>): Promise<Blob> => (await axiosClient.get(`${api_version}/sampling-geometry/sessions/${encodeURIComponent(sessionId)}/fft-reconstruction/${encodeURIComponent(nodeId)}`, { params, responseType:'blob' })).data,
+
+  programMethods: async (): Promise<SamplingMethodCatalogItem[]> => {
+    const response = await axiosClient.get(`${api_version}/sampling-geometry/program/methods`);
+    return response.data?.methods ?? [];
+  },
+
+  runProgram: async (sessionId: string, program: SamplingProgramDefinition): Promise<SamplingProgramRun> => {
+    const response = await axiosClient.post(
+      `${api_version}/sampling-geometry/sessions/${encodeURIComponent(sessionId)}/program/run`,
+      program,
+      { timeout: 120_000 },
+    );
+    return response.data;
+  },
+
+  formulateProgram: async (sessionId: string, program: SamplingProgramDefinition): Promise<SamplingProgramRun> => {
+    const response = await axiosClient.post(
+      `${api_version}/sampling-geometry/sessions/${encodeURIComponent(sessionId)}/program/formulate`,
+      program,
+      { timeout: 30_000 },
+    );
+    return response.data;
+  },
 };

@@ -41,6 +41,7 @@ export const MainScreen = () => {
   const homeActions: ActionItem[] = [
     { id: 'fleet', label: 'Resources', icon: Server, activeColor: 'cyan', onClick: () => navigate('/fleet') },
     { id: 'inspection', label: 'App Builder', icon: Search, activeColor: 'emerald', onClick: () => navigate('/inspection') },
+    { id: 'computer-vision', label: 'Computer Vision', icon: Network, activeColor: 'purple', onClick: () => navigate('/computer-vision') },
     { id: 'labs', label: 'LAB', icon: FlaskConical, activeColor: 'purple', onClick: () => navigate('/labs') },
     { id: 'data', label: 'DataBase', icon: Database, activeColor: 'orange', onClick: () => navigate('/data') }
   ];

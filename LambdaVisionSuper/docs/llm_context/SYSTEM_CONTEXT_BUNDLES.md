@@ -68,53 +68,88 @@ Memory-efficient contour discovery: candidate generation, early junk rejection, 
 
 ## Sampling LAB
 
-Independent Spatial Sampling Units plus Fourier/statistical analysis, semantic Data Blocks, local layout composition, and reusable feature-extraction services.
+Hierarchical Global/Local Sampling Program that turns one inspected image into semantic Data Blocks and then formulates them as understandable vectors or 2-D matrices. Formulation is cache-only; tensor depth belongs to Representation LAB and frequency-domain transforms remain outside the current editor.
 
 ### Minimal context
 
 - `FE:src/Pages/SamplingGeometryLabPage.tsx`
-- `FE:src/components/VisionLabs/SamplingGeometry/useSamplingGeometryController.ts`
-- `FE:src/components/VisionLabs/SamplingGeometry/SamplingUnitLibrary.tsx`
-- `FE:src/components/VisionLabs/SamplingGeometry/SamplingUnitsPanel.tsx`
-- `FE:src/components/VisionLabs/SamplingGeometry/DataLayoutComposer.tsx`
-- `FE:src/components/VisionLabs/SamplingGeometry/SamplingParameterHelpModal.tsx`
-- `FE:src/components/VisionLabs/SamplingGeometry/SamplingWorkbench.tsx`
-- `FE:src/components/VisionLabs/SamplingGeometry/types.ts`
+- `FE:src/components/VisionLabs/SamplingProgram/useSamplingProgramController.ts`
+- `FE:src/components/VisionLabs/SamplingProgram/SamplingMethodLibrary.tsx`
+- `FE:src/components/VisionLabs/SamplingProgram/SamplingStructurePanel.tsx`
+- `FE:src/components/VisionLabs/SamplingProgram/SamplingProgramCanvas.tsx`
+- `FE:src/components/VisionLabs/SamplingProgram/SamplingOutputShapeDesigner.tsx`
+- `FE:src/components/VisionLabs/SamplingProgram/SamplingConceptHelpModal.tsx`
+- `FE:src/components/VisionLabs/SamplingProgram/types.ts`
 - `FE:src/api/samplingGeometryApi.ts`
-- `BE:app/services/vision_labs/sampling_geometry/operator.py`
-- `BE:app/services/vision_labs/sampling_geometry/pipeline.py`
-- `BE:app/services/vision_labs/sampling_geometry/runtime.py`
-- `BE:app/services/vision_labs/sampling_geometry/session.py`
+- `BE:app/services/vision_labs/sampling_geometry/program.py`
+- `BE:app/services/vision_labs/sampling_geometry/program_runtime.py`
 - `BE:app/api/v1/endpoints/sampling_geometry_api.py`
+- `BE:app/services/vision_labs/service/runtime.py`
 
 ### Deep context
 
-- `FE:src/components/VisionLabs/SamplingGeometry/ArtifactInspectorModal.tsx`
-- `FE:src/components/VisionLabs/SamplingGeometry/DataLayoutComposer.tsx`
-- `FE:src/components/VisionLabs/SamplingGeometry/SamplingCanvas.tsx`
-- `FE:src/components/VisionLabs/SamplingGeometry/SamplingGuideModal.tsx`
-- `FE:src/components/VisionLabs/SamplingGeometry/SamplingOperatorLibrary.tsx`
-- `FE:src/components/VisionLabs/SamplingGeometry/SamplingParameterHelpModal.tsx`
-- `FE:src/components/VisionLabs/SamplingGeometry/SamplingStack.tsx`
-- `FE:src/components/VisionLabs/SamplingGeometry/SamplingUnitLibrary.tsx`
-- `FE:src/components/VisionLabs/SamplingGeometry/SamplingUnitsPanel.tsx`
-- `FE:src/components/VisionLabs/SamplingGeometry/SamplingVisuals.tsx`
-- `FE:src/components/VisionLabs/SamplingGeometry/SamplingWorkbench.tsx`
+- `FE:src/components/VisionLabs/SamplingProgram/SamplingConceptHelpModal.tsx`
+- `FE:src/components/VisionLabs/SamplingProgram/SamplingMethodEditor.tsx`
+- `FE:src/components/VisionLabs/SamplingProgram/SamplingMethodLibrary.tsx`
+- `FE:src/components/VisionLabs/SamplingProgram/SamplingOutputShapeDesigner.tsx`
+- `FE:src/components/VisionLabs/SamplingProgram/SamplingProgramCanvas.tsx`
+- `FE:src/components/VisionLabs/SamplingProgram/SamplingStructurePanel.tsx`
+- `FE:src/components/VisionLabs/SamplingProgram/types.ts`
+- `FE:src/components/VisionLabs/SamplingProgram/useSamplingProgramController.ts`
 - `FE:src/components/VisionLabs/SamplingGeometry/SourceBoard.tsx`
-- `FE:src/components/VisionLabs/SamplingGeometry/types.ts`
-- `FE:src/components/VisionLabs/SamplingGeometry/useSamplingGeometryController.ts`
-- `BE:app/services/vision_labs/sampling_geometry/operators/__init__.py`
-- `BE:app/services/vision_labs/sampling_geometry/operators/common.py`
-- `BE:app/services/vision_labs/sampling_geometry/operators/geometry.py`
-- `BE:app/services/vision_labs/sampling_geometry/operators/spatial.py`
-- `BE:app/services/vision_labs/sampling_geometry/operators/spectral.py`
-- `BE:app/services/vision_labs/sampling_geometry/preview.py`
+- `BE:app/services/vision_labs/sampling_geometry/types.py`
 - `BE:app/services/vision_labs/sampling_geometry/serialization.py`
 - `BE:tests/vision_labs/sampling_geometry/test_sampling_geometry_lab_v0100.py`
 - `BE:tests/vision_labs/sampling_geometry/test_sampling_geometry_lab_v0200.py`
 - `BE:tests/vision_labs/sampling_geometry/test_sampling_lab_v0300.py`
 - `BE:tests/vision_labs/sampling_geometry/test_sampling_lab_v0400.py`
+- `BE:tests/vision_labs/sampling_geometry/test_sampling_program_v0500.py`
+- `BE:tests/vision_labs/sampling_geometry/test_sampling_program_v0600.py`
+- `BE:app/api/v1/endpoints/lab_service_api.py`
+- `BE:app/services/vision_labs/sampling_geometry/pipeline.py`
+- `BE:app/services/vision_labs/sampling_geometry/runtime.py`
+
+## Computer Vision Program
+
+Production Computer Vision application: Control Mapper + Modbus I/O, Basler/URL camera acquisition, stored Master Sample with one locator family for all stations, Global-first Filter→Logic execution, Local station scopes, expandable quick controls, unified lazy Debug Stack and benchmark timings. Decision/glue is future IDE ownership.
+
+### Minimal context
+
+- `FE:src/Pages/ComputerVisionPage.tsx`
+- `FE:src/components/ComputerVision/VisionViewport.tsx`
+- `FE:src/components/ComputerVision/IotModulePanel.tsx`
+- `FE:src/components/ComputerVision/CameraModulePanel.tsx`
+- `FE:src/components/ComputerVision/MasterSamplePanel.tsx`
+- `FE:src/components/ComputerVision/WorkingModulePanel.tsx`
+- `FE:src/components/ComputerVision/ScopeEditorModal.tsx`
+- `FE:src/components/ComputerVision/DebugWorkspace.tsx`
+- `FE:src/api/visionAppApi.ts`
+- `BE:app/services/vision_app/models.py`
+- `BE:app/services/vision_app/repository.py`
+- `BE:app/services/vision_app/roi_search.py`
+- `BE:app/services/vision_app/runtime.py`
+- `BE:app/services/vision_app/io_runtime.py`
+- `BE:app/services/vision_app/camera_runtime.py`
+- `BE:app/services/vision_app/decision_runtime.py`
+- `BE:app/services/vision_app/debug_store.py`
+- `BE:app/services/vision_app/runner.py`
+- `BE:app/api/v1/endpoints/vision_app_api.py`
+
+### Deep context
+
+- `BE:tests/vision_app/test_vision_app_frame_v0100.py`
+- `BE:tests/vision_app/test_vision_app_v0800.py`
+- `BE:tests/vision_app/test_vision_app_v0801.py`
+- `BE:tests/vision_app/test_vision_app_v0900.py`
+- `BE:tests/vision_app/test_vision_app_v1000.py`
+- `BE:tests/vision_app/test_vision_app_v1010.py`
 - `BE:app/services/vision_labs/service/runtime.py`
+- `BE:app/services/vision_labs/service/repository.py`
+- `FE:src/Pages/LabView.tsx`
+- `FE:src/api/labServiceApi.ts`
+- `FE:docs/llm_context/updates/v0800_computer_vision_production_pipeline.md`
+- `FE:docs/llm_context/updates/v0900_computer_vision_control_workspace.md`
+- `FE:docs/llm_context/updates/v1000_computer_vision_scope_debug_stack.md`
 
 ## Lab Service
 

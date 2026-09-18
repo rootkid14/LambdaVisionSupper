@@ -1,0 +1,173 @@
+from __future__ import annotations
+
+import cv2
+import numpy as np
+
+from app.services.vision_app.models import LocatedRoi, MasterRoi, NormalizedRect
+
+
+def _odd_kernel(value: int) -> int:
+    value = max(1, int(value))
+    return value if value % 2 == 1 else value + 1
+
+
+def _rect_px(rect: NormalizedRect, shape) -> tuple[int, int, int, int]:
+    h, w = int(shape[0]), int(shape[1])
+    x = max(0, min(w - 1, int(round(rect.x * w))))
+    y = max(0, min(h - 1, int(round(rect.y * h))))
+    rw = max(1, min(w - x, int(round(rect.w * w))))
+    rh = max(1, min(h - y, int(round(rect.h * h))))
+    return x, y, rw, rh
+
+
+def _norm_rect(x: int, y: int, w: int, h: int, shape) -> NormalizedRect:
+    ih, iw = int(shape[0]), int(shape[1])
+    return NormalizedRect(
+        x=max(0.0, min(1.0, x / max(1, iw))),
+        y=max(0.0, min(1.0, y / max(1, ih))),
+        w=max(1.0 / max(1, iw), min(1.0, w / max(1, iw))),
+        h=max(1.0 / max(1, ih), min(1.0, h / max(1, ih))),
+    )
+
+
+def _gray(image: np.ndarray) -> np.ndarray:
+    if image.ndim == 2:
+        return image
+    return cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+
+def _search_window(rect_px, shape, margin: int):
+    x, y, w, h = rect_px
+    ih, iw = shape[:2]
+    x0 = max(0, x - margin)
+    y0 = max(0, y - margin)
+    x1 = min(iw, x + w + margin)
+    y1 = min(ih, y + h + margin)
+    return x0, y0, x1, y1
+
+
+def locate_manual(roi: MasterRoi, test_image: np.ndarray) -> LocatedRoi:
+    return LocatedRoi(
+        roi_id=roi.roi_id,
+        name=roi.name,
+        rect=roi.rect,
+        score=1.0,
+        method="manual",
+        found=True,
+        message="Manual ROI uses identical normalized coordinates on the test image.",
+    )
+
+
+def locate_blur_template(roi: MasterRoi, master_image: np.ndarray, test_image: np.ndarray) -> LocatedRoi:
+    master_gray = _gray(master_image)
+    test_gray = _gray(test_image)
+    mx, my, mw, mh = _rect_px(roi.rect, master_gray.shape)
+    template = master_gray[my : my + mh, mx : mx + mw]
+    if template.size == 0:
+        raise ValueError(f"ROI {roi.roi_id} has an empty master template")
+
+    kernel = _odd_kernel(roi.search.blur_kernel)
+    template = cv2.GaussianBlur(template, (kernel, kernel), 0)
+    test_blur = cv2.GaussianBlur(test_gray, (kernel, kernel), 0)
+
+    margin = roi.search.geometry.search_margin_px if roi.search.geometry.enabled else max(test_gray.shape)
+    tx, ty, tw, th = _rect_px(roi.rect, test_gray.shape)
+    x0, y0, x1, y1 = _search_window((tx, ty, tw, th), test_gray.shape, margin)
+    search = test_blur[y0:y1, x0:x1]
+    if search.shape[0] < template.shape[0] or search.shape[1] < template.shape[1]:
+        return LocatedRoi(roi_id=roi.roi_id, name=roi.name, rect=roi.rect, score=0.0, method="blur_template", found=False, message="Search window is smaller than the master template")
+
+    # CCOEFF becomes degenerate for nearly constant templates. Fall back to
+    # normalized squared difference in that case and convert it to a 0..1 score.
+    if float(np.std(template)) < 1e-6:
+        response = cv2.matchTemplate(search, template, cv2.TM_SQDIFF_NORMED)
+        min_value, _, min_location, _ = cv2.minMaxLoc(response)
+        max_value = 1.0 - float(min_value)
+        max_location = min_location
+    else:
+        response = cv2.matchTemplate(search, template, cv2.TM_CCOEFF_NORMED)
+        _, max_value, _, max_location = cv2.minMaxLoc(response)
+    nx = x0 + int(max_location[0])
+    ny = y0 + int(max_location[1])
+
+    if roi.search.geometry.enabled:
+        shift = float(np.hypot(nx - tx, ny - ty))
+        if shift > roi.search.geometry.max_shift_px:
+            return LocatedRoi(roi_id=roi.roi_id, name=roi.name, rect=_norm_rect(nx, ny, mw, mh, test_gray.shape), score=float(max_value), method="blur_template", found=False, message=f"Template shift {shift:.1f}px exceeds geometry constraint")
+
+    found = float(max_value) >= roi.search.template_threshold
+    return LocatedRoi(
+        roi_id=roi.roi_id,
+        name=roi.name,
+        rect=_norm_rect(nx, ny, mw, mh, test_gray.shape),
+        score=float(max_value),
+        method="blur_template",
+        found=found,
+        message="Template score accepted" if found else "Template score below threshold",
+    )
+
+
+def locate_fourier(roi: MasterRoi, master_image: np.ndarray, test_image: np.ndarray) -> LocatedRoi:
+    """Locate ROI by phase correlation of equal-size master/test context windows.
+
+    This deliberately starts as a translation-only Fourier locator. Geometry constraints
+    keep the correlation local; later versions can add scale/rotation Fourier-Mellin or
+    multi-ROI graph constraints without changing the ROI search contract.
+    """
+    master_gray = _gray(master_image).astype(np.float32)
+    test_gray = _gray(test_image).astype(np.float32)
+    mx, my, mw, mh = _rect_px(roi.rect, master_gray.shape)
+    tx, ty, tw, th = _rect_px(roi.rect, test_gray.shape)
+
+    margin = roi.search.geometry.search_margin_px if roi.search.geometry.enabled else 0
+    mx0, my0, mx1, my1 = _search_window((mx, my, mw, mh), master_gray.shape, margin)
+    tx0, ty0, tx1, ty1 = _search_window((tx, ty, tw, th), test_gray.shape, margin)
+
+    master_context = master_gray[my0:my1, mx0:mx1]
+    test_context = test_gray[ty0:ty1, tx0:tx1]
+    common_h = min(master_context.shape[0], test_context.shape[0])
+    common_w = min(master_context.shape[1], test_context.shape[1])
+    if common_h < 4 or common_w < 4:
+        return LocatedRoi(roi_id=roi.roi_id, name=roi.name, rect=roi.rect, score=0.0, method="fourier", found=False, message="Fourier context is too small")
+
+    master_context = master_context[:common_h, :common_w]
+    test_context = test_context[:common_h, :common_w]
+    window = cv2.createHanningWindow((common_w, common_h), cv2.CV_32F)
+    (dx, dy), response = cv2.phaseCorrelate(master_context, test_context, window)
+
+    nx = int(round(tx + dx))
+    ny = int(round(ty + dy))
+    nx = max(0, min(test_gray.shape[1] - tw, nx))
+    ny = max(0, min(test_gray.shape[0] - th, ny))
+    shift = float(np.hypot(dx, dy))
+    found = bool(np.isfinite(response))
+    if roi.search.geometry.enabled and shift > roi.search.geometry.max_shift_px:
+        found = False
+
+    return LocatedRoi(
+        roi_id=roi.roi_id,
+        name=roi.name,
+        rect=_norm_rect(nx, ny, tw, th, test_gray.shape),
+        score=float(response if np.isfinite(response) else 0.0),
+        method="fourier",
+        found=found,
+        message=(
+            f"Phase correlation shift=({dx:.1f},{dy:.1f})px"
+            if found
+            else f"Phase correlation rejected by geometry constraint; shift={shift:.1f}px"
+        ),
+    )
+
+
+def locate_roi(roi: MasterRoi, master_image: np.ndarray, test_image: np.ndarray) -> LocatedRoi:
+    if roi.search.method == "manual":
+        return locate_manual(roi, test_image)
+    if roi.search.method == "blur_template":
+        return locate_blur_template(roi, master_image, test_image)
+    if roi.search.method == "fourier":
+        return locate_fourier(roi, master_image, test_image)
+    raise ValueError(f"Unknown ROI search method: {roi.search.method}")
+
+
+def locate_all(rois: list[MasterRoi], master_image: np.ndarray, test_image: np.ndarray) -> list[LocatedRoi]:
+    return [locate_roi(roi, master_image, test_image) for roi in rois if roi.enabled]

@@ -15,6 +15,11 @@ Frontend / Desktop
 │                                  BaseNode / NODE_REGISTRY
 │                                  LogicObject / LogicPoolManager
 │
+├─ Computer Vision Program ──────────────────┐
+│    I/O / Master Sample / Stations            ▼
+│                                      Vision Program Runtime
+│                                      LabServiceRuntime calls
+│
 ├─ Vision LAB Hub
 │    ├─ Image Processing LAB ────────────────┐
 │    │                                       ▼
@@ -46,8 +51,9 @@ Frontend / Desktop
    Legacy automation uses `BaseNode`; Image Processing uses `ImageOperator`.
 2. **Image Processing LAB is raster-centric.** Operators should not know master/query, inspection spec, station OK/NG, or alignment semantics.
 3. **Lab Service is the reusable callable boundary.** A service is a versioned LAB pipeline snapshot with typed inputs and named outputs.
-4. **Interactive LAB sessions and deployed services are different lifecycles.** Interactive sessions optimize editing/tuning; deployed services optimize stable invocation.
-5. **Future cross-LAB composition should use explicit typed contracts/adapters**, not implicit imports between specialized internals.
+4. **Computer Vision is an orchestration/application layer.** It binds Modbus I/O, Master Sample/ROI station localization and deployed Lab Services; it does not own LAB algorithms.
+5. **Interactive LAB sessions and deployed services are different lifecycles.** Interactive sessions optimize editing/tuning; deployed services optimize stable invocation.
+6. **Future cross-LAB composition should use explicit typed contracts/adapters**, not implicit imports between specialized internals.
 
 ## 3. Execution flows
 
@@ -82,14 +88,35 @@ ContourExtractorLabPage
 
 ```text
 SamplingGeometryLabPage
-  → useSamplingGeometryController
-  → samplingGeometryApi
-  → /api/v1/sampling-geometry
-  → Spatial Sampling Units: Housing (WHERE) + built-in Data Extractor (WHAT/HOW)
-  → semantic Data Blocks + dedicated Data Layout Workspace
-  → or graph-heavy Spectral/Statistics analysis
-  → FFT reconstruction / Local FFT maps when spatial-frequency interpretation is needed
-  → composed typed numerical artifact
+  → useSamplingProgramController
+  → one inspected image / optional Image Processing Service
+  → GLOBAL domain: whole-image Histogram / Statistics / Rays / Cross / Rings
+  → LOCAL domain: Patch Grid → same reusable method recipe per patch
+  → placement: patch/base center or auto-arranged center grid
+  → channels: Gray/RGB/HSV/LAB → measures: profile/histogram/mean/std/min/max/median
+  → Output Formulation Workspace: final Vector or 2-D Matrix
+  → SamplingProgramRuntime.sample → cached Data Blocks
+  → SamplingProgramRuntime.formulate → Vector / 2-D Matrix Lab Service outputs
+  → FFT/frequency transforms intentionally out of current editor scope
+```
+
+### Computer Vision Program
+
+```text
+MainScreen → /computer-vision
+  → ComputerVisionPage
+  → visionAppApi
+  → /api/v1/computer-vision
+  → VisionProgramRepository
+  → IOT: Modbus trigger / OK-NG pulse
+  → Camera: Manual / Basler pypylon / generic HTTP capture + focus URL
+  → Trigger runner: rising edge → capture → inspect → pulse OK/NG
+  → Master Sample: one locator family for all ROI/stations + blur preview
+  → Global Scope: expandable Filter stack → expandable Logic stack
+  → ROI location runs on the globally filtered image (master filtered equivalently)
+  → Local station scopes: Filter → Logic; sequential or parallel
+  → future IDE/sandbox owns decision/glue/actions; legacy v2 Decision DSL remains compatible
+  → unified Debug Stack Workspace: lazy image artifacts + Logic outputs + benchmark trace
 ```
 
 ### Lab Service
@@ -116,6 +143,38 @@ Programming/Sequencer UI
 ```
 
 ## 4. Detected modules
+
+### Computer Vision Program Backend / Control Mapper / Camera / Working Pipeline
+
+Persisted Vision Programs, Modbus trigger/result, Basler/URL camera acquisition, automatic trigger runner, program-wide ROI locator, Filter→Logic→Decision scope runtime, debug image store and per-step benchmarks.
+
+- Detected files: **18**
+- Boundary: Owns production-program orchestration only. Image Processing services form sequential filter stacks; logic services are independent extractors; a restricted decision DSL produces scope OK/NG. ROI stations may run sequentially or in parallel. Future Rule/AI services can replace/extend the built-in decision frame.
+- Key files:
+  - `BE:app/services/vision_app/repository.py` — Saved Image LAB pipeline persistence.
+  - `BE:app/services/vision_app/runtime.py` — Image LAB artifact cache and pipeline runtime.
+  - `BE:app/api/v1/endpoints/vision_app_api.py` — Persisted Vision Programs, Modbus trigger/result, Basler/URL camera acquisition, automatic trigger runner, program-wide ROI locator, Filter→Logic→Decision scope runtime, debug image store and per-step benchmarks.
+  - `BE:app/services/vision_app/__init__.py` — Persisted Vision Programs, Modbus trigger/result, Basler/URL camera acquisition, automatic trigger runner, program-wide ROI locator, Filter→Logic→Decision scope runtime, debug image store and per-step benchmarks.
+  - `BE:app/services/vision_app/camera_runtime.py` — Persisted Vision Programs, Modbus trigger/result, Basler/URL camera acquisition, automatic trigger runner, program-wide ROI locator, Filter→Logic→Decision scope runtime, debug image store and per-step benchmarks.
+  - `BE:app/services/vision_app/control_runtime.py` — Persisted Vision Programs, Modbus trigger/result, Basler/URL camera acquisition, automatic trigger runner, program-wide ROI locator, Filter→Logic→Decision scope runtime, debug image store and per-step benchmarks.
+  - `BE:app/services/vision_app/debug_store.py` — Persisted Vision Programs, Modbus trigger/result, Basler/URL camera acquisition, automatic trigger runner, program-wide ROI locator, Filter→Logic→Decision scope runtime, debug image store and per-step benchmarks.
+  - `BE:app/services/vision_app/decision_runtime.py` — Persisted Vision Programs, Modbus trigger/result, Basler/URL camera acquisition, automatic trigger runner, program-wide ROI locator, Filter→Logic→Decision scope runtime, debug image store and per-step benchmarks.
+
+### Computer Vision Program UI
+
+Production Computer Vision application: Control Mapper + Modbus I/O, Camera acquisition (Basler or generic URL), program-wide Master ROI locator, Global/Station Filter→Logic orchestration, expandable scope controls, unified lazy Debug Stack Workspace and benchmarking. Decision/glue is reserved for the future IDE/sandbox.
+
+- Detected files: **11**
+- Boundary: Computer Vision is the production orchestration layer. Control Mapper maps keyboard/Modbus events to primitive actions; Global filtering precedes ROI location and station scopes. Filter uses Image Processing services and Logic extracts data. New programs reserve decision/glue for the future IDE/sandbox; legacy v2 Decision DSL remains runtime-compatible only. Debug Stack is observational and lazy-loads artifacts.
+- Key files:
+  - `FE:src/Pages/ComputerVisionPage.tsx` — Production Computer Vision application: Control Mapper + Modbus I/O, Camera acquisition (Basler or generic URL), program-wide Master ROI locator, Global/Station Filter→Logic orchestration, expandable scope controls, unified lazy Debug Stack Workspace and benchmarking. Decision/glue is reserved for the future IDE/sandbox.
+  - `FE:src/api/visionAppApi.ts` — Production Computer Vision application: Control Mapper + Modbus I/O, Camera acquisition (Basler or generic URL), program-wide Master ROI locator, Global/Station Filter→Logic orchestration, expandable scope controls, unified lazy Debug Stack Workspace and benchmarking. Decision/glue is reserved for the future IDE/sandbox.
+  - `FE:src/components/ComputerVision/CameraModulePanel.tsx` — Production Computer Vision application: Control Mapper + Modbus I/O, Camera acquisition (Basler or generic URL), program-wide Master ROI locator, Global/Station Filter→Logic orchestration, expandable scope controls, unified lazy Debug Stack Workspace and benchmarking. Decision/glue is reserved for the future IDE/sandbox.
+  - `FE:src/components/ComputerVision/ComputerVision.css` — Production Computer Vision application: Control Mapper + Modbus I/O, Camera acquisition (Basler or generic URL), program-wide Master ROI locator, Global/Station Filter→Logic orchestration, expandable scope controls, unified lazy Debug Stack Workspace and benchmarking. Decision/glue is reserved for the future IDE/sandbox.
+  - `FE:src/components/ComputerVision/DebugWorkspace.tsx` — Production Computer Vision application: Control Mapper + Modbus I/O, Camera acquisition (Basler or generic URL), program-wide Master ROI locator, Global/Station Filter→Logic orchestration, expandable scope controls, unified lazy Debug Stack Workspace and benchmarking. Decision/glue is reserved for the future IDE/sandbox.
+  - `FE:src/components/ComputerVision/IotIdePlaceholder.tsx` — Production Computer Vision application: Control Mapper + Modbus I/O, Camera acquisition (Basler or generic URL), program-wide Master ROI locator, Global/Station Filter→Logic orchestration, expandable scope controls, unified lazy Debug Stack Workspace and benchmarking. Decision/glue is reserved for the future IDE/sandbox.
+  - `FE:src/components/ComputerVision/IotModulePanel.tsx` — Production Computer Vision application: Control Mapper + Modbus I/O, Camera acquisition (Basler or generic URL), program-wide Master ROI locator, Global/Station Filter→Logic orchestration, expandable scope controls, unified lazy Debug Stack Workspace and benchmarking. Decision/glue is reserved for the future IDE/sandbox.
+  - `FE:src/components/ComputerVision/MasterSamplePanel.tsx` — Production Computer Vision application: Control Mapper + Modbus I/O, Camera acquisition (Basler or generic URL), program-wide Master ROI locator, Global/Station Filter→Logic orchestration, expandable scope controls, unified lazy Debug Stack Workspace and benchmarking. Decision/glue is reserved for the future IDE/sandbox.
 
 ### Contour Extractor LAB Backend
 
@@ -165,19 +224,19 @@ ImageFrame/BinaryMask types, ImageOperator registry, pipeline validation/compile
 
 ### Sampling LAB Backend
 
-Spatial Sampling Units and spectral/statistical runtime, typed Data Blocks/composed data, grid-centered housings, real channel previews, FFT reconstruction/local-frequency maps, visualization serialization, and Sampling REST API. Legacy geometry operators remain for old service snapshots.
+SamplingProgram v2 runtime with explicit Sample → cached Data Blocks → Formulate separation. Global whole-image and Local patch-grid methods produce semantic blocks; formulation rearranges cached blocks into a Vector or 2-D Matrix without re-sampling. Representation LAB owns future tensor-depth/channel stacking. Legacy v0.1-v0.5 runtimes remain for deployed snapshots.
 
-- Detected files: **18**
-- Boundary: Feature-extraction backbone. Spatial owns independent sampling units and local data composition; Spectral/Statistics owns interpretable statistical/frequency representations. It does not own contour selection, OK/NG, or model training semantics.
+- Detected files: **20**
+- Boundary: Feature-extraction backbone. The new domain model is Image → Global/Local domain → placement/sampling shape → channels → measures → composed numerical shape. It does not own contour selection, frequency-domain transforms, OK/NG, or model training semantics.
 - Key files:
   - `BE:app/services/vision_labs/sampling_geometry/pipeline.py` — Image LAB pipeline schema, validation, compilation, and graph contracts.
   - `BE:app/services/vision_labs/sampling_geometry/repository.py` — Saved Image LAB pipeline persistence.
   - `BE:app/services/vision_labs/sampling_geometry/runtime.py` — Image LAB artifact cache and pipeline runtime.
-  - `BE:app/api/v1/endpoints/sampling_geometry_api.py` — Spatial Sampling Units and spectral/statistical runtime, typed Data Blocks/composed data, grid-centered housings, real channel previews, FFT reconstruction/local-frequency maps, visualization serialization, and Sampling REST API. Legacy geometry operators remain for old service snapshots.
-  - `BE:app/services/vision_labs/sampling_geometry/__init__.py` — Spatial Sampling Units and spectral/statistical runtime, typed Data Blocks/composed data, grid-centered housings, real channel previews, FFT reconstruction/local-frequency maps, visualization serialization, and Sampling REST API. Legacy geometry operators remain for old service snapshots.
-  - `BE:app/services/vision_labs/sampling_geometry/operator.py` — Spatial Sampling Units and spectral/statistical runtime, typed Data Blocks/composed data, grid-centered housings, real channel previews, FFT reconstruction/local-frequency maps, visualization serialization, and Sampling REST API. Legacy geometry operators remain for old service snapshots.
-  - `BE:app/services/vision_labs/sampling_geometry/operators/__init__.py` — Spatial Sampling Units and spectral/statistical runtime, typed Data Blocks/composed data, grid-centered housings, real channel previews, FFT reconstruction/local-frequency maps, visualization serialization, and Sampling REST API. Legacy geometry operators remain for old service snapshots.
-  - `BE:app/services/vision_labs/sampling_geometry/operators/common.py` — Spatial Sampling Units and spectral/statistical runtime, typed Data Blocks/composed data, grid-centered housings, real channel previews, FFT reconstruction/local-frequency maps, visualization serialization, and Sampling REST API. Legacy geometry operators remain for old service snapshots.
+  - `BE:app/api/v1/endpoints/sampling_geometry_api.py` — SamplingProgram v2 runtime with explicit Sample → cached Data Blocks → Formulate separation. Global whole-image and Local patch-grid methods produce semantic blocks; formulation rearranges cached blocks into a Vector or 2-D Matrix without re-sampling. Representation LAB owns future tensor-depth/channel stacking. Legacy v0.1-v0.5 runtimes remain for deployed snapshots.
+  - `BE:app/services/vision_labs/sampling_geometry/__init__.py` — SamplingProgram v2 runtime with explicit Sample → cached Data Blocks → Formulate separation. Global whole-image and Local patch-grid methods produce semantic blocks; formulation rearranges cached blocks into a Vector or 2-D Matrix without re-sampling. Representation LAB owns future tensor-depth/channel stacking. Legacy v0.1-v0.5 runtimes remain for deployed snapshots.
+  - `BE:app/services/vision_labs/sampling_geometry/operator.py` — SamplingProgram v2 runtime with explicit Sample → cached Data Blocks → Formulate separation. Global whole-image and Local patch-grid methods produce semantic blocks; formulation rearranges cached blocks into a Vector or 2-D Matrix without re-sampling. Representation LAB owns future tensor-depth/channel stacking. Legacy v0.1-v0.5 runtimes remain for deployed snapshots.
+  - `BE:app/services/vision_labs/sampling_geometry/operators/__init__.py` — SamplingProgram v2 runtime with explicit Sample → cached Data Blocks → Formulate separation. Global whole-image and Local patch-grid methods produce semantic blocks; formulation rearranges cached blocks into a Vector or 2-D Matrix without re-sampling. Representation LAB owns future tensor-depth/channel stacking. Legacy v0.1-v0.5 runtimes remain for deployed snapshots.
+  - `BE:app/services/vision_labs/sampling_geometry/operators/common.py` — SamplingProgram v2 runtime with explicit Sample → cached Data Blocks → Formulate separation. Global whole-image and Local patch-grid methods produce semantic blocks; formulation rearranges cached blocks into a Vector or 2-D Matrix without re-sampling. Representation LAB owns future tensor-depth/channel stacking. Legacy v0.1-v0.5 runtimes remain for deployed snapshots.
 
 ### Image Processing LAB UI
 
@@ -210,19 +269,19 @@ Versioned deployable LAB snapshots, repository, generic runtime facade, run stor
 
 ### Sampling LAB UI
 
-Spatial Sampling Units (Housing + built-in Data Extractor), image-grounded teaching/inspection, semantic Data Blocks with a dedicated Layout Composer workspace, plus graph-heavy spectral/statistical analysis and local-frequency localization.
+Hierarchical Global/Local Sampling Program editor: whole-image measurements, patch-grid local recipes, spatial sampling shapes, channel/measure configuration, image-grounded teaching, and cached Output Formulation Workspace for final vectors or 2-D matrices. Tensor depth/channel stacking is delegated to Representation LAB.
 
 - Detected files: **16**
-- Boundary: Consumes raster sources directly or through Lab Services. The editor scope is Spatial + Spectral only: Spatial answers WHERE + WHAT/HOW; Spectral/Statistics represents data with graphs, FFT reconstruction and local-frequency maps. Legacy geometry runtime remains backend-compatible only for old snapshots.
+- Boundary: Consumes one inspected raster source directly or through Image Processing Lab Services. SamplingProgram v2 semantics are Global/Local sampling → semantic Data Blocks → cached formulation as Vector or 2-D Matrix; FFT/frequency transforms and tensor-depth semantics are intentionally out of editor scope. Legacy v0.1-v0.5 snapshots remain runtime-compatible.
 - Key files:
-  - `FE:src/Pages/SamplingGeometryLabPage.tsx` — Spatial Sampling Units (Housing + built-in Data Extractor), image-grounded teaching/inspection, semantic Data Blocks with a dedicated Layout Composer workspace, plus graph-heavy spectral/statistical analysis and local-frequency localization.
-  - `FE:src/api/samplingGeometryApi.ts` — Spatial Sampling Units (Housing + built-in Data Extractor), image-grounded teaching/inspection, semantic Data Blocks with a dedicated Layout Composer workspace, plus graph-heavy spectral/statistical analysis and local-frequency localization.
-  - `FE:src/components/VisionLabs/SamplingGeometry/ArtifactInspectorModal.tsx` — Spatial Sampling Units (Housing + built-in Data Extractor), image-grounded teaching/inspection, semantic Data Blocks with a dedicated Layout Composer workspace, plus graph-heavy spectral/statistical analysis and local-frequency localization.
-  - `FE:src/components/VisionLabs/SamplingGeometry/DataLayoutComposer.tsx` — Spatial Sampling Units (Housing + built-in Data Extractor), image-grounded teaching/inspection, semantic Data Blocks with a dedicated Layout Composer workspace, plus graph-heavy spectral/statistical analysis and local-frequency localization.
-  - `FE:src/components/VisionLabs/SamplingGeometry/SamplingCanvas.tsx` — Spatial Sampling Units (Housing + built-in Data Extractor), image-grounded teaching/inspection, semantic Data Blocks with a dedicated Layout Composer workspace, plus graph-heavy spectral/statistical analysis and local-frequency localization.
-  - `FE:src/components/VisionLabs/SamplingGeometry/SamplingGuideModal.tsx` — Spatial Sampling Units (Housing + built-in Data Extractor), image-grounded teaching/inspection, semantic Data Blocks with a dedicated Layout Composer workspace, plus graph-heavy spectral/statistical analysis and local-frequency localization.
-  - `FE:src/components/VisionLabs/SamplingGeometry/SamplingOperatorLibrary.tsx` — Spatial Sampling Units (Housing + built-in Data Extractor), image-grounded teaching/inspection, semantic Data Blocks with a dedicated Layout Composer workspace, plus graph-heavy spectral/statistical analysis and local-frequency localization.
-  - `FE:src/components/VisionLabs/SamplingGeometry/SamplingParameterHelpModal.tsx` — Spatial Sampling Units (Housing + built-in Data Extractor), image-grounded teaching/inspection, semantic Data Blocks with a dedicated Layout Composer workspace, plus graph-heavy spectral/statistical analysis and local-frequency localization.
+  - `FE:src/Pages/SamplingGeometryLabPage.tsx` — Hierarchical Global/Local Sampling Program editor: whole-image measurements, patch-grid local recipes, spatial sampling shapes, channel/measure configuration, image-grounded teaching, and cached Output Formulation Workspace for final vectors or 2-D matrices. Tensor depth/channel stacking is delegated to Representation LAB.
+  - `FE:src/api/samplingGeometryApi.ts` — Hierarchical Global/Local Sampling Program editor: whole-image measurements, patch-grid local recipes, spatial sampling shapes, channel/measure configuration, image-grounded teaching, and cached Output Formulation Workspace for final vectors or 2-D matrices. Tensor depth/channel stacking is delegated to Representation LAB.
+  - `FE:src/components/VisionLabs/SamplingGeometry/ArtifactInspectorModal.tsx` — Hierarchical Global/Local Sampling Program editor: whole-image measurements, patch-grid local recipes, spatial sampling shapes, channel/measure configuration, image-grounded teaching, and cached Output Formulation Workspace for final vectors or 2-D matrices. Tensor depth/channel stacking is delegated to Representation LAB.
+  - `FE:src/components/VisionLabs/SamplingGeometry/DataLayoutComposer.tsx` — Hierarchical Global/Local Sampling Program editor: whole-image measurements, patch-grid local recipes, spatial sampling shapes, channel/measure configuration, image-grounded teaching, and cached Output Formulation Workspace for final vectors or 2-D matrices. Tensor depth/channel stacking is delegated to Representation LAB.
+  - `FE:src/components/VisionLabs/SamplingGeometry/SamplingCanvas.tsx` — Hierarchical Global/Local Sampling Program editor: whole-image measurements, patch-grid local recipes, spatial sampling shapes, channel/measure configuration, image-grounded teaching, and cached Output Formulation Workspace for final vectors or 2-D matrices. Tensor depth/channel stacking is delegated to Representation LAB.
+  - `FE:src/components/VisionLabs/SamplingGeometry/SamplingGuideModal.tsx` — Hierarchical Global/Local Sampling Program editor: whole-image measurements, patch-grid local recipes, spatial sampling shapes, channel/measure configuration, image-grounded teaching, and cached Output Formulation Workspace for final vectors or 2-D matrices. Tensor depth/channel stacking is delegated to Representation LAB.
+  - `FE:src/components/VisionLabs/SamplingGeometry/SamplingOperatorLibrary.tsx` — Hierarchical Global/Local Sampling Program editor: whole-image measurements, patch-grid local recipes, spatial sampling shapes, channel/measure configuration, image-grounded teaching, and cached Output Formulation Workspace for final vectors or 2-D matrices. Tensor depth/channel stacking is delegated to Representation LAB.
+  - `FE:src/components/VisionLabs/SamplingGeometry/SamplingParameterHelpModal.tsx` — Hierarchical Global/Local Sampling Program editor: whole-image measurements, patch-grid local recipes, spatial sampling shapes, channel/measure configuration, image-grounded teaching, and cached Output Formulation Workspace for final vectors or 2-D matrices. Tensor depth/channel stacking is delegated to Representation LAB.
 
 ### Vision LAB Core Contracts
 
@@ -417,7 +476,7 @@ Rust/Tauri desktop shell and its hand-authored configuration.
 
 Regression and integration tests.
 
-- Detected files: **11**
+- Detected files: **13**
 - Key files:
   - `BE:tests/vision_labs/contour_extractor/test_contour_extractor_v0100.py` — Regression and integration tests.
   - `BE:tests/vision_labs/contour_extractor/test_contour_extractor_v0200.py` — Regression and integration tests.
@@ -440,7 +499,7 @@ Backend-side updater and maintenance scripts.
 
 Updater scripts, context generators, architectural snapshots, and LLM handoff documentation.
 
-- Detected files: **30**
+- Detected files: **46**
 - Key files:
   - `FE:docs/llm_context/README.md` — Updater scripts, context generators, architectural snapshots, and LLM handoff documentation.
   - `FE:docs/llm_context/SYSTEM_ARCHITECTURE.md` — Updater scripts, context generators, architectural snapshots, and LLM handoff documentation.
@@ -473,13 +532,14 @@ Derived from Python/TypeScript imports. Counts are import edges between source f
 
 | Source module | Depends on | Edges |
 | --- | --- | ---: |
-| Backend Tests | Image Processing LAB Backend | 22 |
-| Backend Tests | Sampling LAB Backend | 16 |
+| Backend Tests | Image Processing LAB Backend | 24 |
+| Backend Tests | Sampling LAB Backend | 21 |
 | Legacy App Builder / Sequencer Runtime | Shared Backend Utilities | 12 |
 | App Builder / Sequencer UI | Inspection UI Engine | 11 |
-| Sampling LAB Backend | Image Processing LAB Backend | 10 |
+| Sampling LAB Backend | Image Processing LAB Backend | 11 |
+| Lab Service Backend | Sampling LAB Backend | 10 |
+| Sampling LAB UI | Frontend — Unclassified Source | 8 |
 | Image Processing LAB Backend | Vision LAB Core Contracts | 7 |
-| Lab Service Backend | Sampling LAB Backend | 7 |
 | Sampling LAB Backend | Vision LAB Core Contracts | 7 |
 | App Builder / Sequencer UI | Fleet / Resource UI | 6 |
 | Lab Service Backend | Image Processing LAB Backend | 6 |
@@ -488,6 +548,8 @@ Derived from Python/TypeScript imports. Counts are import edges between source f
 | Backend Application Shell & API Router | Fleet / Device / Infrastructure Backend | 4 |
 | Backend Tests | Contour Extractor LAB Backend | 4 |
 | Contour Extractor LAB Backend | Image Processing LAB Backend | 4 |
+| Computer Vision Program UI | Lab Service Hub UI | 3 |
+| Frontend — Unclassified Source | Sampling LAB UI | 3 |
 | Inspection UI Engine | Fleet / Resource UI | 3 |
 | Project Compiler | Inspection UI Engine | 3 |
 | Backend Tests | Vision LAB Core Contracts | 3 |
@@ -500,6 +562,8 @@ Derived from Python/TypeScript imports. Counts are import edges between source f
 | Project Compiler | Fleet / Resource UI | 2 |
 | Sampling LAB UI | Lab Service Hub UI | 2 |
 | Backend Application Shell & API Router | Legacy App Builder / Sequencer Runtime | 2 |
+| Computer Vision Program Backend / Control Mapper / Camera / Working Pipeline | Image Processing LAB Backend | 2 |
+| Computer Vision Program Backend / Control Mapper / Camera / Working Pipeline | Lab Service Backend | 2 |
 | Database Backend | Backend Application Shell & API Router | 2 |
 | Fleet / Device / Infrastructure Backend | Legacy App Builder / Sequencer Runtime | 2 |
 | Fleet / Device / Infrastructure Backend | Shared Backend Utilities | 2 |
@@ -510,11 +574,13 @@ Derived from Python/TypeScript imports. Counts are import edges between source f
 | App Builder / Sequencer UI | Shared Frontend UI & Utilities | 1 |
 | App Builder / Sequencer UI | Project Compiler | 1 |
 | App Builder / Sequencer UI | Database UI | 1 |
+| Computer Vision Program UI | Frontend — Unclassified Source | 1 |
 | Contour Extractor LAB UI | Frontend — Unclassified Source | 1 |
 | Contour Extractor LAB UI | Lab Service Hub UI | 1 |
 | Contour Extractor LAB UI | Sampling LAB UI | 1 |
 | Database UI | Frontend — Unclassified Source | 1 |
 | Database UI | Fleet / Resource UI | 1 |
+| Frontend Application Shell & Routing | Computer Vision Program UI | 1 |
 | Frontend Application Shell & Routing | Contour Extractor LAB UI | 1 |
 | Frontend Application Shell & Routing | Database UI | 1 |
 | Frontend Application Shell & Routing | Fleet / Resource UI | 1 |
@@ -523,16 +589,9 @@ Derived from Python/TypeScript imports. Counts are import edges between source f
 | Frontend Application Shell & Routing | Lab Service Hub UI | 1 |
 | Frontend Application Shell & Routing | Sampling LAB UI | 1 |
 | Frontend Application Shell & Routing | Shared Frontend UI & Utilities | 1 |
+| Frontend — Unclassified Source | Lab Service Hub UI | 1 |
 | Image Processing LAB UI | Frontend — Unclassified Source | 1 |
 | Image Processing LAB UI | Lab Service Hub UI | 1 |
-| Inspection UI Engine | Project Compiler | 1 |
-| Inspection UI Engine | Database UI | 1 |
-| Lab Service Hub UI | Frontend — Unclassified Source | 1 |
-| Lab Service Hub UI | Image Processing LAB UI | 1 |
-| Project Compiler | Frontend — Unclassified Source | 1 |
-| Project Compiler | App Builder / Sequencer UI | 1 |
-| Sampling LAB UI | Frontend — Unclassified Source | 1 |
-| Backend Application Shell & API Router | Shared Backend Utilities | 1 |
 
 ## 6. Backend API routes
 
@@ -607,6 +666,7 @@ Derived from Python/TypeScript imports. Counts are import edges between source f
 | `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `GET` | `/operators` | `get_operator_catalog` |
 | `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `GET` | `/pipelines` | `list_pipelines` |
 | `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `GET` | `/pipelines/{name}` | `load_pipeline` |
+| `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `GET` | `/program/methods` | `list_sampling_program_methods` |
 | `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `GET` | `/sessions/{session_id}/artifact/{node_id}/{port}` | `get_artifact_json` |
 | `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `GET` | `/sessions/{session_id}/fft-reconstruction/{node_id}` | `fft_reconstruction` |
 | `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `GET` | `/sessions/{session_id}/preview/node/{node_id}/{port}` | `preview_artifact` |
@@ -619,10 +679,32 @@ Derived from Python/TypeScript imports. Counts are import edges between source f
 | `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `POST` | `/sessions` | `create_session` |
 | `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `POST` | `/sessions/{session_id}/input/{source_name}` | `upload_input` |
 | `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `POST` | `/sessions/{session_id}/input/{source_name}/from-lab-service` | `bind_input_from_lab_service` |
+| `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `POST` | `/sessions/{session_id}/program/formulate` | `formulate_sampling_program` |
+| `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `POST` | `/sessions/{session_id}/program/run` | `run_sampling_program` |
 | `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `POST` | `/sessions/{session_id}/run` | `run_session` |
 | `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `POST` | `/sessions/{session_id}/source-board` | `build_source_board` |
 | `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `PUT` | `/sessions/{session_id}/pipeline` | `set_session_pipeline` |
 | `BE:app/api/v1/endpoints/utils.py` | `GET` | `/health-check` | `perform_health_check` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `DELETE` | `/programs/{program_id}` | `delete_program` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `GET` | `/cameras/basler/scan` | `basler_scan` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `GET` | `/debug/{run_id}/{key}` | `debug_image` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `GET` | `/programs` | `list_programs` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `GET` | `/programs/{program_id}` | `get_program` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `GET` | `/programs/{program_id}/iot/trigger` | `read_trigger` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `GET` | `/programs/{program_id}/master` | `master_preview` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `GET` | `/programs/{program_id}/master/blur-preview` | `master_blur_preview` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `GET` | `/programs/{program_id}/runner/status` | `runner_status` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/new` | `create_program` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/camera/capture` | `camera_capture` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/camera/focus` | `camera_focus` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/iot/pulse` | `pulse_output` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/locate-rois` | `locate_rois` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/master` | `upload_master` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/runner/start` | `runner_start` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/runner/stop` | `runner_stop` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/scope-preview/{scope_id}` | `scope_preview` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/test-run` | `test_run` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `PUT` | `/programs/{program_id}` | `save_program` |
 
 ## 7. Frontend routes
 
@@ -630,6 +712,7 @@ Derived from Python/TypeScript imports. Counts are import edges between source f
 | --- | --- |
 | `FE:src/App.tsx` | `*` |
 | `FE:src/App.tsx` | `/` |
+| `FE:src/App.tsx` | `/computer-vision` |
 | `FE:src/App.tsx` | `/data` |
 | `FE:src/App.tsx` | `/fleet` |
 | `FE:src/App.tsx` | `/fleet/:worker_id/devices` |

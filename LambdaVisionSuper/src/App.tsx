@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, useParams } from 'react-router-dom';
 // Import các trang chính
 import { MainScreen } from './Pages/MainScreen';
+import { ComputerVisionPage } from './Pages/ComputerVisionPage';
 import { FleetDashboard } from './Pages/FleetDashboard';
 import { ProgrammingTab } from './Pages/ProgrammingPage';
 import { InspectionPage } from './Pages/InspectionPage';
@@ -42,6 +43,7 @@ function App() {
 
         {/* --- CÁC LUỒNG KHÁC --- */}
         <Route path="/inspection" element={<InspectionPage />} />
+        <Route path="/computer-vision" element={<ComputerVisionPage />} />
         <Route path="/labs" element={<LabView />} />
         <Route path="/labs/image-processing" element={<ImageProcessingLabPage />} />
         <Route path="/labs/sampling-geometry" element={<SamplingGeometryLabPage />} />
