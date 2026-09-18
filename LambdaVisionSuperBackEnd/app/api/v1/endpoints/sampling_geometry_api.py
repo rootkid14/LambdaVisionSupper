@@ -26,6 +26,7 @@ from app.services.vision_labs.sampling_geometry.repository import (
     SamplingPipelineRepository,
 )
 from app.services.vision_labs.sampling_geometry.serialization import artifact_to_json
+from app.services.vision_labs.sampling_geometry.source_board import resolve_source_board
 from app.services.vision_labs.sampling_geometry.session import (
     SamplingGeometrySessionManager,
 )
@@ -156,6 +157,96 @@ def close_session(session_id: str):
     if not closed:
         raise HTTPException(status_code=404, detail=f"Unknown session: {session_id}")
     return {"success": True}
+
+
+@router.post(
+    "/sessions/{session_id}/source-board",
+    summary="Build the shared Sampling / Geometry Source Board from one raw image",
+)
+async def build_source_board(
+    session_id: str,
+    request: Request,
+    image_service_id: str | None = None,
+    image_output_name: str | None = None,
+    image_version: int | None = None,
+    geometry_service_id: str | None = None,
+    geometry_output_name: str | None = None,
+    geometry_version: int | None = None,
+    canny_low: float = Query(80.0, ge=0.0, le=255.0),
+    canny_high: float = Query(160.0, ge=0.0, le=255.0),
+    blur_kernel: int = Query(3, ge=1, le=31),
+    enable_geometry: bool = Query(False),
+):
+    try:
+        raw = await request.body()
+        frame = _decode_image(raw, source_id="raw_image")
+        config = {
+            "image_service": {
+                "service_id": image_service_id or "",
+                "version": image_version,
+                "output_name": image_output_name or "",
+            },
+            "geometry_service": {
+                "service_id": geometry_service_id or "",
+                "version": geometry_version,
+                "output_name": geometry_output_name or "",
+            },
+            "canny_low": canny_low,
+            "canny_high": canny_high,
+            "blur_kernel": blur_kernel,
+            "enable_geometry": bool(enable_geometry),
+        }
+        resolved = resolve_source_board(
+            frame,
+            config,
+            load_service=lambda service_id, version: LAB_SERVICE_REPOSITORY.get(
+                service_id,
+                version=version,
+            ),
+            run_service=LAB_SERVICE_RUNTIME.run,
+        )
+        session = session_manager.get(session_id)
+        session.set_source_board(resolved.sources, resolved.manifest)
+        return {
+            "success": True,
+            "session_id": session_id,
+            "revision": session.revision,
+            "source_board": resolved.manifest,
+        }
+    except Exception as exc:
+        raise _http_error(exc)
+
+
+@router.get(
+    "/sessions/{session_id}/source-board",
+    summary="Read shared Sampling / Geometry Source Board manifest",
+)
+def get_source_board(session_id: str):
+    try:
+        session = session_manager.get(session_id)
+        return {
+            "success": True,
+            "revision": session.revision,
+            "source_board": session.source_board_manifest,
+        }
+    except Exception as exc:
+        raise _http_error(exc)
+
+
+@router.get(
+    "/sessions/{session_id}/source-board/{source_name}/artifact",
+    summary="Inspect a typed Source Board artifact as JSON",
+)
+def get_source_board_artifact(session_id: str, source_name: str):
+    try:
+        value = session_manager.get(session_id).get_source(source_name)
+        return {
+            "success": True,
+            "source_name": source_name,
+            "artifact": artifact_to_json(value),
+        }
+    except Exception as exc:
+        raise _http_error(exc)
 
 
 @router.post("/sessions/{session_id}/input/{source_name}", summary="Upload Sampling / Geometry source")
@@ -330,6 +421,119 @@ def preview_artifact(
             artifact.value,
             max_width=max_width,
             quality=quality,
+        )
+        return Response(content=payload, media_type=mime)
+    except Exception as exc:
+        raise _http_error(exc)
+
+@router.get("/sessions/{session_id}/fft-reconstruction/{node_id}")
+def fft_reconstruction(
+    session_id: str,
+    node_id: str,
+    mode: str = Query("radial", regex="^(radial|angular|single)$"),
+    center: float = Query(0.25, ge=0.0, le=1.0),
+    width: float = Query(0.08, ge=0.001, le=1.0),
+    angle_deg: float = Query(0.0, ge=0.0, le=180.0),
+    angle_width_deg: float = Query(10.0, ge=0.5, le=90.0),
+    fx: float = Query(0.0, ge=-1.0, le=1.0),
+    fy: float = Query(0.0, ge=-1.0, le=1.0),
+):
+    """Educational inverse-FFT view for selected frequencies/bands.
+
+    Global FFT answers WHAT frequencies exist, not WHERE a localized defect is.
+    This endpoint reconstructs the image contribution of a selected radial band,
+    orientation sector, or one conjugate frequency pair.
+    """
+    try:
+        session = session_manager.get(session_id)
+        definition = session.pipeline_definition
+        if definition is None:
+            raise RuntimeError("No Sampling pipeline configured")
+        node = next((item for item in definition.nodes if item.id == node_id), None)
+        if node is None or node.operator_id != "sampling.spectral.fft2d":
+            raise ValueError("FFT reconstruction requires a 2D Fourier Spectrum node")
+        source_name = None
+        for alias, endpoint in definition.inputs.items():
+            if endpoint.node_id == node_id and endpoint.port == "image":
+                source_name = (definition.input_sources or {}).get(alias, alias)
+                break
+        if not source_name:
+            raise ValueError("FFT node image input must be bound to a Source Board image")
+        frame = session.get_source(source_name)
+        from app.services.vision_labs.sampling_geometry.operators.common import image_channel
+        params = dict(node.parameters or {})
+        channel = params.get("channel", "gray")
+        image = image_channel(frame, channel).astype(np.float32)
+        h, w = image.shape[:2]
+        if bool(params.get("remove_mean", True)):
+            image = image - float(image.mean())
+        if params.get("window", "hann") == "hann":
+            image = image * np.outer(np.hanning(h), np.hanning(w)).astype(np.float32)
+        spectrum = np.fft.fftshift(np.fft.fft2(image))
+        yy, xx = np.indices((h, w), dtype=np.float64)
+        cx = (w - 1) / 2.0; cy = (h - 1) / 2.0
+        dx = xx - cx; dy = yy - cy
+        radius = np.sqrt(dx*dx + dy*dy); radius /= max(1e-9, float(radius.max()))
+        angle = np.mod(np.arctan2(dy, dx), np.pi)
+        mask = np.zeros((h,w), dtype=bool)
+        if mode == "radial":
+            half = float(width) * 0.5
+            mask = (radius >= max(0.0, center-half)) & (radius <= min(1.0, center+half))
+        elif mode == "angular":
+            target = np.deg2rad(float(angle_deg))
+            half = np.deg2rad(float(angle_width_deg)) * 0.5
+            delta = np.abs(np.angle(np.exp(1j*(angle-target))))
+            delta = np.minimum(delta, np.abs(np.pi-delta))
+            mask = delta <= half
+        else:
+            px = int(round(cx + float(fx) * cx)); py = int(round(cy + float(fy) * cy))
+            px = int(np.clip(px, 0, w-1)); py = int(np.clip(py, 0, h-1))
+            sx = int(round(2*cx-px)); sy = int(round(2*cy-py))
+            sx = int(np.clip(sx, 0, w-1)); sy = int(np.clip(sy, 0, h-1))
+            mask[py,px] = True; mask[sy,sx] = True
+        filtered = np.zeros_like(spectrum)
+        filtered[mask] = spectrum[mask]
+        reconstruction = np.real(np.fft.ifft2(np.fft.ifftshift(filtered))).astype(np.float32)
+        lo, hi = float(reconstruction.min()), float(reconstruction.max())
+        normalized = np.zeros_like(reconstruction, dtype=np.uint8) if hi <= lo + 1e-12 else np.clip((reconstruction-lo)/(hi-lo)*255.0,0,255).astype(np.uint8)
+        frame_out = ImageFrame(normalized, color_space=ColorSpace.GRAY, source_id="fft_reconstruction")
+        payload, mime = SamplingPreviewEncoder.encode(frame_out, max_width=1800, quality=92)
+        return Response(content=payload, media_type=mime)
+    except Exception as exc:
+        raise _http_error(exc)
+
+
+@router.get("/sessions/{session_id}/source-board/{source_name}/channel-preview")
+def channel_preview(
+    session_id: str,
+    source_name: str,
+    channel: str = Query("gray"),
+    max_width: int = Query(1200, ge=64, le=4096),
+):
+    """Render an actual channel from the inspected image for teaching/tuning.
+
+    HSV/LAB channels are normalized for display only; numeric extraction still
+    uses their native OpenCV value range in Data Extractor.
+    """
+    try:
+        from app.services.vision_labs.sampling_geometry.operators.common import image_channel
+        value = session_manager.get(session_id).get_source(source_name)
+        if not isinstance(value, ImageFrame):
+            raise TypeError("Channel preview requires an Image source")
+        array = image_channel(value, channel).astype(np.float32)
+        finite = np.isfinite(array)
+        if not finite.any():
+            display = np.zeros(array.shape, dtype=np.uint8)
+        else:
+            lo = float(array[finite].min()); hi = float(array[finite].max())
+            if hi <= lo + 1e-9:
+                display = np.zeros(array.shape, dtype=np.uint8)
+            else:
+                display = np.clip((array - lo) / (hi - lo) * 255.0, 0, 255).astype(np.uint8)
+        payload, mime = SamplingPreviewEncoder.encode(
+            ImageFrame(display, color_space=ColorSpace.GRAY, source_id=f"channel:{channel}"),
+            max_width=max_width,
+            quality=95,
         )
         return Response(content=payload, media_type=mime)
     except Exception as exc:

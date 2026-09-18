@@ -9,12 +9,15 @@ from app.services.vision_labs.image.session import PreviewEncoder
 from app.services.vision_labs.image.types import ColorSpace, ImageFrame
 from app.services.vision_labs.sampling_geometry.types import (
     ContourSet,
+    DataBlockSet,
+    ComposedData,
     FeatureMatrix,
     FeatureVector,
     Histogram1D,
     MeasurementTable,
     Polyline,
     ProfileSet,
+    SamplingHousing,
     Spectrum2D,
 )
 
@@ -154,6 +157,34 @@ def _render_geometry(value: Any) -> ImageFrame:
     return ImageFrame(_canvas(), color_space=ColorSpace.BGR)
 
 
+
+def _render_housing(value: SamplingHousing) -> ImageFrame:
+    canvas = _canvas()
+    h, w = value.source_shape
+    sx = 1000.0 / max(1, w)
+    sy = 620.0 / max(1, h)
+    offset_x, offset_y = 100, 50
+    for element in value.elements:
+        kind = element.get("kind")
+        if kind == "ray":
+            start, end = element["start"], element["end"]
+            p0 = (int(offset_x + start[0] * w * sx), int(offset_y + start[1] * h * sy))
+            p1 = (int(offset_x + end[0] * w * sx), int(offset_y + end[1] * h * sy))
+            cv2.line(canvas, p0, p1, (246, 180, 138), 2, cv2.LINE_AA)
+        elif kind == "ring":
+            center = element["center"]
+            radius = float(element["radius"]) * min(w, h)
+            center_px = (int(offset_x + center[0] * w * sx), int(offset_y + center[1] * h * sy))
+            cv2.circle(canvas, center_px, int(radius * min(sx, sy)), (246, 180, 138), 2, cv2.LINE_AA)
+        elif kind == "box":
+            x0, y0, x1, y1 = element["box"]
+            p0 = (int(offset_x + x0 * w * sx), int(offset_y + y0 * h * sy))
+            p1 = (int(offset_x + x1 * w * sx), int(offset_y + y1 * h * sy))
+            cv2.rectangle(canvas, p0, p1, (246, 180, 138), 1, cv2.LINE_AA)
+    cv2.putText(canvas, f"SamplingHousing {value.kind} · {len(value.elements)} elements", (100, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (232,234,237), 1, cv2.LINE_AA)
+    return ImageFrame(canvas, color_space=ColorSpace.BGR)
+
+
 def _render_table(value: MeasurementTable) -> ImageFrame:
     canvas = _canvas()
     y = 40
@@ -164,6 +195,39 @@ def _render_table(value: MeasurementTable) -> ImageFrame:
         cv2.putText(canvas, text[:150], (30, y), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (189, 193, 198), 1, cv2.LINE_AA)
         y += 26
     return ImageFrame(canvas, color_space=ColorSpace.BGR)
+
+
+
+
+def _render_blocks(value: DataBlockSet) -> ImageFrame:
+    canvas = _canvas()
+    x, y = 40, 70
+    cv2.putText(canvas, f"Data Blocks · {len(value.blocks)}", (40, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (232,234,237), 2, cv2.LINE_AA)
+    palette = [(246,180,138),(129,201,149),(253,214,99),(174,203,250),(242,139,130)]
+    for index, block in enumerate(value.blocks[:40]):
+        width = min(360, max(130, 110 + int(np.prod(block.shape)) // 3))
+        if x + width > 1150:
+            x = 40; y += 88
+        color = palette[index % len(palette)]
+        cv2.rectangle(canvas, (x,y), (x+width,y+58), color, 2)
+        cv2.putText(canvas, block.label[:34], (x+8,y+20), cv2.FONT_HERSHEY_SIMPLEX, 0.42, color, 1, cv2.LINE_AA)
+        cv2.putText(canvas, f"shape={list(block.shape)} · {block.kind}", (x+8,y+43), cv2.FONT_HERSHEY_SIMPLEX, 0.34, (190,190,190), 1, cv2.LINE_AA)
+        x += width + 12
+        if y > 620: break
+    return ImageFrame(canvas, color_space=ColorSpace.BGR)
+
+
+def _render_composed(value: ComposedData) -> ImageFrame:
+    array = np.asarray(value.values, dtype=np.float32)
+    if array.ndim == 1:
+        vector = FeatureVector(array, [str(i) for i in range(len(array))])
+        frame = _render_vector(vector)
+        cv2.putText(frame.data, f"layout={value.layout} shape={list(array.shape)}", (55, 52), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (190,190,190), 1, cv2.LINE_AA)
+        return frame
+    matrix = array.reshape(array.shape[0], -1)
+    frame = _render_matrix(FeatureMatrix(matrix, [str(i) for i in range(matrix.shape[1])]))
+    cv2.putText(frame.data, f"layout={value.layout} shape={list(array.shape)}", (100, 55), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (190,190,190), 1, cv2.LINE_AA)
+    return frame
 
 
 class SamplingPreviewEncoder:
@@ -190,12 +254,18 @@ class SamplingPreviewEncoder:
             frame = _plot_series(value.series, value.labels)
         elif isinstance(value, Histogram1D):
             frame = _plot_series(value.values, [value.channel])
+        elif isinstance(value, DataBlockSet):
+            frame = _render_blocks(value)
+        elif isinstance(value, ComposedData):
+            frame = _render_composed(value)
         elif isinstance(value, FeatureVector):
             frame = _render_vector(value)
         elif isinstance(value, FeatureMatrix):
             frame = _render_matrix(value)
         elif isinstance(value, (ContourSet, Polyline)):
             frame = _render_geometry(value)
+        elif isinstance(value, SamplingHousing):
+            frame = _render_housing(value)
         elif isinstance(value, MeasurementTable):
             frame = _render_table(value)
         else:

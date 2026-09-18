@@ -25,6 +25,7 @@ class SamplingOperatorDefinition:
             "category": self.category,
             "workspace": self.workspace,
             "description": self.description,
+            "catalog_visible": bool(getattr(cls, "CATALOG_VISIBLE", True)),
             "inputs": {
                 name: spec.to_manifest()
                 for name, spec in cls.INPUTS.items()
@@ -106,8 +107,14 @@ class SamplingOperatorRegistry:
             key=lambda item: (item.workspace, item.category, item.label),
         )
 
-    def manifests(self, workspace: str | None = None) -> list[dict[str, Any]]:
-        return [definition.to_manifest() for definition in self.list(workspace)]
+    def manifests(self, workspace: str | None = None, *, include_hidden: bool = False) -> list[dict[str, Any]]:
+        definitions = self.list(workspace)
+        if not include_hidden:
+            definitions = [
+                definition for definition in definitions
+                if getattr(definition.operator_class, "CATALOG_VISIBLE", True)
+            ]
+        return [definition.to_manifest() for definition in definitions]
 
 
 SAMPLING_OPERATOR_REGISTRY = SamplingOperatorRegistry()

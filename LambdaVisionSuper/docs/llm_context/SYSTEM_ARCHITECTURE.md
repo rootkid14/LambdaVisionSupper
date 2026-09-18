@@ -4,7 +4,7 @@
 
 ## 1. High-level architecture
 
-Lambda Vision currently contains two important execution families plus supporting domains:
+Lambda Vision contains a legacy automation runtime plus specialized Vision LAB execution domains:
 
 ```text
 Frontend / Desktop
@@ -21,10 +21,15 @@ Frontend / Desktop
 │    │                              Image LAB Session/Runtime
 │    │                              ImageOperator Registry
 │    │
-│    ├─ Sampling / Geometry LAB ─────────────┐
+│    ├─ Contour Extractor LAB ──────────────┐
+│    │                                       ▼
+│    │                              ContourStore / filter funnel
+│    │                              meaningful ContourSet
+│    │
+│    ├─ Sampling LAB ───────────────────────┐
 │    │                                       ▼
 │    │                              SamplingGeometryRuntime
-│    │                              Geometry / Spatial / Spectral
+│    │                              Spatial Units / Spectral
 │    │
 │    └─ Lab Services ────────────────────────┐
 │                                            ▼
@@ -59,17 +64,32 @@ ImageProcessingLabPage
   → raster operators
 ```
 
-### Sampling / Geometry LAB
+### Contour Extractor LAB
+
+```text
+ContourExtractorLabPage
+  → contourExtractorApi
+  → /api/v1/contour-extractor
+  → candidate generation
+  → DEFAULT BASE MEMORY FILTER (reject coordinates before store)
+  → ContourStore (single geometry copy + stable contour IDs)
+  → registered discovery stages (metric/region/shape/Fourier/master)
+  → lazy metrics + selected geometry inspection
+  → meaningful ContourSet
+```
+
+### Sampling LAB
 
 ```text
 SamplingGeometryLabPage
   → useSamplingGeometryController
   → samplingGeometryApi
   → /api/v1/sampling-geometry
-  → SamplingGeometrySession
-  → SamplingGeometryRuntime
-  → workspace operator registry
-  → geometry / profiles / features / spectra
+  → Spatial Sampling Units: Housing (WHERE) + built-in Data Extractor (WHAT/HOW)
+  → semantic Data Blocks + dedicated Data Layout Workspace
+  → or graph-heavy Spectral/Statistics analysis
+  → FFT reconstruction / Local FFT maps when spatial-frequency interpretation is needed
+  → composed typed numerical artifact
 ```
 
 ### Lab Service
@@ -97,6 +117,36 @@ Programming/Sequencer UI
 
 ## 4. Detected modules
 
+### Contour Extractor LAB Backend
+
+Early-filtered contour candidate runtime with single-copy ContourStore, ID-only stage selections, extensible contour-stage registry, Fourier descriptors/reconstruction, lazy geometry access, sessions, and REST API.
+
+- Detected files: **8**
+- Boundary: Contour geometry is stored once; the mandatory memory gate discards junk coordinates before the store, while registered filter/shape stages retain contour IDs rather than cloning geometry.
+- Key files:
+  - `BE:app/services/vision_labs/contour_extractor/runtime.py` — Image LAB artifact cache and pipeline runtime.
+  - `BE:app/api/v1/endpoints/contour_extractor_api.py` — Early-filtered contour candidate runtime with single-copy ContourStore, ID-only stage selections, extensible contour-stage registry, Fourier descriptors/reconstruction, lazy geometry access, sessions, and REST API.
+  - `BE:app/services/vision_labs/contour_extractor/__init__.py` — Early-filtered contour candidate runtime with single-copy ContourStore, ID-only stage selections, extensible contour-stage registry, Fourier descriptors/reconstruction, lazy geometry access, sessions, and REST API.
+  - `BE:app/services/vision_labs/contour_extractor/fourier.py` — Early-filtered contour candidate runtime with single-copy ContourStore, ID-only stage selections, extensible contour-stage registry, Fourier descriptors/reconstruction, lazy geometry access, sessions, and REST API.
+  - `BE:app/services/vision_labs/contour_extractor/models.py` — Lab Service typed deploy/run contracts.
+  - `BE:app/services/vision_labs/contour_extractor/session.py` — Interactive Image LAB session, preview, realtime and session management.
+  - `BE:app/services/vision_labs/contour_extractor/stage_registry.py` — Early-filtered contour candidate runtime with single-copy ContourStore, ID-only stage selections, extensible contour-stage registry, Fourier descriptors/reconstruction, lazy geometry access, sessions, and REST API.
+  - `BE:app/services/vision_labs/contour_extractor/store.py` — Early-filtered contour candidate runtime with single-copy ContourStore, ID-only stage selections, extensible contour-stage registry, Fourier descriptors/reconstruction, lazy geometry access, sessions, and REST API.
+
+### Contour Extractor LAB UI
+
+Contour discovery workbench: mandatory early memory gate, single-copy ContourStore, extensible registered filter/shape stages, lazy geometry inspection, Fourier/master-shape analysis, and Contour Extractor service deployment.
+
+- Detected files: **6**
+- Boundary: Owns contour discovery/selection. Cheap memory gates run before retained geometry; advanced registered stages (including Fourier/master-shape primitives) operate on stable contour IDs and produce meaningful ContourSets rather than arbitrary measurements.
+- Key files:
+  - `FE:src/Pages/ContourExtractorGuideModal.tsx` — Contour discovery workbench: mandatory early memory gate, single-copy ContourStore, extensible registered filter/shape stages, lazy geometry inspection, Fourier/master-shape analysis, and Contour Extractor service deployment.
+  - `FE:src/Pages/ContourExtractorLabPage.tsx` — Contour discovery workbench: mandatory early memory gate, single-copy ContourStore, extensible registered filter/shape stages, lazy geometry inspection, Fourier/master-shape analysis, and Contour Extractor service deployment.
+  - `FE:src/Pages/ContourFourierInspector.tsx` — Contour discovery workbench: mandatory early memory gate, single-copy ContourStore, extensible registered filter/shape stages, lazy geometry inspection, Fourier/master-shape analysis, and Contour Extractor service deployment.
+  - `FE:src/Pages/ContourStageGuideModal.tsx` — Contour discovery workbench: mandatory early memory gate, single-copy ContourStore, extensible registered filter/shape stages, lazy geometry inspection, Fourier/master-shape analysis, and Contour Extractor service deployment.
+  - `FE:src/Pages/ContourStageLibrary.tsx` — Contour discovery workbench: mandatory early memory gate, single-copy ContourStore, extensible registered filter/shape stages, lazy geometry inspection, Fourier/master-shape analysis, and Contour Extractor service deployment.
+  - `FE:src/api/contourExtractorApi.ts` — Contour discovery workbench: mandatory early memory gate, single-copy ContourStore, extensible registered filter/shape stages, lazy geometry inspection, Fourier/master-shape analysis, and Contour Extractor service deployment.
+
 ### Image Processing LAB Backend
 
 ImageFrame/BinaryMask types, ImageOperator registry, pipeline validation/compiler, runtime artifact cache, sessions, operators, repository, and Image LAB REST/WebSocket API.
@@ -113,21 +163,21 @@ ImageFrame/BinaryMask types, ImageOperator registry, pipeline validation/compile
   - `BE:app/services/vision_labs/image/operators/__init__.py` — ImageFrame/BinaryMask types, ImageOperator registry, pipeline validation/compiler, runtime artifact cache, sessions, operators, repository, and Image LAB REST/WebSocket API.
   - `BE:app/services/vision_labs/image/operators/advanced_families.py` — ImageFrame/BinaryMask types, ImageOperator registry, pipeline validation/compiler, runtime artifact cache, sessions, operators, repository, and Image LAB REST/WebSocket API.
 
-### Sampling / Geometry LAB Backend
+### Sampling LAB Backend
 
-Typed geometry/signal/feature artifacts, three-workspace operator registry, pipeline/runtime/session, visualization serialization, and Sampling / Geometry REST API.
+Spatial Sampling Units and spectral/statistical runtime, typed Data Blocks/composed data, grid-centered housings, real channel previews, FFT reconstruction/local-frequency maps, visualization serialization, and Sampling REST API. Legacy geometry operators remain for old service snapshots.
 
-- Detected files: **17**
-- Boundary: Feature-extraction backbone. It does not decide OK/NG and does not own model representation/training semantics.
+- Detected files: **18**
+- Boundary: Feature-extraction backbone. Spatial owns independent sampling units and local data composition; Spectral/Statistics owns interpretable statistical/frequency representations. It does not own contour selection, OK/NG, or model training semantics.
 - Key files:
   - `BE:app/services/vision_labs/sampling_geometry/pipeline.py` — Image LAB pipeline schema, validation, compilation, and graph contracts.
   - `BE:app/services/vision_labs/sampling_geometry/repository.py` — Saved Image LAB pipeline persistence.
   - `BE:app/services/vision_labs/sampling_geometry/runtime.py` — Image LAB artifact cache and pipeline runtime.
-  - `BE:app/api/v1/endpoints/sampling_geometry_api.py` — Typed geometry/signal/feature artifacts, three-workspace operator registry, pipeline/runtime/session, visualization serialization, and Sampling / Geometry REST API.
-  - `BE:app/services/vision_labs/sampling_geometry/__init__.py` — Typed geometry/signal/feature artifacts, three-workspace operator registry, pipeline/runtime/session, visualization serialization, and Sampling / Geometry REST API.
-  - `BE:app/services/vision_labs/sampling_geometry/operator.py` — Typed geometry/signal/feature artifacts, three-workspace operator registry, pipeline/runtime/session, visualization serialization, and Sampling / Geometry REST API.
-  - `BE:app/services/vision_labs/sampling_geometry/operators/__init__.py` — Typed geometry/signal/feature artifacts, three-workspace operator registry, pipeline/runtime/session, visualization serialization, and Sampling / Geometry REST API.
-  - `BE:app/services/vision_labs/sampling_geometry/operators/common.py` — Typed geometry/signal/feature artifacts, three-workspace operator registry, pipeline/runtime/session, visualization serialization, and Sampling / Geometry REST API.
+  - `BE:app/api/v1/endpoints/sampling_geometry_api.py` — Spatial Sampling Units and spectral/statistical runtime, typed Data Blocks/composed data, grid-centered housings, real channel previews, FFT reconstruction/local-frequency maps, visualization serialization, and Sampling REST API. Legacy geometry operators remain for old service snapshots.
+  - `BE:app/services/vision_labs/sampling_geometry/__init__.py` — Spatial Sampling Units and spectral/statistical runtime, typed Data Blocks/composed data, grid-centered housings, real channel previews, FFT reconstruction/local-frequency maps, visualization serialization, and Sampling REST API. Legacy geometry operators remain for old service snapshots.
+  - `BE:app/services/vision_labs/sampling_geometry/operator.py` — Spatial Sampling Units and spectral/statistical runtime, typed Data Blocks/composed data, grid-centered housings, real channel previews, FFT reconstruction/local-frequency maps, visualization serialization, and Sampling REST API. Legacy geometry operators remain for old service snapshots.
+  - `BE:app/services/vision_labs/sampling_geometry/operators/__init__.py` — Spatial Sampling Units and spectral/statistical runtime, typed Data Blocks/composed data, grid-centered housings, real channel previews, FFT reconstruction/local-frequency maps, visualization serialization, and Sampling REST API. Legacy geometry operators remain for old service snapshots.
+  - `BE:app/services/vision_labs/sampling_geometry/operators/common.py` — Spatial Sampling Units and spectral/statistical runtime, typed Data Blocks/composed data, grid-centered housings, real channel previews, FFT reconstruction/local-frequency maps, visualization serialization, and Sampling REST API. Legacy geometry operators remain for old service snapshots.
 
 ### Image Processing LAB UI
 
@@ -158,21 +208,21 @@ Versioned deployable LAB snapshots, repository, generic runtime facade, run stor
   - `BE:app/services/vision_labs/service/__init__.py` — Versioned deployable LAB snapshots, repository, generic runtime facade, run store, pruning, and Lab Service REST API.
   - `BE:app/services/vision_labs/service/models.py` — Lab Service typed deploy/run contracts.
 
-### Sampling / Geometry LAB UI
+### Sampling LAB UI
 
-Three specialized workspaces for geometry, spatial sampling, and spectral/statistical feature extraction.
+Spatial Sampling Units (Housing + built-in Data Extractor), image-grounded teaching/inspection, semantic Data Blocks with a dedicated Layout Composer workspace, plus graph-heavy spectral/statistical analysis and local-frequency localization.
 
-- Detected files: **9**
-- Boundary: Consumes raster sources directly or through Lab Services and can deploy typed sampling_geometry services.
+- Detected files: **16**
+- Boundary: Consumes raster sources directly or through Lab Services. The editor scope is Spatial + Spectral only: Spatial answers WHERE + WHAT/HOW; Spectral/Statistics represents data with graphs, FFT reconstruction and local-frequency maps. Legacy geometry runtime remains backend-compatible only for old snapshots.
 - Key files:
-  - `FE:src/Pages/SamplingGeometryLabPage.tsx` — Three specialized workspaces for geometry, spatial sampling, and spectral/statistical feature extraction.
-  - `FE:src/api/samplingGeometryApi.ts` — Three specialized workspaces for geometry, spatial sampling, and spectral/statistical feature extraction.
-  - `FE:src/components/VisionLabs/SamplingGeometry/SamplingGuideModal.tsx` — Three specialized workspaces for geometry, spatial sampling, and spectral/statistical feature extraction.
-  - `FE:src/components/VisionLabs/SamplingGeometry/SamplingOperatorLibrary.tsx` — Three specialized workspaces for geometry, spatial sampling, and spectral/statistical feature extraction.
-  - `FE:src/components/VisionLabs/SamplingGeometry/SamplingStack.tsx` — Three specialized workspaces for geometry, spatial sampling, and spectral/statistical feature extraction.
-  - `FE:src/components/VisionLabs/SamplingGeometry/SamplingVisuals.tsx` — Three specialized workspaces for geometry, spatial sampling, and spectral/statistical feature extraction.
-  - `FE:src/components/VisionLabs/SamplingGeometry/SamplingWorkbench.tsx` — Three specialized workspaces for geometry, spatial sampling, and spectral/statistical feature extraction.
-  - `FE:src/components/VisionLabs/SamplingGeometry/types.ts` — Three specialized workspaces for geometry, spatial sampling, and spectral/statistical feature extraction.
+  - `FE:src/Pages/SamplingGeometryLabPage.tsx` — Spatial Sampling Units (Housing + built-in Data Extractor), image-grounded teaching/inspection, semantic Data Blocks with a dedicated Layout Composer workspace, plus graph-heavy spectral/statistical analysis and local-frequency localization.
+  - `FE:src/api/samplingGeometryApi.ts` — Spatial Sampling Units (Housing + built-in Data Extractor), image-grounded teaching/inspection, semantic Data Blocks with a dedicated Layout Composer workspace, plus graph-heavy spectral/statistical analysis and local-frequency localization.
+  - `FE:src/components/VisionLabs/SamplingGeometry/ArtifactInspectorModal.tsx` — Spatial Sampling Units (Housing + built-in Data Extractor), image-grounded teaching/inspection, semantic Data Blocks with a dedicated Layout Composer workspace, plus graph-heavy spectral/statistical analysis and local-frequency localization.
+  - `FE:src/components/VisionLabs/SamplingGeometry/DataLayoutComposer.tsx` — Spatial Sampling Units (Housing + built-in Data Extractor), image-grounded teaching/inspection, semantic Data Blocks with a dedicated Layout Composer workspace, plus graph-heavy spectral/statistical analysis and local-frequency localization.
+  - `FE:src/components/VisionLabs/SamplingGeometry/SamplingCanvas.tsx` — Spatial Sampling Units (Housing + built-in Data Extractor), image-grounded teaching/inspection, semantic Data Blocks with a dedicated Layout Composer workspace, plus graph-heavy spectral/statistical analysis and local-frequency localization.
+  - `FE:src/components/VisionLabs/SamplingGeometry/SamplingGuideModal.tsx` — Spatial Sampling Units (Housing + built-in Data Extractor), image-grounded teaching/inspection, semantic Data Blocks with a dedicated Layout Composer workspace, plus graph-heavy spectral/statistical analysis and local-frequency localization.
+  - `FE:src/components/VisionLabs/SamplingGeometry/SamplingOperatorLibrary.tsx` — Spatial Sampling Units (Housing + built-in Data Extractor), image-grounded teaching/inspection, semantic Data Blocks with a dedicated Layout Composer workspace, plus graph-heavy spectral/statistical analysis and local-frequency localization.
+  - `FE:src/components/VisionLabs/SamplingGeometry/SamplingParameterHelpModal.tsx` — Spatial Sampling Units (Housing + built-in Data Extractor), image-grounded teaching/inspection, semantic Data Blocks with a dedicated Layout Composer workspace, plus graph-heavy spectral/statistical analysis and local-frequency localization.
 
 ### Vision LAB Core Contracts
 
@@ -367,14 +417,16 @@ Rust/Tauri desktop shell and its hand-authored configuration.
 
 Regression and integration tests.
 
-- Detected files: **6**
+- Detected files: **11**
 - Key files:
+  - `BE:tests/vision_labs/contour_extractor/test_contour_extractor_v0100.py` — Regression and integration tests.
+  - `BE:tests/vision_labs/contour_extractor/test_contour_extractor_v0200.py` — Regression and integration tests.
   - `BE:tests/vision_labs/image/test_image_lab_advanced_raster.py` — Regression and integration tests.
   - `BE:tests/vision_labs/image/test_image_lab_basic_families.py` — Regression and integration tests.
   - `BE:tests/vision_labs/image/test_image_lab_core.py` — Regression and integration tests.
   - `BE:tests/vision_labs/image/test_image_lab_enum_coercion.py` — Regression and integration tests.
   - `BE:tests/vision_labs/sampling_geometry/test_sampling_geometry_lab_v0100.py` — Regression and integration tests.
-  - `BE:tests/vision_labs/test_lab_service_core.py` — Regression and integration tests.
+  - `BE:tests/vision_labs/sampling_geometry/test_sampling_geometry_lab_v0200.py` — Regression and integration tests.
 
 ### Backend Tools / Updaters
 
@@ -388,7 +440,7 @@ Backend-side updater and maintenance scripts.
 
 Updater scripts, context generators, architectural snapshots, and LLM handoff documentation.
 
-- Detected files: **24**
+- Detected files: **30**
 - Key files:
   - `FE:docs/llm_context/README.md` — Updater scripts, context generators, architectural snapshots, and LLM handoff documentation.
   - `FE:docs/llm_context/SYSTEM_ARCHITECTURE.md` — Updater scripts, context generators, architectural snapshots, and LLM handoff documentation.
@@ -421,29 +473,33 @@ Derived from Python/TypeScript imports. Counts are import edges between source f
 
 | Source module | Depends on | Edges |
 | --- | --- | ---: |
-| Backend Tests | Image Processing LAB Backend | 16 |
+| Backend Tests | Image Processing LAB Backend | 22 |
+| Backend Tests | Sampling LAB Backend | 16 |
 | Legacy App Builder / Sequencer Runtime | Shared Backend Utilities | 12 |
 | App Builder / Sequencer UI | Inspection UI Engine | 11 |
-| Sampling / Geometry LAB Backend | Image Processing LAB Backend | 9 |
+| Sampling LAB Backend | Image Processing LAB Backend | 10 |
 | Image Processing LAB Backend | Vision LAB Core Contracts | 7 |
-| Sampling / Geometry LAB Backend | Vision LAB Core Contracts | 7 |
+| Lab Service Backend | Sampling LAB Backend | 7 |
+| Sampling LAB Backend | Vision LAB Core Contracts | 7 |
 | App Builder / Sequencer UI | Fleet / Resource UI | 6 |
 | Lab Service Backend | Image Processing LAB Backend | 6 |
-| Lab Service Backend | Sampling / Geometry LAB Backend | 6 |
 | Inspection UI Engine | App Builder / Sequencer UI | 5 |
 | Backend Tests | Lab Service Backend | 5 |
 | Backend Application Shell & API Router | Fleet / Device / Infrastructure Backend | 4 |
-| Backend Tests | Sampling / Geometry LAB Backend | 4 |
+| Backend Tests | Contour Extractor LAB Backend | 4 |
+| Contour Extractor LAB Backend | Image Processing LAB Backend | 4 |
 | Inspection UI Engine | Fleet / Resource UI | 3 |
 | Project Compiler | Inspection UI Engine | 3 |
+| Backend Tests | Vision LAB Core Contracts | 3 |
+| Lab Service Backend | Contour Extractor LAB Backend | 3 |
 | Fleet / Resource UI | Frontend — Unclassified Source | 2 |
 | Fleet / Resource UI | Shared Frontend UI & Utilities | 2 |
 | Fleet / Resource UI | App Builder / Sequencer UI | 2 |
 | Frontend Application Shell & Routing | App Builder / Sequencer UI | 2 |
 | Inspection UI Engine | Shared Frontend UI & Utilities | 2 |
 | Project Compiler | Fleet / Resource UI | 2 |
+| Sampling LAB UI | Lab Service Hub UI | 2 |
 | Backend Application Shell & API Router | Legacy App Builder / Sequencer Runtime | 2 |
-| Backend Tests | Vision LAB Core Contracts | 2 |
 | Database Backend | Backend Application Shell & API Router | 2 |
 | Fleet / Device / Infrastructure Backend | Legacy App Builder / Sequencer Runtime | 2 |
 | Fleet / Device / Infrastructure Backend | Shared Backend Utilities | 2 |
@@ -454,14 +510,18 @@ Derived from Python/TypeScript imports. Counts are import edges between source f
 | App Builder / Sequencer UI | Shared Frontend UI & Utilities | 1 |
 | App Builder / Sequencer UI | Project Compiler | 1 |
 | App Builder / Sequencer UI | Database UI | 1 |
+| Contour Extractor LAB UI | Frontend — Unclassified Source | 1 |
+| Contour Extractor LAB UI | Lab Service Hub UI | 1 |
+| Contour Extractor LAB UI | Sampling LAB UI | 1 |
 | Database UI | Frontend — Unclassified Source | 1 |
 | Database UI | Fleet / Resource UI | 1 |
+| Frontend Application Shell & Routing | Contour Extractor LAB UI | 1 |
 | Frontend Application Shell & Routing | Database UI | 1 |
 | Frontend Application Shell & Routing | Fleet / Resource UI | 1 |
 | Frontend Application Shell & Routing | Image Processing LAB UI | 1 |
 | Frontend Application Shell & Routing | Inspection UI Engine | 1 |
 | Frontend Application Shell & Routing | Lab Service Hub UI | 1 |
-| Frontend Application Shell & Routing | Sampling / Geometry LAB UI | 1 |
+| Frontend Application Shell & Routing | Sampling LAB UI | 1 |
 | Frontend Application Shell & Routing | Shared Frontend UI & Utilities | 1 |
 | Image Processing LAB UI | Frontend — Unclassified Source | 1 |
 | Image Processing LAB UI | Lab Service Hub UI | 1 |
@@ -471,16 +531,8 @@ Derived from Python/TypeScript imports. Counts are import edges between source f
 | Lab Service Hub UI | Image Processing LAB UI | 1 |
 | Project Compiler | Frontend — Unclassified Source | 1 |
 | Project Compiler | App Builder / Sequencer UI | 1 |
-| Sampling / Geometry LAB UI | Frontend — Unclassified Source | 1 |
-| Sampling / Geometry LAB UI | Lab Service Hub UI | 1 |
+| Sampling LAB UI | Frontend — Unclassified Source | 1 |
 | Backend Application Shell & API Router | Shared Backend Utilities | 1 |
-| Backend Application Shell & API Router | Backend — Unclassified App Source | 1 |
-| Backend Application Shell & API Router | Database Backend | 1 |
-| Fleet / Device / Infrastructure Backend | Backend Application Shell & API Router | 1 |
-| Image Processing LAB Backend | Backend Application Shell & API Router | 1 |
-| Lab Service Backend | Backend Application Shell & API Router | 1 |
-| Lab Service Backend | Vision LAB Core Contracts | 1 |
-| Research / Experiments / Training | Fleet / Device / Infrastructure Backend | 1 |
 
 ## 6. Backend API routes
 
@@ -488,6 +540,15 @@ Derived from Python/TypeScript imports. Counts are import edges between source f
 | --- | --- | --- | --- |
 | `BE:app/api/root_api.py` | `GET` | `/fleetstatus` | `get_fleet_overview_status` |
 | `BE:app/api/root_api.py` | `GET` | `/status` | `check_server_health` |
+| `BE:app/api/v1/endpoints/contour_extractor_api.py` | `DELETE` | `/sessions/{session_id}` | `close_session` |
+| `BE:app/api/v1/endpoints/contour_extractor_api.py` | `GET` | `/sessions/{session_id}/contours` | `list_contours` |
+| `BE:app/api/v1/endpoints/contour_extractor_api.py` | `GET` | `/sessions/{session_id}/contours/geometry` | `contour_geometry` |
+| `BE:app/api/v1/endpoints/contour_extractor_api.py` | `GET` | `/sessions/{session_id}/contours/{contour_id}/fourier` | `contour_fourier_analysis` |
+| `BE:app/api/v1/endpoints/contour_extractor_api.py` | `GET` | `/sessions/{session_id}/preview/{source_name}` | `source_preview` |
+| `BE:app/api/v1/endpoints/contour_extractor_api.py` | `GET` | `/stages` | `list_stage_catalog` |
+| `BE:app/api/v1/endpoints/contour_extractor_api.py` | `POST` | `/sessions` | `create_session` |
+| `BE:app/api/v1/endpoints/contour_extractor_api.py` | `POST` | `/sessions/{session_id}/run` | `run_session` |
+| `BE:app/api/v1/endpoints/contour_extractor_api.py` | `PUT` | `/sessions/{session_id}/definition` | `set_definition` |
 | `BE:app/api/v1/endpoints/db_api.py` | `GET` | `/images/{filename}/download` | `download_image` |
 | `BE:app/api/v1/endpoints/db_api.py` | `GET` | `/schema/{table_name}` | `get_table_schema` |
 | `BE:app/api/v1/endpoints/db_api.py` | `GET` | `/tables` | `get_database_tables` |
@@ -535,6 +596,7 @@ Derived from Python/TypeScript imports. Counts are import edges between source f
 | `BE:app/api/v1/endpoints/infra_api.py` | `POST` | `/resources/files/{filetype}/upload` | `upload_file` |
 | `BE:app/api/v1/endpoints/infra_api.py` | `POST` | `/servers/add` | `add_local_server` |
 | `BE:app/api/v1/endpoints/infra_api.py` | `POST` | `/servers/heartbeat/{new_interval}` | `change_server_bus_heartbeat` |
+| `BE:app/api/v1/endpoints/lab_service_api.py` | `DELETE` | `/{service_id}` | `delete_lab_service` |
 | `BE:app/api/v1/endpoints/lab_service_api.py` | `GET` | `` | `list_lab_services` |
 | `BE:app/api/v1/endpoints/lab_service_api.py` | `GET` | `/runs/{run_id}/outputs/{output_name}` | `preview_run_output` |
 | `BE:app/api/v1/endpoints/lab_service_api.py` | `GET` | `/{service_id}` | `get_lab_service` |
@@ -546,14 +608,19 @@ Derived from Python/TypeScript imports. Counts are import edges between source f
 | `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `GET` | `/pipelines` | `list_pipelines` |
 | `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `GET` | `/pipelines/{name}` | `load_pipeline` |
 | `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `GET` | `/sessions/{session_id}/artifact/{node_id}/{port}` | `get_artifact_json` |
+| `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `GET` | `/sessions/{session_id}/fft-reconstruction/{node_id}` | `fft_reconstruction` |
 | `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `GET` | `/sessions/{session_id}/preview/node/{node_id}/{port}` | `preview_artifact` |
 | `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `GET` | `/sessions/{session_id}/preview/source/{source_name}` | `preview_source` |
+| `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `GET` | `/sessions/{session_id}/source-board` | `get_source_board` |
+| `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `GET` | `/sessions/{session_id}/source-board/{source_name}/artifact` | `get_source_board_artifact` |
+| `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `GET` | `/sessions/{session_id}/source-board/{source_name}/channel-preview` | `channel_preview` |
 | `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `POST` | `/pipelines/save` | `save_pipeline` |
 | `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `POST` | `/pipelines/validate` | `validate_pipeline` |
 | `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `POST` | `/sessions` | `create_session` |
 | `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `POST` | `/sessions/{session_id}/input/{source_name}` | `upload_input` |
 | `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `POST` | `/sessions/{session_id}/input/{source_name}/from-lab-service` | `bind_input_from_lab_service` |
 | `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `POST` | `/sessions/{session_id}/run` | `run_session` |
+| `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `POST` | `/sessions/{session_id}/source-board` | `build_source_board` |
 | `BE:app/api/v1/endpoints/sampling_geometry_api.py` | `PUT` | `/sessions/{session_id}/pipeline` | `set_session_pipeline` |
 | `BE:app/api/v1/endpoints/utils.py` | `GET` | `/health-check` | `perform_health_check` |
 
@@ -569,6 +636,7 @@ Derived from Python/TypeScript imports. Counts are import edges between source f
 | `FE:src/App.tsx` | `/fleet/:worker_id/logic` |
 | `FE:src/App.tsx` | `/inspection` |
 | `FE:src/App.tsx` | `/labs` |
+| `FE:src/App.tsx` | `/labs/contour-extractor` |
 | `FE:src/App.tsx` | `/labs/image-processing` |
 | `FE:src/App.tsx` | `/labs/sampling-geometry` |
 | `FE:src/App.tsx` | `/sequencer` |

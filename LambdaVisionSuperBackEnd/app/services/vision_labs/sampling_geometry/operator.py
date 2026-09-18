@@ -18,6 +18,7 @@ class SamplingGeometryOperator(ABC):
     CATEGORY: str = "Other"
     WORKSPACE: str = "geometry"
     DESCRIPTION: str = ""
+    CATALOG_VISIBLE: bool = True
 
     GUIDE: dict[str, Any] = {}
 

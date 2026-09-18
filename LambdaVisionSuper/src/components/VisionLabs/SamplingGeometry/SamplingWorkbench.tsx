@@ -1,36 +1,17 @@
-import { useMemo, useState } from 'react';
-import { Activity, Grid3X3, Image as ImageIcon, Table2 } from 'lucide-react';
-import type { SamplingArtifact, SamplingWorkspace } from './types';
-import { ArtifactDataView } from './SamplingVisuals';
+import { ScanLine, Waves } from 'lucide-react';
+import type { ActiveSamplingWorkspace, SamplingArtifact } from './types';
+import { SamplingCanvas } from './SamplingCanvas';
+import { ArtifactDataView, FeatureBars, LineChart } from './SamplingVisuals';
 
-const Overlay = ({ artifact }: { artifact: SamplingArtifact | null }) => {
-  if (!artifact) return null;
-  const type = (artifact as any).type;
-  if (type === 'contour_set') {
-    const h=(artifact as any).source_shape?.[0]||1; const w=(artifact as any).source_shape?.[1]||1;
-    return <svg viewBox="0 0 1 1" preserveAspectRatio="none" className="pointer-events-none absolute inset-0 h-full w-full">{((artifact as any).contours??[]).map((contour:number[][],i:number)=><polyline key={i} points={contour.map((p)=>`${p[0]/w},${p[1]/h}`).join(' ')} fill="none" stroke="#81c995" strokeWidth="0.003" vectorEffect="non-scaling-stroke"/>)}</svg>;
-  }
-  if (type === 'polyline') {
-    const shape=(artifact as any).source_shape; const h=shape?.[0]||1; const w=shape?.[1]||1;
-    return <svg viewBox="0 0 1 1" preserveAspectRatio="none" className="pointer-events-none absolute inset-0 h-full w-full"><polyline points={((artifact as any).points??[]).map((p:number[])=>`${p[0]/w},${p[1]/h}`).join(' ')} fill="none" stroke="#fdd663" strokeWidth="0.004" vectorEffect="non-scaling-stroke"/></svg>;
-  }
-  const geometry=(artifact as any).geometry;
-  if (!geometry) return null;
-  if (geometry.kind==='rays') return <svg viewBox="0 0 1 1" preserveAspectRatio="none" className="pointer-events-none absolute inset-0 h-full w-full">{(geometry.rays??[]).map((ray:number[],i:number)=><line key={i} x1={ray[0]} y1={ray[1]} x2={ray[2]} y2={ray[3]} stroke={i%2?'#81c995':'#8ab4f8'} strokeWidth="0.004" vectorEffect="non-scaling-stroke"/>)}</svg>;
-  if (geometry.kind==='rings') return <svg viewBox="0 0 1 1" preserveAspectRatio="none" className="pointer-events-none absolute inset-0 h-full w-full">{(geometry.radii??[]).map((r:number,i:number)=><ellipse key={i} cx={geometry.center?.[0]??0.5} cy={geometry.center?.[1]??0.5} rx={r} ry={r} fill="none" stroke="#8ab4f8" strokeWidth="0.003" vectorEffect="non-scaling-stroke"/>)}</svg>;
-  if (geometry.kind==='boxes') return <svg viewBox="0 0 1 1" preserveAspectRatio="none" className="pointer-events-none absolute inset-0 h-full w-full">{(geometry.boxes??[]).map((box:number[],i:number)=><rect key={i} x={box[0]} y={box[1]} width={box[2]-box[0]} height={box[3]-box[1]} fill="none" stroke="#8ab4f8" strokeWidth="0.0025" vectorEffect="non-scaling-stroke"/>)}</svg>;
-  if (geometry.kind==='polyline') { const shape=geometry.source_shape; const h=shape?.[0]||1; const w=shape?.[1]||1; return <svg viewBox="0 0 1 1" preserveAspectRatio="none" className="pointer-events-none absolute inset-0 h-full w-full"><polyline points={(geometry.points??[]).map((p:number[])=>`${p[0]/w},${p[1]/h}`).join(' ')} fill="none" stroke="#fdd663" strokeWidth="0.003"/></svg>; }
-  return null;
-};
-
-export const SamplingWorkbench = ({ workspace, sourceUrl, artifact, artifactPreviewUrl }: { workspace: SamplingWorkspace; sourceUrl: string | null; artifact: SamplingArtifact | null; artifactPreviewUrl: string | null }) => {
-  const defaultMode = workspace==='spectral' ? 'data' : 'spatial';
-  const [mode,setMode]=useState<'spatial'|'data'>('spatial');
-  const effective = useMemo(()=>workspace==='spectral'&&artifact?.type==='spectrum_2d'?'spatial':mode,[workspace,artifact,mode]);
-  return <div className="flex min-w-0 flex-1 flex-col bg-[#171717]">
-    <div className="flex h-11 shrink-0 items-center gap-2 border-b border-[#3c4043] bg-[#292a2d] px-3"><div className="mr-auto"><div className="text-[10px] font-black tracking-[0.14em] text-[#8ab4f8]">{workspace==='geometry'?'GEOMETRY WORKBENCH':workspace==='spatial'?'SAMPLING PATTERN WORKBENCH':'SPECTRAL / STATISTICS WORKBENCH'}</div><div className="text-[9px] text-[#80868b]">{workspace==='geometry'?'Blob/curve structure and measurements':workspace==='spatial'?'Visual sampling patterns on the real image':'Fourier map, distributions and descriptors'}</div></div><button onClick={()=>setMode('spatial')} className={`flex items-center gap-1 rounded px-2 py-1 text-[9px] font-bold ${effective==='spatial'?'bg-[#3c4043] text-[#8ab4f8]':'text-[#9aa0a6]'}`}><ImageIcon size={11}/>{workspace==='spectral'?'Spectrum / Source':'Spatial'}</button><button onClick={()=>setMode('data')} className={`flex items-center gap-1 rounded px-2 py-1 text-[9px] font-bold ${effective==='data'?'bg-[#3c4043] text-[#8ab4f8]':'text-[#9aa0a6]'}`}><Activity size={11}/>{workspace==='geometry'?'Data / Profile':workspace==='spatial'?'Profiles / Features':'Descriptor'}</button></div>
-    <div className="relative min-h-0 flex-1">
-      {effective==='data'?<ArtifactDataView artifact={artifact}/>:artifact?.type==='spectrum_2d'&&artifactPreviewUrl?<img src={artifactPreviewUrl} className="h-full w-full object-contain" alt="Fourier spectrum"/>:sourceUrl?<div className="absolute inset-0"><img src={sourceUrl} className="h-full w-full object-fill" alt="Sampling source"/><Overlay artifact={artifact}/></div>:<div className="flex h-full items-center justify-center text-center text-sm text-[#80868b]">Load an input source, add operators, then Run.</div>}
-    </div>
-  </div>;
+export const SamplingWorkbench = ({workspace,sourceUrl,spatialArtifacts,spectralArtifact,spectralPreviewUrl}:{workspace:ActiveSamplingWorkspace;sourceUrl:string|null;spatialArtifacts:SamplingArtifact[];spectralArtifact:SamplingArtifact|null;spectralPreviewUrl:string|null}) => {
+  const a:any=spectralArtifact;const spectrum=a?.type==='spectrum_2d'?a:null;const histogram=a?.type==='histogram_1d'?a:null;const vector=a?.type==='feature_vector'?a:null;const matrix=a?.type==='feature_matrix'?a:null;
+  return <section className="min-w-0 flex-1 bg-[#171717]">
+    {workspace==='spatial'?<div className="grid h-full grid-rows-[42px_minmax(0,1fr)]"><div className="flex items-center gap-2 border-b border-[#3c4043] bg-[#242528] px-3"><ScanLine size={13} className="text-[#8ab4f8]"/><span className="text-[9px] font-black">SPATIAL SAMPLING CANVAS</span><span className="text-[8px] text-[#80868b]">yellow dots show sampling density · eye-toggle each unit · wheel zoom · drag pan</span></div><SamplingCanvas sourceUrl={sourceUrl} artifact={null} artifacts={spatialArtifacts}/></div>
+    :<div className="grid h-full grid-rows-[42px_minmax(0,1fr)]"><div className="flex items-center gap-2 border-b border-[#3c4043] bg-[#242528] px-3"><Waves size={13} className="text-[#c58af9]"/><span className="text-[9px] font-black">SPECTRAL / STATISTICAL DATA WORKBENCH</span><span className="text-[8px] text-[#80868b]">graphs/data are primary; image is supporting context</span></div>
+      {spectrum?<div className="grid min-h-0 grid-cols-2 grid-rows-2"><div className="border-r border-b border-[#3c4043] p-2"><div className="mb-1 text-[8px] font-black text-[#9aa0a6]">SOURCE</div>{sourceUrl?<img src={sourceUrl} className="h-[calc(100%-18px)] w-full object-contain bg-black"/>:null}</div><div className="border-b border-[#3c4043] p-2"><div className="mb-1 text-[8px] font-black text-[#9aa0a6]">FOURIER ENERGY MAP</div>{spectralPreviewUrl?<img src={spectralPreviewUrl} className="h-[calc(100%-18px)] w-full object-contain bg-black"/>:null}</div><div className="border-r border-[#3c4043]"><LineChart series={[spectrum.metadata?.radial_energy??[]]} labels={['radial energy · low → high frequency']}/></div><div><LineChart series={[spectrum.metadata?.angular_energy??[]]} labels={['angular energy · orientation']}/></div></div>
+      :histogram?<div className="grid h-full grid-cols-[minmax(0,1fr)_320px]"><div className="p-4"><LineChart series={[histogram.values??[]]} labels={[`${histogram.channel} histogram · ${histogram.values?.length??0} bins`]}/></div><aside className="border-l border-[#3c4043] bg-[#202124] p-4 text-[10px] leading-5 text-[#bdc1c6]"><div className="font-black text-[#8ab4f8]">DISTRIBUTION VIEW</div><p className="mt-2">Histogram height tells how much of the image falls into each value interval. It intentionally forgets WHERE pixels occurred.</p><div className="mt-4 font-mono text-[#fdd663]">h[b] = count(xᵢ ∈ bin b)</div></aside></div>
+      :vector?<div className="grid h-full grid-cols-[minmax(0,1fr)_360px]"><FeatureBars values={vector.values??[]} names={vector.names??[]}/><aside className="overflow-y-auto border-l border-[#3c4043] bg-[#202124] p-3"><div className="text-[9px] font-black text-[#8ab4f8]">NAMED NUMERICAL DESCRIPTOR</div>{vector.metadata?.distribution_histogram?<div className="mt-3 h-48"><LineChart series={[vector.metadata.distribution_histogram]} labels={['source distribution']}/></div>:null}<div className="mt-3 space-y-2">{(vector.names??[]).map((n:string,i:number)=><div key={n} className="rounded border border-[#3c4043] bg-[#292a2d] p-2 text-[8px]"><b className="font-mono text-[#d2e3fc]">{n}</b><span className="ml-2 text-[#fdd663]">{Number(vector.values?.[i]??0).toPrecision(5)}</span>{vector.metadata?.formulae?.[n]?<div className="mt-1 font-mono text-[#9aa0a6]">{vector.metadata.formulae[n]}</div>:null}</div>)}</div></aside></div>
+      :matrix?<div className="grid h-full grid-cols-[minmax(0,1fr)_300px]"><div className="p-4"><ArtifactDataView artifact={spectralArtifact}/></div><aside className="border-l border-[#3c4043] bg-[#202124] p-4 text-[9px] leading-5 text-[#bdc1c6]"><div className="font-black text-[#c58af9]">LOCAL FREQUENCY MAP</div><p className="mt-2">When this matrix comes from Local FFT Band Energy, each cell corresponds to one image patch. Bright/high cells indicate where the selected frequency band is strongest.</p><div className="mt-3 font-mono text-[#fdd663]">shape [{matrix.values?.length??0} × {matrix.values?.[0]?.length??0}]</div></aside></div>
+      :<ArtifactDataView artifact={spectralArtifact}/>}</div>}
+  </section>;
 };

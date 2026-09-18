@@ -9,6 +9,7 @@ import { DatabasePage } from './Pages/DatabasePage';
 import { LabView } from './Pages/LabView';
 import { ImageProcessingLabPage } from './Pages/ImageProcessingLabPage';
 import { SamplingGeometryLabPage } from './Pages/SamplingGeometryLabPage';
+import { ContourExtractorLabPage } from './Pages/ContourExtractorLabPage';
 
 // --- CÁC TRANG DUMMY (Chờ bạn chỉ thị để code thật) ---
 const DevicesPage = () => {
@@ -44,6 +45,7 @@ function App() {
         <Route path="/labs" element={<LabView />} />
         <Route path="/labs/image-processing" element={<ImageProcessingLabPage />} />
         <Route path="/labs/sampling-geometry" element={<SamplingGeometryLabPage />} />
+        <Route path="/labs/contour-extractor" element={<ContourExtractorLabPage />} />
         <Route path="/sequencer" element={<SequencerPage />} />
         <Route path="/data" element={<DatabasePage />} />
         

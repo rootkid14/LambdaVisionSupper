@@ -4,12 +4,13 @@ import math
 
 import numpy as np
 
-from app.services.vision_labs.core import BoolParam, EnumParam, ExecutionContext, IntParam
+from app.services.vision_labs.core import BoolParam, EnumParam, ExecutionContext, FloatParam, IntParam
 from app.services.vision_labs.image.types import ImageFrame
 from app.services.vision_labs.sampling_geometry.operator import SamplingGeometryOperator
 from app.services.vision_labs.sampling_geometry.registry import sampling_operator
 from app.services.vision_labs.sampling_geometry.specs import SamplingPort
 from app.services.vision_labs.sampling_geometry.types import (
+    FeatureMatrix,
     FeatureVector,
     Histogram1D,
     Spectrum2D,
@@ -65,13 +66,50 @@ class FFT2D(SamplingGeometryOperator):
         image = image * _window_2d(h, w, params["window"])
         spectrum = np.fft.fftshift(np.fft.fft2(image))
         magnitude = np.abs(spectrum).astype(np.float32)
+
+        # Lightweight diagnostic descriptors are stored with the map so the
+        # inspector can explain what the spectrum means without requiring an
+        # additional operator in the stack.
+        mag64 = magnitude.astype(np.float64)
+        energy = mag64 * mag64
+        yy, xx = np.indices((h, w), dtype=np.float64)
+        cx = (w - 1) / 2.0
+        cy = (h - 1) / 2.0
+        radius = np.sqrt((xx - cx) ** 2 + (yy - cy) ** 2)
+        radius /= max(1e-9, float(radius.max()))
+        angle = np.mod(np.arctan2(yy - cy, xx - cx), math.pi)
+
+        radial_values = []
+        radial_edges = np.linspace(0.0, 1.0, 33)
+        for i in range(32):
+            mask = (radius >= radial_edges[i]) & (radius < radial_edges[i + 1])
+            radial_values.append(float(energy[mask].sum()))
+        angular_values = []
+        angular_edges = np.linspace(0.0, math.pi, 37)
+        for i in range(36):
+            mask = (angle >= angular_edges[i]) & (angle < angular_edges[i + 1])
+            angular_values.append(float(energy[mask].sum()))
+        radial_arr = np.asarray(radial_values, dtype=np.float64)
+        angular_arr = np.asarray(angular_values, dtype=np.float64)
+        if radial_arr.sum() > 0:
+            radial_arr /= radial_arr.sum()
+        if angular_arr.sum() > 0:
+            angular_arr /= angular_arr.sum()
+        metadata = {
+            "remove_mean": bool(params["remove_mean"]),
+            "radial_energy": radial_arr.astype(float).tolist(),
+            "angular_energy": angular_arr.astype(float).tolist(),
+            "dominant_radial_band": int(np.argmax(radial_arr)) if radial_arr.size else 0,
+            "dominant_angle_deg": float(np.argmax(angular_arr) * 180.0 / max(1, len(angular_arr))),
+            "total_energy": float(energy.sum()),
+        }
         return {
             "spectrum": Spectrum2D(
                 magnitude=magnitude,
                 source_shape=(h, w),
                 window=params["window"],
                 channel=params["channel"],
-                metadata={"remove_mean": bool(params["remove_mean"])},
+                metadata=metadata,
             )
         }
 
@@ -295,11 +333,103 @@ class BasicStatistics(SamplingGeometryOperator):
             "p95",
             "entropy_norm",
         ]
+        hist, edges = np.histogram(image, bins=32, range=(0.0, 256.0))
+        hist = hist.astype(np.float64)
+        if hist.sum() > 0:
+            hist /= hist.sum()
         return {
             "features": FeatureVector(
                 values=values,
                 names=names,
                 groups=["statistics"] * len(names),
-                metadata={"channel": params["channel"]},
+                metadata={
+                    "channel": params["channel"],
+                    "distribution_histogram": hist.astype(float).tolist(),
+                    "distribution_bin_centers": ((edges[:-1] + edges[1:]) * 0.5).astype(float).tolist(),
+                    "formulae": {
+                        "mean": "μ = (1/N) Σ xᵢ",
+                        "std": "σ = √[(1/N) Σ (xᵢ - μ)²]",
+                        "min": "min(xᵢ)",
+                        "max": "max(xᵢ)",
+                        "p50": "median / 50th percentile",
+                    },
+                },
+            )
+        }
+
+
+@sampling_operator
+class LocalFFTBandEnergy(SamplingGeometryOperator):
+    OPERATOR_ID = "sampling.spectral.local_fft_energy"
+    LABEL = "Local FFT Band Energy Map"
+    CATEGORY = "Spectral / Local Frequency"
+    WORKSPACE = "spectral"
+    DESCRIPTION = "Measure a selected Fourier radial band independently in a patch grid to show WHERE that frequency energy occurs."
+    INPUTS = {"image": SamplingPort("image")}
+    OUTPUTS = {"energy_map": SamplingPort("feature_matrix")}
+    PARAMETERS = {
+        "channel": EnumParam(_CHANNELS, default="gray", label="Channel"),
+        "rows": IntParam(default=8, min=2, max=32, label="Rows"),
+        "cols": IntParam(default=8, min=2, max=32, label="Columns"),
+        "band_low": FloatParam(default=0.15, min=0.0, max=0.95, label="Band low"),
+        "band_high": FloatParam(default=0.40, min=0.01, max=1.0, label="Band high"),
+        "window": EnumParam(["none", "hann"], default="hann", label="Window"),
+        "normalize": BoolParam(default=True, label="Normalize heatmap"),
+    }
+    GUIDE = {
+        "overview": "Adds location back to Fourier analysis: each image patch gets one energy value for a chosen frequency band.",
+        "how_it_works": "The image is divided into a grid. Every patch gets its own 2D FFT; energy is summed only between band_low and band_high normalized radius. The output matrix can be viewed directly as a heatmap.",
+        "tips": [
+            "Use global FFT first to discover an interesting band, then Local FFT to see where that band occurs.",
+            "Start with 6x6 or 8x8; very fine grids reduce frequency resolution inside each patch.",
+        ],
+        "notes": ["This is a simple windowed/local FFT. Future STFT/Gabor/Wavelet operators can use the same spatial-frequency artifact contract."],
+        "visualization": "local_fft",
+    }
+
+    def process(self, inputs, params, context: ExecutionContext):
+        frame: ImageFrame = inputs["image"]
+        image = image_channel(frame, params["channel"]).astype(np.float32)
+        rows, cols = int(params["rows"]), int(params["cols"])
+        low, high = float(params["band_low"]), float(params["band_high"])
+        if high <= low:
+            raise ValueError("band_high must be greater than band_low")
+        h, w = image.shape[:2]
+        ys = np.linspace(0, h, rows + 1).astype(int)
+        xs = np.linspace(0, w, cols + 1).astype(int)
+        values = np.zeros((rows, cols), dtype=np.float32)
+        for row in range(rows):
+            for col in range(cols):
+                patch = image[ys[row]:ys[row+1], xs[col]:xs[col+1]]
+                if patch.size < 16:
+                    continue
+                patch = patch - float(patch.mean())
+                ph, pw = patch.shape[:2]
+                patch = patch * _window_2d(ph, pw, str(params["window"]))
+                spectrum = np.fft.fftshift(np.fft.fft2(patch))
+                energy = np.abs(spectrum) ** 2
+                yy, xx = np.indices((ph, pw), dtype=np.float64)
+                cx, cy = (pw - 1) / 2.0, (ph - 1) / 2.0
+                radius = np.sqrt((xx-cx)**2 + (yy-cy)**2)
+                radius /= max(1e-9, float(radius.max()))
+                mask = (radius >= low) & (radius < high)
+                values[row, col] = float(energy[mask].sum())
+        if bool(params["normalize"]):
+            lo = float(values.min()); hi = float(values.max())
+            if hi > lo + 1e-12:
+                values = (values - lo) / (hi - lo)
+        return {
+            "energy_map": FeatureMatrix(
+                values=values,
+                feature_names=[f"col_{i}" for i in range(cols)],
+                row_labels=[f"row_{i}" for i in range(rows)],
+                metadata={
+                    "kind": "local_fft_band_energy",
+                    "band_low": low,
+                    "band_high": high,
+                    "channel": params["channel"],
+                    "normalized": bool(params["normalize"]),
+                    "source_shape": [h, w],
+                },
             )
         }

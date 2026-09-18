@@ -1,84 +1,32 @@
-import { useRef } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  ArrowLeft,
-  Boxes,
-  CircleDot,
-  FlaskConical,
-  GitBranch,
-  ImagePlus,
-  Loader2,
-  Play,
-  Save,
-  Share2,
-  Upload,
-  Waves,
-} from 'lucide-react';
-import { SamplingOperatorLibrary } from '../components/VisionLabs/SamplingGeometry/SamplingOperatorLibrary';
-import { SamplingStack } from '../components/VisionLabs/SamplingGeometry/SamplingStack';
+import { ArrowLeft, CircleDot, FlaskConical, Loader2, Play, Share2, Waves } from 'lucide-react';
+import { SourceBoard } from '../components/VisionLabs/SamplingGeometry/SourceBoard';
+import { SamplingUnitsPanel } from '../components/VisionLabs/SamplingGeometry/SamplingUnitsPanel';
 import { SamplingWorkbench } from '../components/VisionLabs/SamplingGeometry/SamplingWorkbench';
+import { SamplingOperatorLibrary } from '../components/VisionLabs/SamplingGeometry/SamplingOperatorLibrary';
+import { SamplingUnitLibrary } from '../components/VisionLabs/SamplingGeometry/SamplingUnitLibrary';
+import { SamplingStack } from '../components/VisionLabs/SamplingGeometry/SamplingStack';
+import { ArtifactInspectorModal } from '../components/VisionLabs/SamplingGeometry/ArtifactInspectorModal';
+import { SamplingParameterHelpModal } from '../components/VisionLabs/SamplingGeometry/SamplingParameterHelpModal';
+import { SamplingGuideModal } from '../components/VisionLabs/SamplingGeometry/SamplingGuideModal';
 import { useSamplingGeometryController } from '../components/VisionLabs/SamplingGeometry/useSamplingGeometryController';
-import type { SamplingWorkspace } from '../components/VisionLabs/SamplingGeometry/types';
+import type { SamplingParameterManifest, DataBlockArtifact, SamplingOperatorManifest } from '../components/VisionLabs/SamplingGeometry/types';
 
-const tabs: Array<{ id: SamplingWorkspace; label: string; subtitle: string; icon: any }> = [
-  { id: 'geometry', label: 'Geometry', subtitle: 'Contour · curve · measurement', icon: GitBranch },
-  { id: 'spatial', label: 'Spatial Sampling', subtitle: 'Ray · ring · patch · profile', icon: CircleDot },
-  { id: 'spectral', label: 'Spectral / Statistics', subtitle: 'Histogram · FFT · descriptors', icon: Waves },
-];
-
-export const SamplingGeometryLabPage = () => {
-  const navigate = useNavigate();
-  const fileRef = useRef<HTMLInputElement | null>(null);
-  const c = useSamplingGeometryController();
-
-  const selectedUpstream = c.upstreamServices.find((service) => service.service_id === c.inputBinding.serviceId);
-  const usableOutputs = Object.entries(selectedUpstream?.outputs ?? {}).filter(([, output]) => ['image', 'binary_mask'].includes(output.type));
-
-  return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-[#202124] text-[#e8eaed]">
-      <header className="shrink-0 border-b border-[#3c4043] bg-[#292a2d]">
-        <div className="flex h-14 items-center gap-3 px-3">
-          <button onClick={() => navigate('/labs')} className="flex h-8 w-8 items-center justify-center rounded border border-[#5f6368] bg-[#35363a] text-[#bdc1c6] hover:bg-[#3c4043]"><ArrowLeft size={15}/></button>
-          <FlaskConical size={18} className="text-[#8ab4f8]" />
-          <div className="mr-3"><div className="text-xs font-black tracking-[0.16em]">SAMPLING / GEOMETRY LAB</div><div className="text-[9px] text-[#80868b]">Geometry · spatial signals · spectral descriptors</div></div>
-
-          <div className="flex items-center gap-1 rounded border border-[#3c4043] bg-[#202124] p-1">
-            {tabs.map((tab) => { const Icon=tab.icon; const active=c.workspace===tab.id; return <button key={tab.id} onClick={()=>c.switchWorkspace(tab.id)} className={`flex min-w-[155px] items-center gap-2 rounded px-3 py-1.5 text-left ${active?'bg-[#3c4043] text-[#e8eaed]':'text-[#9aa0a6] hover:bg-[#303134]'}`}><Icon size={14} className={active?'text-[#8ab4f8]':''}/><span><span className="block text-[10px] font-black">{tab.label}</span><span className="block text-[8px]">{tab.subtitle}</span></span></button>; })}
-          </div>
-
-          <div className="ml-auto flex items-center gap-2">
-            <div className="flex rounded border border-[#5f6368] bg-[#202124] p-0.5"><button onClick={()=>c.setExecutionMode('live')} className={`rounded px-2 py-1 text-[9px] font-black ${c.executionMode==='live'?'bg-[#174ea6] text-[#d2e3fc]':'text-[#9aa0a6]'}`}>LIVE</button><button onClick={()=>c.setExecutionMode('manual')} className={`rounded px-2 py-1 text-[9px] font-black ${c.executionMode==='manual'?'bg-[#3c4043] text-[#e8eaed]':'text-[#9aa0a6]'}`}>MANUAL</button></div>
-            <button onClick={()=>void c.runNow()} disabled={!c.sourceLoaded||!c.stack.length||c.busy} className="flex items-center gap-1.5 rounded border border-[#8ab4f8] bg-[#174ea6] px-3 py-1.5 text-[10px] font-black text-[#d2e3fc] disabled:opacity-35">{c.busy?<Loader2 size={12} className="animate-spin"/>:<Play size={12}/>}Run{c.pending?<span className="rounded bg-[#fdd663] px-1 text-[8px] text-[#202124]">PENDING</span>:null}</button>
-          </div>
-        </div>
-
-        <div className="flex min-h-[62px] items-center gap-3 border-t border-[#3c4043] px-3 py-2">
-          <div className="flex items-center gap-2 rounded border border-[#3c4043] bg-[#202124] p-2">
-            <div className="text-[9px] font-black tracking-wider text-[#8ab4f8]">INPUT SOURCE</div>
-            <select value={c.inputBinding.mode} onChange={(e)=>c.setInputBinding((current:any)=>({...current,mode:e.target.value as any,serviceId:'',serviceOutput:''}))} className="rounded border border-[#5f6368] bg-[#292a2d] px-2 py-1 text-[10px] text-[#e8eaed]"><option value="upload">Upload</option><option value="lab_service">Lab Service</option></select>
-            {c.inputBinding.mode==='upload'?<select value={c.inputBinding.inputType} onChange={(e)=>c.setInputBinding((current:any)=>({...current,inputType:e.target.value as any}))} className="rounded border border-[#5f6368] bg-[#292a2d] px-2 py-1 text-[10px] text-[#e8eaed]"><option value="image">Image</option><option value="binary_mask">BinaryMask</option></select>:<><select value={c.inputBinding.serviceId} onChange={(e)=>{const service=c.upstreamServices.find((s)=>s.service_id===e.target.value);const output=Object.entries(service?.outputs??{}).find(([,o])=>['image','binary_mask'].includes(o.type));c.setInputBinding((current:any)=>({...current,serviceId:e.target.value,serviceOutput:output?.[0]??''}));}} className="max-w-[210px] rounded border border-[#5f6368] bg-[#292a2d] px-2 py-1 text-[10px] text-[#e8eaed]"><option value="">Select upstream service…</option>{c.upstreamServices.map((service)=><option key={service.service_id} value={service.service_id}>{service.name} · v{service.version}</option>)}</select><select value={c.inputBinding.serviceOutput} onChange={(e)=>c.setInputBinding((current:any)=>({...current,serviceOutput:e.target.value}))} className="max-w-[180px] rounded border border-[#5f6368] bg-[#292a2d] px-2 py-1 text-[10px] text-[#e8eaed]"><option value="">Output…</option>{usableOutputs.map(([name,output])=><option key={name} value={name}>{name}:{output.type}</option>)}</select></>}
-            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e)=>{const file=e.target.files?.[0]??null;c.setInputBinding((current:any)=>({...current,file}));e.currentTarget.value='';}}/>
-            <button onClick={()=>fileRef.current?.click()} className="flex items-center gap-1 rounded border border-[#5f6368] bg-[#35363a] px-2 py-1 text-[9px] font-bold"><Upload size={10}/>{c.inputBinding.file?.name??'Choose image'}</button>
-            <button onClick={()=>void c.loadSource()} disabled={!c.inputBinding.file||c.busy} className="flex items-center gap-1 rounded border border-[#81c995] bg-[#1e3828] px-2 py-1 text-[9px] font-black text-[#81c995] disabled:opacity-35"><ImagePlus size={10}/>Load Source</button>
-            <span className="font-mono text-[8px] text-[#80868b]">→ {c.currentInputType}</span>
-          </div>
-
-          <div className="ml-auto flex items-center gap-2 rounded border border-[#3c4043] bg-[#202124] p-2">
-            <Share2 size={12} className="text-[#81c995]"/><input value={c.serviceName} onChange={(e)=>c.setServiceName(e.target.value)} className="w-[220px] rounded border border-[#5f6368] bg-[#292a2d] px-2 py-1 text-[10px] text-[#e8eaed]"/>
-            <span className="text-[8px] text-[#80868b]">{c.stack.filter((item)=>item.exposedName).length} outputs</span>
-            <button onClick={()=>void c.deploy(false)} disabled={c.busy||!c.stack.some((item)=>item.exposedName)} className="rounded border border-[#81c995] bg-[#1e3828] px-2 py-1 text-[9px] font-black text-[#81c995] disabled:opacity-35">{c.editingService?'Update Service':'Deploy Service'}</button>
-            {c.editingService?<button onClick={()=>void c.deploy(true)} className="rounded border border-[#5f6368] bg-[#35363a] px-2 py-1 text-[9px] font-bold text-[#bdc1c6]">Save As New</button>:null}
-          </div>
-        </div>
-      </header>
-
-      {c.error?<div className="shrink-0 border-b border-[#f28b82]/40 bg-[#5f2120] px-3 py-1.5 text-[10px] text-[#f28b82]">{c.error}<button onClick={()=>c.setError('')} className="ml-3 font-bold">DISMISS</button></div>:null}
-
-      <main className="flex min-h-0 flex-1">
-        <SamplingOperatorLibrary operators={c.operators} onAdd={c.addOperator} canAppend={c.canAppend}/>
-        <SamplingWorkbench workspace={c.workspace} sourceUrl={c.sourceUrl} artifact={c.artifact} artifactPreviewUrl={c.artifactPreviewUrl}/>
-        <SamplingStack stack={c.stack} selectedNodeId={c.selectedNodeId} timings={c.timings} onSelect={(id)=>void c.fetchArtifactFor(id)} onParameter={c.updateParameter} onMove={c.moveOperator} onRemove={c.removeOperator} onToggleExpose={c.toggleExpose} onExposeName={c.setExposeName}/>
-      </main>
-    </div>
-  );
+export const SamplingGeometryLabPage=()=>{
+ const navigate=useNavigate();const c=useSamplingGeometryController();const [help,setHelp]=useState<{title:string;spec?:SamplingParameterManifest;topic?:string}|null>(null);const [guide,setGuide]=useState<SamplingOperatorManifest|null>(null);
+ const spatialOverlays=c.spatialUnits.filter((u)=>u.visible&&u.housingArtifact).map((u)=>({...u.housingArtifact,_extractorPreview:{sample_mode:u.extractorParameters.sample_mode,sample_step:u.extractorParameters.sample_step,sample_count:u.extractorParameters.sample_count}} as any));
+ const exposedCount=c.workspace==='spatial'?c.spatialUnits.filter((u)=>u.exposedAlias).length:c.spectralState.stack.reduce((n,i)=>n+Object.keys(i.exposedOutputs).length,0);
+ const inspectBlock=(block:DataBlockArtifact)=>c.inspectInlineBlock(block);
+ return <div className="flex h-screen w-screen flex-col overflow-hidden bg-[#202124] text-[#e8eaed]">
+  <header className="shrink-0 border-b border-[#3c4043] bg-[#292a2d]"><div className="flex h-14 items-center gap-3 px-3"><button onClick={()=>navigate('/labs')} className="flex h-8 w-8 items-center justify-center rounded border border-[#5f6368] bg-[#35363a]"><ArrowLeft size={15}/></button><FlaskConical size={18} className="text-[#8ab4f8]"/><div><div className="text-xs font-black tracking-[.16em]">SAMPLING LAB</div><div className="text-[8px] text-[#80868b]">construct interpretable numerical representations from one inspected image</div></div><div className="ml-5 flex rounded border border-[#3c4043] bg-[#202124] p-1"><button onClick={()=>c.setWorkspace('spatial')} className={`flex items-center gap-2 rounded px-3 py-1.5 text-[9px] font-black ${c.workspace==='spatial'?'bg-[#3c4043] text-[#e8eaed]':'text-[#9aa0a6]'}`}><CircleDot size={13}/>Spatial Sampling</button><button onClick={()=>c.setWorkspace('spectral')} className={`flex items-center gap-2 rounded px-3 py-1.5 text-[9px] font-black ${c.workspace==='spectral'?'bg-[#3c4043] text-[#e8eaed]':'text-[#9aa0a6]'}`}><Waves size={13}/>Spectral / Statistics</button></div><div className="ml-auto flex gap-2"><div className="flex rounded border border-[#5f6368] p-0.5"><button onClick={()=>c.setExecutionMode('live')} className={`px-2 py-1 text-[8px] ${c.executionMode==='live'?'bg-[#174ea6]':''}`}>LIVE</button><button onClick={()=>c.setExecutionMode('manual')} className={`px-2 py-1 text-[8px] ${c.executionMode==='manual'?'bg-[#3c4043]':''}`}>MANUAL</button></div><button onClick={()=>void c.runNow()} disabled={!c.sourceBoard||c.busy} className="flex items-center gap-1 rounded border border-[#8ab4f8] bg-[#174ea6] px-3 py-1.5 text-[9px] font-black disabled:opacity-40">{c.busy?<Loader2 size={11} className="animate-spin"/>:<Play size={11}/>}Run</button></div></div>
+  <SourceBoard file={c.inputFile} onFile={c.setInputFile} config={c.sourceBoardConfig} onConfig={c.setSourceBoardConfig} services={c.imageServices} manifest={c.sourceBoard} busy={c.busy} onBuild={()=>void c.buildBoard()} onInspect={(name)=>void c.inspectSource(name)}/>
+  <div className="flex h-10 items-center gap-2 border-t border-[#3c4043] px-3"><Share2 size={11} className="text-[#81c995]"/><span className="text-[8px] font-black uppercase text-[#80868b]">Deploy current workspace</span><input value={c.serviceName} onChange={(e)=>c.setServiceName(e.target.value)} className="w-[240px] rounded border border-[#5f6368] bg-[#202124] px-2 py-1 text-[9px]"/><span className="text-[8px] text-[#80868b]">{exposedCount} exposed data outputs</span><button onClick={()=>void c.deploy(false)} disabled={!exposedCount||c.busy} className="ml-auto rounded border border-[#81c995] bg-[#1e3828] px-2 py-1 text-[8px] font-black text-[#81c995] disabled:opacity-40">{c.editingService?'Update Service':'Deploy Service'}</button>{c.editingService?<button onClick={()=>void c.deploy(true)} className="rounded border border-[#5f6368] px-2 py-1 text-[8px]">Save As New</button>:null}</div></header>
+  {c.error?<div className="border-b border-[#f28b82]/40 bg-[#5f2120] px-3 py-1 text-[9px] text-[#f28b82]">{c.error}<button onClick={()=>c.setError('')} className="ml-3 font-black">dismiss</button></div>:null}
+  <main className="flex min-h-0 flex-1">{c.workspace==='spectral'?<SamplingOperatorLibrary operators={c.spectralOperators} onAdd={c.addSpectral} canAppend={(op)=>{if(!c.spectralState.stack.length)return {ok:firstInput(op)==='image',reason:'First operator must accept image'};const prev=Object.values(c.spectralState.stack.at(-1)!.operator.outputs)[0]?.type;const next=Object.values(op.inputs)[0]?.type;return prev===next?{ok:true}:{ok:false,reason:`Needs ${next}; stack outputs ${prev}`};}}/>:<SamplingUnitLibrary operators={c.housingOperators} onAdd={c.addSpatialUnit} onGuide={setGuide}/>}<SamplingWorkbench workspace={c.workspace} sourceUrl={c.sourceUrls.inspected_image??c.sourceUrls.raw_image??null} spatialArtifacts={spatialOverlays} spectralArtifact={c.workspace==='spectral'?c.artifact:null} spectralPreviewUrl={c.workspace==='spectral'?c.artifactPreviewUrl:null}/>{c.workspace==='spatial'?<SamplingUnitsPanel units={c.spatialUnits} onHousingParam={c.updateHousingParam} onExtractorParam={c.updateExtractorParam} onRemove={c.removeUnit} onToggleVisible={c.toggleUnitVisible} onInspect={c.inspectUnit} onToggleExpose={c.toggleUnitExpose} onExposeName={c.setUnitExposeName} onHelp={(topic,spec)=>setHelp({title:spec?.label??topic,spec,topic})} onInspectBlock={inspectBlock}/>:<SamplingStack stack={c.spectralState.stack} selectedNodeId={c.spectralState.selectedNodeId} selectedPort={c.spectralState.selectedPort} timings={c.spectralState.timings} sourceEntries={c.sourceBoard?.entries??[]} inspectedArtifact={c.artifact} onSelect={(id,port)=>c.selectSpectralNode(id,port)} onInspect={(id,port)=>void c.fetchArtifact(id,port,`${c.spectralState.stack.find((i)=>i.id===id)?.operator.label} · ${port}`)} onParameter={c.updateSpectralParameter} onReferenceBinding={()=>{}} onMove={c.moveSpectral} onRemove={c.removeSpectral} onToggleExpose={c.toggleSpectralExpose} onExposeName={c.setSpectralExposeName}/>}</main>
+  {c.inspector&&c.artifact?<ArtifactInspectorModal title={c.inspector.title} artifact={c.artifact} previewUrl={c.artifactPreviewUrl} sourceUrl={c.sourceUrls.inspected_image??c.sourceUrls.raw_image??null} onClose={()=>c.setInspector(null)} onFFTReconstruct={c.fftReconstruct}/>:null}
+  {help?<SamplingParameterHelpModal title={help.title} spec={help.spec} topic={help.topic} onClose={()=>setHelp(null)} onChannelPreview={c.channelPreview}/>:null}
+  {guide?<SamplingGuideModal operator={guide} onClose={()=>setGuide(null)}/>:null}
+ </div>;
 };
+const firstInput=(op:any)=>Object.values(op.inputs??{})[0]?.type;

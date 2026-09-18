@@ -15,6 +15,7 @@ from app.services.vision_labs.image.types import BinaryMask, ColorSpace, ImageFr
 from app.services.vision_labs.sampling_geometry.operators import load_sampling_geometry_operators
 from app.services.vision_labs.sampling_geometry.pipeline import SamplingPipelineCompiler, SamplingPipelineDefinition, model_to_dict as sampling_model_to_dict
 from app.services.vision_labs.sampling_geometry.preview import SamplingPreviewEncoder
+from app.services.vision_labs.contour_extractor.models import ContourExtractorDefinition
 from app.services.vision_labs.service import (
     LAB_SERVICE_REPOSITORY,
     LAB_SERVICE_RUNTIME,
@@ -59,23 +60,40 @@ def _derive_contract(request: DeployLabServiceRequest):
         pipeline = SamplingPipelineDefinition(**request.pipeline_snapshot)
         compiled = SamplingPipelineCompiler().compile(pipeline)
         serializer = sampling_model_to_dict
+    elif request.lab_type == "contour_extractor":
+        pipeline = ContourExtractorDefinition(**request.pipeline_snapshot)
+        compiled = None
+        serializer = lambda model: model.model_dump() if hasattr(model, "model_dump") else model.dict()
     else:
         raise ValueError(f"Unsupported Lab Service type: {request.lab_type}")
 
     inputs: dict[str, LabServicePort] = {}
-    for input_name, endpoint in pipeline.inputs.items():
-        node = compiled.nodes.get(endpoint.node_id)
-        if node is None: raise ValueError(f"Unknown input node: {endpoint.node_id}")
-        port_spec = node.operator_class.INPUTS.get(endpoint.port)
-        if port_spec is None: raise ValueError(f"Unknown input port: {endpoint.node_id}.{endpoint.port}")
-        data_type = port_spec.data_type.value if hasattr(port_spec.data_type, "value") else str(port_spec.data_type)
-        inputs[input_name] = LabServicePort(type=data_type, required=not bool(port_spec.optional))
+    if request.lab_type == "contour_extractor":
+        inputs["image"] = LabServicePort(type="image", required=True)
+    elif request.lab_type == "sampling_geometry" and bool(getattr(pipeline, "source_board", {})):
+        # A deployed Sampling/Geometry service reproduces the editor Source Board
+        # internally. Its public contract therefore needs only the original raw
+        # image; upstream image-processing pins remain implementation details.
+        inputs["image"] = LabServicePort(type="image", required=True)
+    else:
+        for input_name, endpoint in pipeline.inputs.items():
+            node = compiled.nodes.get(endpoint.node_id)
+            if node is None: raise ValueError(f"Unknown input node: {endpoint.node_id}")
+            port_spec = node.operator_class.INPUTS.get(endpoint.port)
+            if port_spec is None: raise ValueError(f"Unknown input port: {endpoint.node_id}.{endpoint.port}")
+            data_type = port_spec.data_type.value if hasattr(port_spec.data_type, "value") else str(port_spec.data_type)
+            inputs[input_name] = LabServicePort(type=data_type, required=not bool(port_spec.optional))
 
     if not request.outputs: raise ValueError("Lab Service must expose at least one output")
     outputs: dict[str, LabServiceOutputBinding] = {}
     for output_name, binding in request.outputs.items():
         if not _OUTPUT_NAME.fullmatch(output_name):
             raise ValueError(f"Invalid service output name {output_name!r}; use letters, numbers and underscore")
+        if request.lab_type == "contour_extractor":
+            if binding.port != "contours":
+                raise ValueError("Contour Extractor Service currently exposes only the final contours output")
+            outputs[output_name] = LabServiceOutputBinding(type="contour_set", node_id="contour_runtime", port="contours", label=binding.label)
+            continue
         node = compiled.nodes.get(binding.node_id)
         if node is None: raise ValueError(f"Unknown service output node: {binding.node_id}")
         port_spec = node.operator_class.OUTPUTS.get(binding.port)
@@ -136,6 +154,15 @@ def preview_run_output(run_id: str, output_name: str, max_width: int = Query(120
         if output_name not in run.outputs: raise KeyError(f"Unknown Lab Service output: {output_name}")
         payload, mime = SamplingPreviewEncoder.encode(run.outputs[output_name], max_width=max_width, quality=quality)
         return Response(content=payload, media_type=mime)
+    except Exception as exc: raise _http_error(exc)
+
+@router.delete("/{service_id}")
+def delete_lab_service(service_id: str):
+    try:
+        deleted = LAB_SERVICE_REPOSITORY.delete(service_id)
+        if not deleted:
+            raise FileNotFoundError(f"Lab Service not found: {service_id}")
+        return {"success": True, "service_id": service_id}
     except Exception as exc: raise _http_error(exc)
 
 @router.get("/{service_id}/versions")

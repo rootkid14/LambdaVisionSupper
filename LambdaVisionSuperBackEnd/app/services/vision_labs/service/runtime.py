@@ -14,7 +14,10 @@ from app.services.vision_labs.image.runtime import ImagePipelineRuntime
 from app.services.vision_labs.sampling_geometry.operators import load_sampling_geometry_operators
 from app.services.vision_labs.sampling_geometry.pipeline import SamplingPipelineDefinition, model_to_dict as sampling_model_to_dict
 from app.services.vision_labs.sampling_geometry.runtime import SamplingGeometryRuntime, artifact_shape
+from app.services.vision_labs.sampling_geometry.source_board import resolve_pipeline_inputs, resolve_source_board
 from app.services.vision_labs.service.models import LabServiceDefinition, LabServiceRunManifest
+from app.services.vision_labs.contour_extractor.models import ContourExtractorDefinition
+from app.services.vision_labs.contour_extractor.runtime import ContourExtractorRuntime
 
 @dataclass
 class LabServiceRun:
@@ -63,6 +66,8 @@ class LabServiceRuntime:
             return self._run_image_processing(service, inputs)
         if service.lab_type == "sampling_geometry":
             return self._run_sampling_geometry(service, inputs)
+        if service.lab_type == "contour_extractor":
+            return self._run_contour_extractor(service, inputs)
         raise NotImplementedError(f"Lab Service runtime adapter is not implemented for {service.lab_type!r}")
 
     def _manifest(self, service, output_values, output_meta, timings, total_ms):
@@ -99,8 +104,26 @@ class LabServiceRuntime:
         editor = SamplingPipelineDefinition(**service.pipeline_snapshot)
         definition = _prune_sampling_pipeline(editor, service)
         runtime = SamplingGeometryRuntime(definition)
+
+        runtime_inputs = inputs
+        if bool(getattr(definition, "source_board", {})):
+            from app.services.vision_labs.service.repository import LabServiceRepository
+            raw_image = inputs.get("image")
+            if raw_image is None:
+                raw_image = next((value for value in inputs.values() if value.__class__.__name__ == "ImageFrame"), None)
+            if raw_image is None:
+                raise ValueError("Sampling/Geometry service Source Board requires one raw Image input")
+            repository = LabServiceRepository()
+            board = resolve_source_board(
+                raw_image,
+                definition.source_board,
+                load_service=lambda service_id, version: repository.get(service_id, version=version),
+                run_service=self.run,
+            )
+            runtime_inputs = resolve_pipeline_inputs(definition, board.sources)
+
         start = perf_counter()
-        result = runtime.run(inputs, mode=ExecutionMode.FINAL)
+        result = runtime.run(runtime_inputs, mode=ExecutionMode.FINAL)
         total_ms = (perf_counter() - start) * 1000.0
         values, meta = {}, {}
         for name, binding in service.outputs.items():
@@ -110,6 +133,41 @@ class LabServiceRuntime:
             meta[name] = {"type": binding.type, "node_id": binding.node_id, "port": binding.port, "shape": artifact_shape(value), "artifact_id": artifact.artifact_id}
         manifest = self._manifest(service, values, meta, result.timings_ms, total_ms)
         manifest.workspace_type = service.workspace_type or definition.workspace
+        return LabServiceRun(manifest=manifest, outputs=values)
+
+
+    def _run_contour_extractor(self, service, inputs):
+        raw_image = inputs.get("image")
+        if raw_image is None:
+            raw_image = next(iter(inputs.values()), None)
+        if raw_image is None:
+            raise ValueError("Contour Extractor Service requires one Image input")
+        definition = ContourExtractorDefinition(**service.pipeline_snapshot)
+        from app.services.vision_labs.service.repository import LabServiceRepository
+        repository = LabServiceRepository()
+        start = perf_counter()
+        result = ContourExtractorRuntime(definition).run(
+            raw_image,
+            load_service=lambda service_id, version: repository.get(service_id, version=version),
+            run_service=self.run,
+        )
+        contours = result.store.materialize("final")
+        total_ms = (perf_counter() - start) * 1000.0
+        values, meta = {}, {}
+        for name, binding in service.outputs.items():
+            values[name] = contours
+            meta[name] = {
+                "type": "contour_set",
+                "node_id": "contour_runtime",
+                "port": "contours",
+                "shape": [len(contours.contours)],
+                "artifact_id": None,
+            }
+        timings = dict(result.timings_ms)
+        for stage in result.stage_summaries:
+            timings[f"stage:{stage['id']}"] = float(stage.get("timing_ms", 0.0))
+        manifest = self._manifest(service, values, meta, timings, total_ms)
+        manifest.workspace_type = "contour_extractor"
         return LabServiceRun(manifest=manifest, outputs=values)
 
 class LabServiceRunStore:

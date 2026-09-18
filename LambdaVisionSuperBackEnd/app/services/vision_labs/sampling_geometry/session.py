@@ -14,12 +14,14 @@ from app.services.vision_labs.sampling_geometry.runtime import (
     SamplingGeometryRuntime,
     SamplingRuntimeResult,
 )
+from app.services.vision_labs.sampling_geometry.source_board import resolve_pipeline_inputs
 
 
 @dataclass
 class SamplingGeometrySession:
     session_id: str = field(default_factory=lambda: f"sglab_{uuid.uuid4().hex}")
     sources: dict[str, Any] = field(default_factory=dict)
+    source_board_manifest: dict[str, Any] = field(default_factory=dict)
     pipeline_definition: SamplingPipelineDefinition | None = None
     runtime: SamplingGeometryRuntime | None = None
     revision: int = 0
@@ -32,6 +34,16 @@ class SamplingGeometrySession:
     def set_source(self, name: str, value: Any) -> None:
         with self._lock:
             self.sources[name] = value
+            self.revision += 1
+            self.touch()
+            if self.runtime is not None:
+                self.runtime.clear()
+
+
+    def set_source_board(self, sources: dict[str, Any], manifest: dict[str, Any]) -> None:
+        with self._lock:
+            self.sources = dict(sources)
+            self.source_board_manifest = dict(manifest)
             self.revision += 1
             self.touch()
             if self.runtime is not None:
@@ -53,7 +65,11 @@ class SamplingGeometrySession:
             if self.runtime is None:
                 raise RuntimeError("No Sampling / Geometry pipeline configured")
             self.touch()
-            return self.runtime.run(self.sources, mode=mode)
+            resolved_inputs = resolve_pipeline_inputs(
+                self.pipeline_definition,
+                self.sources,
+            )
+            return self.runtime.run(resolved_inputs, mode=mode)
 
     def get_source(self, name: str) -> Any:
         try:

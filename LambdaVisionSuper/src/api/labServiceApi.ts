@@ -108,6 +108,11 @@ export const LabServiceAPI = {
     return response.data.run;
   },
 
+
+  remove: async (serviceId: string): Promise<void> => {
+    await axiosClient.delete(`${api_version}/lab-services/${encodeURIComponent(serviceId)}`);
+  },
+
   outputPreview: async (
     runId: string,
     outputName: string,

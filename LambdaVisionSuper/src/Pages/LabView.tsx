@@ -15,6 +15,7 @@ import {
   Scale,
   ScanLine,
   Upload,
+  Trash2,
   X,
 } from 'lucide-react';
 import {
@@ -33,7 +34,8 @@ const labs = [
     enabled: true,
     route: '/labs/image-processing',
   },
-  { id: 'sampling', title: 'Sampling / Geometry LAB', subtitle: 'Geometry, spatial sampling, Fourier/statistical descriptors and reusable feature extraction.', icon: ScanLine, enabled: true, route: '/labs/sampling-geometry' },
+  { id: 'contour-extractor', title: 'Contour Extractor LAB', subtitle: 'Memory-efficient candidate generation, contour cleanup, filtering and meaningful shape selection.', icon: ScanLine, enabled: true, route: '/labs/contour-extractor' },
+  { id: 'sampling', title: 'Sampling LAB', subtitle: 'Spatial sampling units, Data Blocks, layout composition, Fourier and statistical descriptors.', icon: Boxes, enabled: true, route: '/labs/sampling-geometry' },
   { id: 'representation', title: 'Representation LAB', subtitle: 'Vectors, matrices, tensors and feature representations.', icon: Boxes, enabled: false },
   { id: 'ai', title: 'AI LAB', subtitle: 'Model architecture, inference and training experiments.', icon: BrainCircuit, enabled: false },
   { id: 'rule', title: 'Comparison / Rule LAB', subtitle: 'Measurements, comparison, specs and decision primitives.', icon: Scale, enabled: false },
@@ -51,6 +53,7 @@ const LabServiceCard = ({
   onEdit,
   onViewOutput,
   onError,
+  onDelete,
 }: {
   service: LabServiceDefinition;
   onEdit: () => void;
@@ -60,6 +63,7 @@ const LabServiceCard = ({
     outputName: string,
   ) => Promise<void>;
   onError: (message: string) => void;
+  onDelete: () => void;
 }) => {
   const [file, setFile] = useState<File | null>(null);
   const [runManifest, setRunManifest] = useState<LabServiceRunManifest | null>(null);
@@ -118,6 +122,7 @@ const LabServiceCard = ({
           <Pencil size={11} />
           Edit
         </button>
+        <button onClick={onDelete} className="flex shrink-0 items-center gap-1 rounded border border-[#5f6368] bg-[#35363a] px-2 py-1 text-[10px] font-bold text-[#f28b82] hover:border-[#f28b82]" title="Permanently delete this service and all stored versions"><Trash2 size={11}/>Remove</button>
       </div>
 
       <div className="px-4 pt-3 grid grid-cols-2 gap-3 text-[9px]">
@@ -262,6 +267,17 @@ export const LabView = () => {
     }
   };
 
+  const deleteService = async (service: LabServiceDefinition) => {
+    if (!window.confirm(`Delete ${service.name} and all versions? This cannot be undone.`)) return;
+    try {
+      setError('');
+      await LabServiceAPI.remove(service.service_id);
+      await loadServices();
+    } catch (cause: any) {
+      setError(cause?.response?.data?.detail || cause?.message || 'Failed to delete Lab Service');
+    }
+  };
+
   useEffect(() => {
     loadServices();
     return () => {
@@ -368,9 +384,10 @@ export const LabView = () => {
                   <LabServiceCard
                     key={`${service.service_id}:${service.version}`}
                     service={service}
-                    onEdit={() => navigate(service.lab_type === 'sampling_geometry' ? `/labs/sampling-geometry?editService=${encodeURIComponent(service.service_id)}` : `/labs/image-processing?editService=${encodeURIComponent(service.service_id)}`)}
+                    onEdit={() => navigate(service.lab_type === 'contour_extractor' ? `/labs/contour-extractor?editService=${encodeURIComponent(service.service_id)}` : service.lab_type === 'sampling_geometry' ? `/labs/sampling-geometry?editService=${encodeURIComponent(service.service_id)}` : `/labs/image-processing?editService=${encodeURIComponent(service.service_id)}`)}
                     onViewOutput={viewOutput}
                     onError={setError}
+                    onDelete={() => void deleteService(service)}
                   />
                 ))}
               </div>

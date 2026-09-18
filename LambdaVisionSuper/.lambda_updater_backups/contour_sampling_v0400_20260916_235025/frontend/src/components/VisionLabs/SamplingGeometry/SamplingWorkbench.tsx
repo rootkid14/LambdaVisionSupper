@@ -1,0 +1,12 @@
+import { BarChart3, ScanLine, Waves } from 'lucide-react';
+import type { ActiveSamplingWorkspace, SamplingArtifact } from './types';
+import { SamplingCanvas } from './SamplingCanvas';
+import { ArtifactDataView, LineChart } from './SamplingVisuals';
+
+export const SamplingWorkbench = ({workspace,sourceUrl,spatialArtifacts,spectralArtifact,spectralPreviewUrl}:{workspace:ActiveSamplingWorkspace;sourceUrl:string|null;spatialArtifacts:SamplingArtifact[];spectralArtifact:SamplingArtifact|null;spectralPreviewUrl:string|null}) => {
+  const spectrum=(spectralArtifact as any)?.type==='spectrum_2d' ? spectralArtifact as any : null;
+  return <section className="min-w-0 flex-1 bg-[#171717]">
+    {workspace==='spatial'?<div className="grid h-full grid-rows-[42px_minmax(0,1fr)]"><div className="flex items-center gap-2 border-b border-[#3c4043] bg-[#242528] px-3"><ScanLine size={13} className="text-[#8ab4f8]"/><span className="text-[9px] font-black">SPATIAL SAMPLING CANVAS</span><span className="text-[8px] text-[#80868b]">eye-toggle units on the right · wheel zoom · drag pan</span></div><SamplingCanvas sourceUrl={sourceUrl} artifact={null} artifacts={spatialArtifacts}/></div>
+    :<div className="grid h-full grid-rows-[42px_minmax(0,1fr)]"><div className="flex items-center gap-2 border-b border-[#3c4043] bg-[#242528] px-3"><Waves size={13} className="text-[#c58af9]"/><span className="text-[9px] font-black">SPECTRAL / STATISTICAL ANALYSIS</span><span className="text-[8px] text-[#80868b]">image is context; graphs/data are the primary result</span></div>{spectrum?<div className="grid min-h-0 grid-cols-2 grid-rows-2"><div className="border-r border-b border-[#3c4043] p-2"><div className="mb-1 text-[8px] font-black text-[#9aa0a6]">SOURCE</div>{sourceUrl?<img src={sourceUrl} className="h-[calc(100%-18px)] w-full object-contain bg-black"/>:null}</div><div className="border-b border-[#3c4043] p-2"><div className="mb-1 text-[8px] font-black text-[#9aa0a6]">FOURIER ENERGY MAP</div>{spectralPreviewUrl?<img src={spectralPreviewUrl} className="h-[calc(100%-18px)] w-full object-contain bg-black"/>:null}</div><div className="border-r border-[#3c4043]"><LineChart series={[spectrum.metadata?.radial_energy??[]]} labels={['radial energy · low → high']}/></div><div><LineChart series={[spectrum.metadata?.angular_energy??[]]} labels={['angular energy · 0 → 180°']}/></div></div>:<ArtifactDataView artifact={spectralArtifact}/>}</div>}
+  </section>;
+};

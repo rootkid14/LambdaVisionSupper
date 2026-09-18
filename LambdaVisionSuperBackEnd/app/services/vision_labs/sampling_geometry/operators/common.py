@@ -35,6 +35,10 @@ def image_channel(frame: ImageFrame, channel: str) -> np.ndarray:
         return cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)[..., 1].astype(np.float32)
     if channel == "v":
         return cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV)[..., 2].astype(np.float32)
+    if channel in {"lab_l", "lab_a", "lab_b"}:
+        lab = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB)
+        index = {"lab_l": 0, "lab_a": 1, "lab_b": 2}[channel]
+        return lab[..., index].astype(np.float32)
     raise ValueError(f"Unsupported sampling channel: {channel}")
 
 

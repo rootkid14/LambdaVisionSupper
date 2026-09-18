@@ -10,7 +10,18 @@ export const SamplingOperatorLibrary = ({ operators, onAdd, canAppend }: { opera
     const map = new Map<string, SamplingOperatorManifest[]>();
     const q = query.trim().toLowerCase();
     operators.filter((op) => !q || `${op.label} ${op.category} ${op.description ?? ''}`.toLowerCase().includes(q)).forEach((op) => map.set(op.category, [...(map.get(op.category) ?? []), op]));
-    return [...map.entries()];
+    const priority = (category: string) => {
+      if (category.startsWith('Contour Selection')) return 0;
+      if (category.startsWith('Contour Cleanup')) return 1;
+      if (category.startsWith('Geometry')) return 2;
+      if (category.startsWith('Sampling Housing')) return 0;
+      if (category.startsWith('Data Extraction')) return 1;
+      if (category.startsWith('Spectral / Fourier')) return 0;
+      if (category.startsWith('Spectral / Descriptor')) return 1;
+      if (category.startsWith('Statistics')) return 2;
+      return 10;
+    };
+    return [...map.entries()].sort(([a],[b]) => priority(a)-priority(b) || a.localeCompare(b));
   }, [operators, query]);
   return <>
     <aside className="flex w-[300px] min-w-[260px] flex-col overflow-hidden border-r border-[#3c4043] bg-[#202124]">

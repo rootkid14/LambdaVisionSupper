@@ -43,6 +43,10 @@ class SamplingPipelineDefinition(BaseModel):
     connections: list[PipelineConnection] = Field(default_factory=list)
     inputs: dict[str, Endpoint] = Field(default_factory=dict)
     outputs: dict[str, Endpoint] = Field(default_factory=dict)
+    # Maps external pipeline input aliases to Source Board source names.
+    input_sources: dict[str, str] = Field(default_factory=dict)
+    # Editor/deployed-service Source Board configuration.
+    source_board: dict[str, Any] = Field(default_factory=dict)
 
 
 @dataclass(frozen=True)

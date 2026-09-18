@@ -49,12 +49,15 @@ def artifact_type_name(value: Any) -> str:
     from app.services.vision_labs.image.types import BinaryMask, ImageFrame
     from app.services.vision_labs.sampling_geometry.types import (
         ContourSet,
+        DataBlockSet,
+        ComposedData,
         FeatureMatrix,
         FeatureVector,
         Histogram1D,
         MeasurementTable,
         Polyline,
         ProfileSet,
+        SamplingHousing,
         Spectrum2D,
     )
 
@@ -62,8 +65,11 @@ def artifact_type_name(value: Any) -> str:
         ImageFrame: "image",
         BinaryMask: "binary_mask",
         ContourSet: "contour_set",
+        DataBlockSet: "data_block_set",
+        ComposedData: "composed_data",
         Polyline: "polyline",
         ProfileSet: "profile_set",
+        SamplingHousing: "sampling_housing",
         Histogram1D: "histogram_1d",
         FeatureVector: "feature_vector",
         FeatureMatrix: "feature_matrix",

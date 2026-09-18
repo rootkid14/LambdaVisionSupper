@@ -39,14 +39,46 @@ Raster-processing editor, operator framework, sessions/runtime, filter playgroun
 - `BE:app/services/vision_labs/image/operators/advanced_families.py`
 - `BE:tests/vision_labs/image/test_image_lab_core.py`
 
-## Sampling / Geometry LAB
+## Contour Extractor LAB
 
-Geometry extraction, spatial signal sampling, Fourier/statistical descriptors, and reusable feature-extraction services.
+Memory-efficient contour discovery: candidate generation, early junk rejection, filter funnel, lazy geometry inspection, and deployable ContourSet services.
+
+### Minimal context
+
+- `FE:src/Pages/ContourExtractorLabPage.tsx`
+- `FE:src/Pages/ContourStageLibrary.tsx`
+- `FE:src/api/contourExtractorApi.ts`
+- `BE:app/services/vision_labs/contour_extractor/models.py`
+- `BE:app/services/vision_labs/contour_extractor/store.py`
+- `BE:app/services/vision_labs/contour_extractor/runtime.py`
+- `BE:app/services/vision_labs/contour_extractor/session.py`
+- `BE:app/api/v1/endpoints/contour_extractor_api.py`
+
+### Deep context
+
+- `FE:src/Pages/ContourExtractorGuideModal.tsx`
+- `FE:src/Pages/ContourStageGuideModal.tsx`
+- `FE:src/Pages/ContourFourierInspector.tsx`
+- `BE:app/services/vision_labs/contour_extractor/stage_registry.py`
+- `BE:app/services/vision_labs/contour_extractor/fourier.py`
+- `BE:tests/vision_labs/contour_extractor/test_contour_extractor_v0100.py`
+- `BE:tests/vision_labs/contour_extractor/test_contour_extractor_v0200.py`
+- `BE:app/services/vision_labs/service/runtime.py`
+- `FE:src/components/VisionLabs/SamplingGeometry/SamplingCanvas.tsx`
+
+## Sampling LAB
+
+Independent Spatial Sampling Units plus Fourier/statistical analysis, semantic Data Blocks, local layout composition, and reusable feature-extraction services.
 
 ### Minimal context
 
 - `FE:src/Pages/SamplingGeometryLabPage.tsx`
 - `FE:src/components/VisionLabs/SamplingGeometry/useSamplingGeometryController.ts`
+- `FE:src/components/VisionLabs/SamplingGeometry/SamplingUnitLibrary.tsx`
+- `FE:src/components/VisionLabs/SamplingGeometry/SamplingUnitsPanel.tsx`
+- `FE:src/components/VisionLabs/SamplingGeometry/DataLayoutComposer.tsx`
+- `FE:src/components/VisionLabs/SamplingGeometry/SamplingParameterHelpModal.tsx`
+- `FE:src/components/VisionLabs/SamplingGeometry/SamplingWorkbench.tsx`
 - `FE:src/components/VisionLabs/SamplingGeometry/types.ts`
 - `FE:src/api/samplingGeometryApi.ts`
 - `BE:app/services/vision_labs/sampling_geometry/operator.py`
@@ -57,11 +89,18 @@ Geometry extraction, spatial signal sampling, Fourier/statistical descriptors, a
 
 ### Deep context
 
+- `FE:src/components/VisionLabs/SamplingGeometry/ArtifactInspectorModal.tsx`
+- `FE:src/components/VisionLabs/SamplingGeometry/DataLayoutComposer.tsx`
+- `FE:src/components/VisionLabs/SamplingGeometry/SamplingCanvas.tsx`
 - `FE:src/components/VisionLabs/SamplingGeometry/SamplingGuideModal.tsx`
 - `FE:src/components/VisionLabs/SamplingGeometry/SamplingOperatorLibrary.tsx`
+- `FE:src/components/VisionLabs/SamplingGeometry/SamplingParameterHelpModal.tsx`
 - `FE:src/components/VisionLabs/SamplingGeometry/SamplingStack.tsx`
+- `FE:src/components/VisionLabs/SamplingGeometry/SamplingUnitLibrary.tsx`
+- `FE:src/components/VisionLabs/SamplingGeometry/SamplingUnitsPanel.tsx`
 - `FE:src/components/VisionLabs/SamplingGeometry/SamplingVisuals.tsx`
 - `FE:src/components/VisionLabs/SamplingGeometry/SamplingWorkbench.tsx`
+- `FE:src/components/VisionLabs/SamplingGeometry/SourceBoard.tsx`
 - `FE:src/components/VisionLabs/SamplingGeometry/types.ts`
 - `FE:src/components/VisionLabs/SamplingGeometry/useSamplingGeometryController.ts`
 - `BE:app/services/vision_labs/sampling_geometry/operators/__init__.py`
@@ -72,6 +111,9 @@ Geometry extraction, spatial signal sampling, Fourier/statistical descriptors, a
 - `BE:app/services/vision_labs/sampling_geometry/preview.py`
 - `BE:app/services/vision_labs/sampling_geometry/serialization.py`
 - `BE:tests/vision_labs/sampling_geometry/test_sampling_geometry_lab_v0100.py`
+- `BE:tests/vision_labs/sampling_geometry/test_sampling_geometry_lab_v0200.py`
+- `BE:tests/vision_labs/sampling_geometry/test_sampling_lab_v0300.py`
+- `BE:tests/vision_labs/sampling_geometry/test_sampling_lab_v0400.py`
 - `BE:app/services/vision_labs/service/runtime.py`
 
 ## Lab Service

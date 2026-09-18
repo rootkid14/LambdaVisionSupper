@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
+import shutil
 
 from app.core.config import get_base_dir
 from app.services.vision_labs.service.models import LabServiceDefinition
@@ -156,3 +157,15 @@ class LabServiceRepository:
             except Exception:
                 continue
         return sorted(definitions, key=lambda item: item.version, reverse=True)
+
+    def delete(self, service_id: str) -> bool:
+        """Permanently remove one Lab Service and all stored versions."""
+        if not _SAFE_ID.fullmatch(service_id):
+            raise ValueError("Invalid Lab Service id")
+        service_dir = self.root / service_id
+        if not service_dir.exists():
+            return False
+        if not service_dir.is_dir():
+            raise ValueError(f"Lab Service path is not a directory: {service_id}")
+        shutil.rmtree(service_dir)
+        return True

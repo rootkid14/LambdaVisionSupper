@@ -5,12 +5,12 @@ import math
 import cv2
 import numpy as np
 
-from app.services.vision_labs.core import ExecutionContext, EnumParam, FloatParam, IntParam
+from app.services.vision_labs.core import BoolParam, ExecutionContext, EnumParam, FloatParam, IntParam, ParameterSpec
 from app.services.vision_labs.image.types import ImageFrame
 from app.services.vision_labs.sampling_geometry.operator import SamplingGeometryOperator
 from app.services.vision_labs.sampling_geometry.registry import sampling_operator
 from app.services.vision_labs.sampling_geometry.specs import SamplingPort
-from app.services.vision_labs.sampling_geometry.types import FeatureMatrix, ProfileSet
+from app.services.vision_labs.sampling_geometry.types import ComposedData, DataBlock, DataBlockSet, FeatureMatrix, FeatureVector, ProfileSet, SamplingHousing
 from app.services.vision_labs.sampling_geometry.operators.common import image_channel, image_to_bgr, sample_line
 
 
@@ -19,6 +19,7 @@ _CHANNELS = ["gray", "r", "g", "b", "h", "s", "v"]
 
 @sampling_operator
 class AxisRays(SamplingGeometryOperator):
+    CATALOG_VISIBLE = False
     OPERATOR_ID = "sampling.spatial.axis_rays"
     LABEL = "Axis Rays"
     CATEGORY = "Spatial / Rays"
@@ -82,6 +83,7 @@ class AxisRays(SamplingGeometryOperator):
 
 @sampling_operator
 class CrossSampler(SamplingGeometryOperator):
+    CATALOG_VISIBLE = False
     OPERATOR_ID = "sampling.spatial.cross"
     LABEL = "Cross Sampler"
     CATEGORY = "Spatial / Rays"
@@ -150,6 +152,7 @@ class CrossSampler(SamplingGeometryOperator):
 
 @sampling_operator
 class ConcentricRings(SamplingGeometryOperator):
+    CATALOG_VISIBLE = False
     OPERATOR_ID = "sampling.spatial.rings"
     LABEL = "Concentric Rings"
     CATEGORY = "Spatial / Rings"
@@ -222,6 +225,7 @@ class ConcentricRings(SamplingGeometryOperator):
 
 @sampling_operator
 class PatchGridStatistics(SamplingGeometryOperator):
+    CATALOG_VISIBLE = False
     OPERATOR_ID = "sampling.spatial.patch_grid"
     LABEL = "Patch Grid Statistics"
     CATEGORY = "Spatial / Patches"
@@ -303,4 +307,510 @@ class PatchGridStatistics(SamplingGeometryOperator):
                 geometry={"kind": "boxes", "boxes": boxes, "normalized": True},
                 metadata={"rows": rows, "cols": cols},
             )
+        }
+
+
+_CHANNEL_FLAGS = [
+    ("gray", "sample_gray"),
+    ("r", "sample_r"),
+    ("g", "sample_g"),
+    ("b", "sample_b"),
+    ("h", "sample_h"),
+    ("s", "sample_s"),
+    ("v", "sample_v"),
+    ("lab_l", "sample_lab_l"),
+    ("lab_a", "sample_lab_a"),
+    ("lab_b", "sample_lab_b"),
+]
+
+
+def _source_shape(frame: ImageFrame) -> tuple[int, int]:
+    shape = np.asarray(frame.data).shape
+    return int(shape[0]), int(shape[1])
+
+
+def _housing_geometry(kind: str, elements: list[dict], source_shape: tuple[int, int]) -> dict:
+    if kind in {"axis_rays", "cross", "cross_grid"}:
+        return {
+            "kind": "rays",
+            "rays": [
+                [*element["start"], *element["end"]]
+                for element in elements
+            ],
+            "normalized": True,
+        }
+    if kind == "rings":
+        center = elements[0]["center"] if elements else [0.5, 0.5]
+        return {
+            "kind": "rings",
+            "center": center,
+            "radii": [element["radius"] for element in elements],
+            "radius_reference": "min_dimension",
+            "normalized": True,
+        }
+    if kind == "ring_grid":
+        return {
+            "kind": "ring_grid",
+            "rings": [
+                {"center": element["center"], "radius": element["radius"], "id": element["id"]}
+                for element in elements
+            ],
+            "radius_reference": "min_dimension",
+            "normalized": True,
+        }
+    if kind == "patch_grid":
+        return {
+            "kind": "boxes",
+            "boxes": [element["box"] for element in elements],
+            "normalized": True,
+        }
+    return {"kind": kind, "normalized": True}
+
+
+@sampling_operator
+class AxisRayHousing(SamplingGeometryOperator):
+    OPERATOR_ID = "sampling.spatial.housing.axis_rays"
+    LABEL = "Axis Ray Housing"
+    CATEGORY = "Sampling Housing / Rays"
+    WORKSPACE = "spatial"
+    DESCRIPTION = "Define where horizontal or vertical rays live; no intensity data is extracted yet."
+    INPUTS = {"image": SamplingPort("image")}
+    OUTPUTS = {"housing": SamplingPort("sampling_housing")}
+    PARAMETERS = {
+        "axis": EnumParam(["x", "y"], default="x", label="Ray direction"),
+        "ray_count": IntParam(default=5, min=1, max=128, label="Ray count"),
+        "margin": FloatParam(default=0.0, min=0.0, max=0.45, label="End margin"),
+    }
+    GUIDE = {
+        "overview": "Defines the WHERE of sampling: a family of axis-aligned rays over the image.",
+        "how_it_works": "The housing stores normalized line geometry only. Add Data Extractor after it to choose Gray/RGB/HSV/LAB data, sampling density, histograms and statistics.",
+        "tips": ["Start sparse so each ray remains visually interpretable."],
+        "notes": ["Housing contains no sampled numerical values."],
+        "visualization": "axis_rays",
+    }
+
+    def process(self, inputs, params, context: ExecutionContext):
+        frame: ImageFrame = inputs["image"]
+        h, w = _source_shape(frame)
+        count = int(params["ray_count"])
+        margin = float(params["margin"])
+        axis = str(params["axis"])
+        elements = []
+        positions = np.linspace(margin, 1.0 - margin, count + 2)[1:-1] if count > 1 else np.array([0.5])
+        for index, pos in enumerate(positions):
+            if axis == "x":
+                start, end = [margin, float(pos)], [1.0 - margin, float(pos)]
+            else:
+                start, end = [float(pos), margin], [float(pos), 1.0 - margin]
+            elements.append({"id": f"ray_{index}", "kind": "ray", "start": start, "end": end})
+        return {"housing": SamplingHousing("axis_rays", (h, w), elements, _housing_geometry("axis_rays", elements, (h, w)), {"axis": axis})}
+
+
+@sampling_operator
+class CrossHousing(SamplingGeometryOperator):
+    OPERATOR_ID = "sampling.spatial.housing.cross"
+    LABEL = "Cross Grid Housing"
+    CATEGORY = "Sampling Housing / Rays"
+    WORKSPACE = "spatial"
+    DESCRIPTION = "Place plus-shaped ray patterns on a configurable grid of centers."
+    INPUTS = {"image": SamplingPort("image")}
+    OUTPUTS = {"housing": SamplingPort("sampling_housing")}
+    PARAMETERS = {
+        "center_rows": IntParam(default=3, min=1, max=32, label="Center rows", description="How many cross centers are distributed vertically."),
+        "center_cols": IntParam(default=3, min=1, max=32, label="Center columns", description="How many cross centers are distributed horizontally."),
+        "margin": FloatParam(default=0.08, min=0.0, max=0.45, label="Center margin"),
+        "length": FloatParam(default=0.22, min=0.01, max=1.5, label="Arm length ratio", description="Total normalized length of each horizontal/vertical arm pair."),
+    }
+    GUIDE = {
+        "overview": "Places many crosses across the image instead of forcing one center point.",
+        "how_it_works": "A regular center grid is built first. Each center owns one horizontal and one vertical ray. Data Extractor then samples every ray independently.",
+        "tips": ["Start with 2x2 or 3x3 centers, then increase density only when the spatial pattern requires it."],
+        "notes": ["Housing geometry remains independent from data extraction."],
+        "visualization": "cross_grid",
+    }
+
+    def process(self, inputs, params, context: ExecutionContext):
+        frame: ImageFrame = inputs["image"]
+        h, w = _source_shape(frame)
+        rows, cols = int(params["center_rows"]), int(params["center_cols"])
+        margin = float(params["margin"])
+        half = float(params["length"]) * 0.5
+        ys = np.linspace(margin, 1.0 - margin, rows)
+        xs = np.linspace(margin, 1.0 - margin, cols)
+        elements = []
+        centers = []
+        for row, cy in enumerate(ys):
+            for col, cx in enumerate(xs):
+                center_id = f"c{row}_{col}"
+                centers.append([float(cx), float(cy)])
+                elements.extend([
+                    {"id": f"{center_id}_h", "kind": "ray", "center_id": center_id, "start": [float(cx-half), float(cy)], "end": [float(cx+half), float(cy)]},
+                    {"id": f"{center_id}_v", "kind": "ray", "center_id": center_id, "start": [float(cx), float(cy-half)], "end": [float(cx), float(cy+half)]},
+                ])
+        geometry = _housing_geometry("cross_grid", elements, (h, w))
+        geometry.update({"centers": centers, "rows": rows, "cols": cols})
+        return {"housing": SamplingHousing("cross_grid", (h, w), elements, geometry, {"centers": centers, "rows": rows, "cols": cols})}
+
+
+@sampling_operator
+class RingHousing(SamplingGeometryOperator):
+    OPERATOR_ID = "sampling.spatial.housing.rings"
+    LABEL = "Concentric Ring Grid Housing"
+    CATEGORY = "Sampling Housing / Rings"
+    WORKSPACE = "spatial"
+    DESCRIPTION = "Place concentric ring groups on a grid of centers across the image."
+    INPUTS = {"image": SamplingPort("image")}
+    OUTPUTS = {"housing": SamplingPort("sampling_housing")}
+    PARAMETERS = {
+        "center_rows": IntParam(default=2, min=1, max=24, label="Center rows"),
+        "center_cols": IntParam(default=2, min=1, max=24, label="Center columns"),
+        "margin": FloatParam(default=0.18, min=0.0, max=0.45, label="Center margin"),
+        "rings": IntParam(default=4, min=1, max=32, label="Rings / center"),
+        "inner_radius": FloatParam(default=0.02, min=0.0, max=0.5, label="Inner radius"),
+        "outer_radius": FloatParam(default=0.10, min=0.01, max=0.5, label="Outer radius"),
+    }
+    GUIDE = {
+        "overview": "Distributes multiple concentric-ring pattern groups across the image.",
+        "how_it_works": "A center grid is built first. Each center receives the same ring radii, so rotational/radial descriptors can be sampled at many spatial locations.",
+        "tips": ["Keep the outer radius smaller when center density is high so neighboring ring groups remain interpretable."],
+        "notes": ["Each ring remains a separate housing element and therefore gets its own Data Blocks."],
+        "visualization": "ring_grid",
+    }
+
+    def process(self, inputs, params, context: ExecutionContext):
+        frame: ImageFrame = inputs["image"]
+        h, w = _source_shape(frame)
+        rows, cols = int(params["center_rows"]), int(params["center_cols"])
+        margin = float(params["margin"])
+        count = int(params["rings"])
+        inner, outer = float(params["inner_radius"]), float(params["outer_radius"])
+        if outer <= inner:
+            raise ValueError("outer_radius must be greater than inner_radius")
+        ys = np.linspace(margin, 1.0 - margin, rows)
+        xs = np.linspace(margin, 1.0 - margin, cols)
+        radii = np.linspace(inner, outer, count)
+        centers = []
+        elements = []
+        for row, cy in enumerate(ys):
+            for col, cx in enumerate(xs):
+                center = [float(cx), float(cy)]
+                centers.append(center)
+                center_id = f"c{row}_{col}"
+                for ring_index, radius in enumerate(radii):
+                    elements.append({"id": f"{center_id}_r{ring_index}", "kind": "ring", "center_id": center_id, "center": center, "radius": float(radius)})
+        geometry = _housing_geometry("ring_grid", elements, (h, w))
+        geometry.update({"centers": centers, "rows": rows, "cols": cols})
+        return {"housing": SamplingHousing("ring_grid", (h, w), elements, geometry, {"centers": centers, "rows": rows, "cols": cols})}
+
+
+@sampling_operator
+class PatchGridHousing(SamplingGeometryOperator):
+    OPERATOR_ID = "sampling.spatial.housing.patch_grid"
+    LABEL = "Patch Grid Housing"
+    CATEGORY = "Sampling Housing / Patches"
+    WORKSPACE = "spatial"
+    DESCRIPTION = "Define a regular patch/grid housing; extraction strategy is configured separately."
+    INPUTS = {"image": SamplingPort("image")}
+    OUTPUTS = {"housing": SamplingPort("sampling_housing")}
+    PARAMETERS = {
+        "rows": IntParam(default=4, min=1, max=32, label="Rows"),
+        "cols": IntParam(default=4, min=1, max=32, label="Columns"),
+        "margin": FloatParam(default=0.0, min=0.0, max=0.45, label="Outer margin"),
+    }
+    GUIDE = {
+        "overview": "Defines spatial bins/patches but deliberately does not choose their numeric features.",
+        "how_it_works": "The usable image area is divided into normalized boxes. Add Data Extractor to choose channels, sampling density, statistics and histograms.",
+        "tips": ["Choose a grid aligned with meaningful product structure whenever possible."],
+        "notes": ["The same housing can produce very different vectors depending on extractor settings."],
+        "visualization": "patch_grid",
+    }
+
+    def process(self, inputs, params, context: ExecutionContext):
+        frame: ImageFrame = inputs["image"]
+        h, w = _source_shape(frame)
+        rows, cols = int(params["rows"]), int(params["cols"])
+        margin = float(params["margin"])
+        elements = []
+        for row in range(rows):
+            for col in range(cols):
+                x0 = margin + (1.0 - 2.0 * margin) * col / cols
+                x1 = margin + (1.0 - 2.0 * margin) * (col + 1) / cols
+                y0 = margin + (1.0 - 2.0 * margin) * row / rows
+                y1 = margin + (1.0 - 2.0 * margin) * (row + 1) / rows
+                elements.append({"id": f"patch_r{row}_c{col}", "kind": "box", "box": [x0, y0, x1, y1], "row": row, "col": col})
+        return {"housing": SamplingHousing("patch_grid", (h, w), elements, _housing_geometry("patch_grid", elements, (h, w)), {"rows": rows, "cols": cols})}
+
+
+def _selected_channels(params) -> list[str]:
+    selected = [channel for channel, flag in _CHANNEL_FLAGS if bool(params.get(flag))]
+    if not selected:
+        raise ValueError("Data Extractor needs at least one enabled channel")
+    return selected
+
+
+def _count_for_length(length_px: float, params) -> int:
+    mode = str(params["sample_mode"])
+    if mode == "full":
+        return max(2, int(round(length_px)) + 1)
+    if mode == "step":
+        return max(2, int(np.floor(length_px / max(1, int(params["sample_step"])))) + 1)
+    return max(2, int(params["sample_count"]))
+
+
+def _element_values(image: np.ndarray, element: dict, source_shape: tuple[int, int], params, *, force_count: int | None = None) -> np.ndarray:
+    h, w = source_shape
+    kind = element.get("kind")
+    if kind == "ray":
+        start = element["start"]
+        end = element["end"]
+        p0 = (float(start[0]) * max(1, w - 1), float(start[1]) * max(1, h - 1))
+        p1 = (float(end[0]) * max(1, w - 1), float(end[1]) * max(1, h - 1))
+        length = float(np.linalg.norm(np.asarray(p1) - np.asarray(p0)))
+        count = force_count or _count_for_length(length, params)
+        return sample_line(image, p0, p1, count)
+    if kind == "ring":
+        center = element["center"]
+        radius = float(element["radius"]) * float(min(w, h))
+        cx, cy = float(center[0]) * max(1, w - 1), float(center[1]) * max(1, h - 1)
+        circumference = 2.0 * math.pi * radius
+        count = force_count or _count_for_length(circumference, params)
+        angles = np.linspace(0.0, 2.0 * math.pi, count, endpoint=False)
+        xs = cx + np.cos(angles) * radius
+        ys = cy + np.sin(angles) * radius
+        map_x = np.clip(xs, 0, max(0, w - 1)).astype(np.float32)[None, :]
+        map_y = np.clip(ys, 0, max(0, h - 1)).astype(np.float32)[None, :]
+        return cv2.remap(image.astype(np.float32), map_x, map_y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE).reshape(-1)
+    if kind == "box":
+        x0, y0, x1, y1 = element["box"]
+        ix0 = int(np.floor(np.clip(x0, 0.0, 1.0) * max(1, w - 1)))
+        ix1 = int(np.ceil(np.clip(x1, 0.0, 1.0) * max(1, w - 1))) + 1
+        iy0 = int(np.floor(np.clip(y0, 0.0, 1.0) * max(1, h - 1)))
+        iy1 = int(np.ceil(np.clip(y1, 0.0, 1.0) * max(1, h - 1))) + 1
+        crop = image[max(0, iy0):min(h, iy1), max(0, ix0):min(w, ix1)].reshape(-1)
+        if crop.size == 0:
+            return np.zeros((force_count or int(params["sample_count"]),), dtype=np.float32)
+        if force_count:
+            positions = np.linspace(0, crop.size - 1, force_count)
+            return np.interp(positions, np.arange(crop.size), crop).astype(np.float32)
+        mode = str(params["sample_mode"])
+        if mode == "step":
+            return crop[:: max(1, int(params["sample_step"]))].astype(np.float32)
+        if mode == "count":
+            count = max(2, int(params["sample_count"]))
+            positions = np.linspace(0, crop.size - 1, count)
+            return np.interp(positions, np.arange(crop.size), crop).astype(np.float32)
+        return crop.astype(np.float32)
+    raise ValueError(f"Unsupported housing element kind: {kind!r}")
+
+
+@sampling_operator
+class HousingDataExtractor(SamplingGeometryOperator):
+    OPERATOR_ID = "sampling.spatial.data_extractor"
+    LABEL = "Data Extractor + Layout Composer"
+    CATEGORY = "Data Extraction"
+    WORKSPACE = "spatial"
+    DESCRIPTION = "Define WHAT/HOW to sample, inspect semantic data blocks, then compose them into a vector or matrix."
+    INPUTS = {
+        "housing": SamplingPort("sampling_housing"),
+        "image": SamplingPort("image", label="Reference image from Sampling Source Board"),
+    }
+    OUTPUTS = {
+        # v0.3 primary outputs
+        "blocks": SamplingPort("data_block_set"),
+        "data": SamplingPort("composed_data"),
+        # compatibility outputs for old v0.2 services/snapshots
+        "vector": SamplingPort("feature_vector"),
+        "matrix": SamplingPort("feature_matrix"),
+        "profiles": SamplingPort("profile_set"),
+    }
+    PARAMETERS = {
+        "sample_mode": EnumParam(["full", "step", "count"], default="count", label="Sampling mode", description="Full reads every available sample, Step skips by a pixel step, Count resamples every housing element to a fixed length."),
+        "sample_step": IntParam(default=4, min=1, max=256, label="Sampling step px", description="Distance between samples when Sampling mode = Step."),
+        "sample_count": IntParam(default=128, min=4, max=4096, label="Samples / element", description="Fixed number of raw samples when Sampling mode = Count."),
+        "profile_samples": IntParam(default=128, min=8, max=2048, label="Profile preview samples", description="Stable display length for raw profile Data Blocks."),
+        "sample_gray": BoolParam(default=True, label="Gray", description="Sample grayscale intensity."),
+        "sample_r": BoolParam(default=False, label="R", description="Sample red channel."),
+        "sample_g": BoolParam(default=False, label="G", description="Sample green channel."),
+        "sample_b": BoolParam(default=False, label="B", description="Sample blue channel."),
+        "sample_h": BoolParam(default=False, label="H", description="Sample HSV hue."),
+        "sample_s": BoolParam(default=False, label="S", description="Sample HSV saturation."),
+        "sample_v": BoolParam(default=False, label="V", description="Sample HSV value/brightness."),
+        "sample_lab_l": BoolParam(default=False, label="LAB L", description="Sample CIE Lab lightness."),
+        "sample_lab_a": BoolParam(default=False, label="LAB a", description="Sample CIE Lab green-red axis."),
+        "sample_lab_b": BoolParam(default=False, label="LAB b", description="Sample CIE Lab blue-yellow axis."),
+        "include_mean": BoolParam(default=True, label="Mean", description="Average sample value inside one housing element."),
+        "include_std": BoolParam(default=True, label="Std", description="Standard deviation: how spread-out/variable the sampled values are."),
+        "include_minmax": BoolParam(default=False, label="Min / Max", description="Smallest and largest sampled value."),
+        "include_histogram": BoolParam(default=False, label="Histogram", description="Distribution of sample values grouped into intensity bins."),
+        "histogram_bins": IntParam(default=8, min=2, max=64, label="Histogram bins", description="How many buckets divide the 0..255 intensity range."),
+        "include_profiles": BoolParam(default=True, label="Raw profiles", description="Keep an ordered fixed-length profile block for visualization/model input."),
+        "layout_mode": EnumParam(["concatenate", "stack_rows", "stack_columns"], default="concatenate", label="Output layout", description="Concatenate creates one vector; stack modes build a padded 2D matrix from selected Data Blocks."),
+        "order_mode": EnumParam(["element_major", "channel_major", "custom"], default="element_major", label="Block ordering", description="How Data Blocks are ordered before composition."),
+        "block_order": ParameterSpec(kind="string", default="", label="Custom block order", description="Comma-separated Data Block IDs. The UI Layout Composer manages this automatically."),
+    }
+    GUIDE = {
+        "overview": "Every Sampling Unit is Housing (WHERE) + Data Extractor (WHAT/HOW) + Layout Composer (how the extracted blocks are arranged).",
+        "how_it_works": "Each housing element/channel produces semantic Data Blocks such as profile, histogram and statistics. Blocks remain named and inspectable before they are composed into a vector/matrix.",
+        "tips": [
+            "Start with one channel and a few block types; inspect the blocks before increasing dimensionality.",
+            "Fixed-count profiles make model input size stable across image sizes.",
+            "Histogram bins trade compactness against distribution detail.",
+        ],
+        "notes": ["Housing itself is not a deploy output. Expose the composed data from this extractor."],
+        "visualization": "data_blocks",
+    }
+
+    def _ordered_blocks(self, blocks: list[DataBlock], params) -> list[DataBlock]:
+        order_mode = str(params["order_mode"])
+        if order_mode == "channel_major":
+            return sorted(blocks, key=lambda b: (b.channel, b.source_element, b.kind, b.block_id))
+        if order_mode == "custom":
+            requested = [part.strip() for part in str(params.get("block_order", "")).split(",") if part.strip()]
+            rank = {block_id: index for index, block_id in enumerate(requested)}
+            return sorted(blocks, key=lambda b: (rank.get(b.block_id, len(rank)), b.block_id))
+        return sorted(blocks, key=lambda b: (b.source_element, b.channel, b.kind, b.block_id))
+
+    def _compose(self, blocks: list[DataBlock], params) -> ComposedData:
+        ordered = self._ordered_blocks(blocks, params)
+        arrays = [np.asarray(block.values, dtype=np.float32).reshape(-1) for block in ordered]
+        layout = str(params["layout_mode"])
+        if not arrays:
+            values = np.zeros((0,), dtype=np.float32)
+        elif layout == "concatenate":
+            values = np.concatenate(arrays, axis=0).astype(np.float32)
+        else:
+            width = max(len(array) for array in arrays)
+            matrix = np.full((len(arrays), width), np.nan, dtype=np.float32)
+            for row, array in enumerate(arrays):
+                matrix[row, :len(array)] = array
+            values = matrix if layout == "stack_rows" else matrix.T
+        return ComposedData(
+            values=values,
+            layout=layout,
+            block_order=[block.block_id for block in ordered],
+            block_shapes={block.block_id: list(block.shape) for block in ordered},
+            metadata={
+                "order_mode": params["order_mode"],
+                "block_count": len(ordered),
+                "dimension": int(np.asarray(values).size),
+            },
+        )
+
+    def process(self, inputs, params, context: ExecutionContext):
+        housing: SamplingHousing = inputs["housing"]
+        frame: ImageFrame = inputs["image"]
+        channels = _selected_channels(params)
+        channel_images = {channel: image_channel(frame, channel) for channel in channels}
+        if not channels:
+            raise ValueError("Enable at least one channel")
+
+        blocks: list[DataBlock] = []
+        legacy_rows = []
+        legacy_feature_names: list[str] = []
+        legacy_profiles = []
+        legacy_profile_labels = []
+
+        for element_index, element in enumerate(housing.elements):
+            element_id = str(element.get("id", f"element_{element_index}"))
+            row: list[float] = []
+            row_names: list[str] = []
+            for channel in channels:
+                values = _element_values(channel_images[channel], element, housing.source_shape, params)
+                if bool(params["include_profiles"]):
+                    profile = _element_values(
+                        channel_images[channel], element, housing.source_shape, params,
+                        force_count=int(params["profile_samples"]),
+                    ).astype(np.float32)
+                    block_id = f"{element_id}.{channel}.profile"
+                    blocks.append(DataBlock(
+                        block_id=block_id,
+                        label=f"{element_id} · {channel.upper()} profile",
+                        values=profile,
+                        source_element=element_id,
+                        channel=channel,
+                        kind="profile",
+                        description=f"Ordered {channel} samples along {element_id}.",
+                        metadata={"units": "sample", "sampling_mode": params["sample_mode"]},
+                    ))
+                    legacy_profiles.append(profile)
+                    legacy_profile_labels.append(f"{element_id}.{channel}")
+
+                stats_values: list[float] = []
+                stats_names: list[str] = []
+                if bool(params["include_mean"]):
+                    stats_values.append(float(np.mean(values)) if values.size else 0.0); stats_names.append("mean")
+                if bool(params["include_std"]):
+                    stats_values.append(float(np.std(values)) if values.size else 0.0); stats_names.append("std")
+                if bool(params["include_minmax"]):
+                    stats_values.extend([float(np.min(values)) if values.size else 0.0, float(np.max(values)) if values.size else 0.0]); stats_names.extend(["min", "max"])
+                if stats_values:
+                    block_id = f"{element_id}.{channel}.stats"
+                    blocks.append(DataBlock(
+                        block_id=block_id,
+                        label=f"{element_id} · {channel.upper()} statistics",
+                        values=np.asarray(stats_values, dtype=np.float32),
+                        source_element=element_id,
+                        channel=channel,
+                        kind="statistics",
+                        description="Compact distribution statistics: " + ", ".join(stats_names),
+                        metadata={"feature_names": stats_names},
+                    ))
+                    row.extend(stats_values); row_names.extend([f"{channel}.{name}" for name in stats_names])
+
+                if bool(params["include_histogram"]):
+                    bins = int(params["histogram_bins"])
+                    hist, _ = np.histogram(values, bins=bins, range=(0.0, 256.0))
+                    hist = hist.astype(np.float32)
+                    if hist.sum() > 0: hist /= hist.sum()
+                    block_id = f"{element_id}.{channel}.histogram"
+                    blocks.append(DataBlock(
+                        block_id=block_id,
+                        label=f"{element_id} · {channel.upper()} histogram [{bins}]",
+                        values=hist,
+                        source_element=element_id,
+                        channel=channel,
+                        kind="histogram",
+                        description=f"Normalized {channel} intensity distribution split into {bins} bins.",
+                        metadata={"bins": bins, "normalized": True},
+                    ))
+                    row.extend(hist.tolist()); row_names.extend([f"{channel}.hist_{i:02d}" for i in range(bins)])
+
+            legacy_rows.append(row)
+            if not legacy_feature_names: legacy_feature_names = row_names
+
+        if not blocks:
+            raise ValueError("Enable at least one profile/statistic/histogram block")
+        block_set = DataBlockSet(
+            blocks=blocks,
+            metadata={
+                "housing_kind": housing.kind,
+                "elements": len(housing.elements),
+                "channels": channels,
+                "sample_mode": params["sample_mode"],
+            },
+        )
+        composed = self._compose(blocks, params)
+
+        # compatibility artifacts for old snapshots
+        max_width = max([len(row) for row in legacy_rows] + [0])
+        legacy_matrix = np.zeros((len(legacy_rows), max_width), dtype=np.float32)
+        for index, row in enumerate(legacy_rows):
+            if row: legacy_matrix[index, :len(row)] = row
+        vector_values = legacy_matrix.reshape(-1)
+        vector_names = [f"{element.get('id', i)}.{name}" for i, element in enumerate(housing.elements) for name in legacy_feature_names]
+        profile_series = np.asarray(legacy_profiles, dtype=np.float32) if legacy_profiles else np.zeros((0, int(params["profile_samples"])), dtype=np.float32)
+        row_labels = [str(element.get("id", i)) for i, element in enumerate(housing.elements)]
+        return {
+            "blocks": block_set,
+            "data": composed,
+            "vector": FeatureVector(vector_values, vector_names[:len(vector_values)], groups=["spatial_sampling"] * len(vector_values), metadata=block_set.metadata),
+            "matrix": FeatureMatrix(legacy_matrix, legacy_feature_names, row_labels=row_labels, geometry=housing.geometry, metadata=block_set.metadata),
+            "profiles": ProfileSet(
+                x=np.linspace(0.0, 1.0, int(params["profile_samples"]), dtype=np.float32),
+                series=profile_series,
+                labels=legacy_profile_labels,
+                geometry=housing.geometry,
+                units="normalized_sample_position",
+                metadata=block_set.metadata,
+            ),
         }
