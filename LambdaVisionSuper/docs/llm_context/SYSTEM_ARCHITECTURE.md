@@ -158,7 +158,7 @@ Programming/Sequencer UI
 
 Persisted Vision Programs, Modbus trigger/result, Basler/URL camera acquisition, automatic trigger runner, program-wide ROI locator, Filter→Logic→Decision scope runtime, debug image store and per-step benchmarks.
 
-- Detected files: **33**
+- Detected files: **39**
 - Boundary: Owns production-program orchestration only. Image Processing services form sequential filter stacks; logic services are independent extractors; a restricted decision DSL produces scope OK/NG. ROI stations may run sequentially or in parallel. Future Rule/AI services can replace/extend the built-in decision frame.
 - Key files:
   - `BE:app/services/vision_app/repository.py` — Saved Image LAB pipeline persistence.
@@ -172,19 +172,19 @@ Persisted Vision Programs, Modbus trigger/result, Basler/URL camera acquisition,
 
 ### Computer Vision Program UI
 
-Production Computer Vision application with v0.13.6 strict Workspace ownership: each Workspace owns IOT declarations, Camera declarations/binding, Master/ROI, Working scopes and run/debug context; typed dynamic Endpoint Registry and Automation IDE project only the active Workspace resources.
+Production Computer Vision application with v0.14.1 strict Workspace ownership: each Workspace owns IOT declarations, Camera declarations/binding, Master/ROI, Working scopes, Streaming/Soft Trigger and run/debug context; typed dynamic Endpoint Registry and Automation IDE project only the active Workspace resources.
 
-- Detected files: **18**
-- Boundary: Computer Vision is the production orchestration layer. v0.13.6 treats each Workspace as a fully independent inspection program: its own IOT declarations, Camera declarations/binding, Master image, ROI/locator definition, Working filter/logic scopes and debug/run context. New Workspaces start hardware-empty and no runtime resource may fall back to another Workspace.
+- Detected files: **20**
+- Boundary: Computer Vision is the production orchestration layer. v0.14.1 keeps each Workspace fully independent: its own IOT declarations, Camera declarations/binding, Master/ROI, Working scopes and backend stream/Soft Trigger. Basler stream identity is workspace-scoped, browser preview is lazy, and no hardware/runtime resource may fall back to another Workspace.
 - Key files:
-  - `FE:src/Pages/ComputerVisionPage.tsx` — Production Computer Vision application with v0.13.6 strict Workspace ownership: each Workspace owns IOT declarations, Camera declarations/binding, Master/ROI, Working scopes and run/debug context; typed dynamic Endpoint Registry and Automation IDE project only the active Workspace resources.
-  - `FE:src/api/visionAppApi.ts` — Production Computer Vision application with v0.13.6 strict Workspace ownership: each Workspace owns IOT declarations, Camera declarations/binding, Master/ROI, Working scopes and run/debug context; typed dynamic Endpoint Registry and Automation IDE project only the active Workspace resources.
-  - `FE:src/components/ComputerVision/AutomationCodeEditor.tsx` — Production Computer Vision application with v0.13.6 strict Workspace ownership: each Workspace owns IOT declarations, Camera declarations/binding, Master/ROI, Working scopes and run/debug context; typed dynamic Endpoint Registry and Automation IDE project only the active Workspace resources.
-  - `FE:src/components/ComputerVision/AutomationIdeWorkspace.tsx` — Production Computer Vision application with v0.13.6 strict Workspace ownership: each Workspace owns IOT declarations, Camera declarations/binding, Master/ROI, Working scopes and run/debug context; typed dynamic Endpoint Registry and Automation IDE project only the active Workspace resources.
-  - `FE:src/components/ComputerVision/CameraDeclarationWorkspace.tsx` — Production Computer Vision application with v0.13.6 strict Workspace ownership: each Workspace owns IOT declarations, Camera declarations/binding, Master/ROI, Working scopes and run/debug context; typed dynamic Endpoint Registry and Automation IDE project only the active Workspace resources.
-  - `FE:src/components/ComputerVision/CameraModulePanel.tsx` — Production Computer Vision application with v0.13.6 strict Workspace ownership: each Workspace owns IOT declarations, Camera declarations/binding, Master/ROI, Working scopes and run/debug context; typed dynamic Endpoint Registry and Automation IDE project only the active Workspace resources.
-  - `FE:src/components/ComputerVision/ComputerVision.css` — Production Computer Vision application with v0.13.6 strict Workspace ownership: each Workspace owns IOT declarations, Camera declarations/binding, Master/ROI, Working scopes and run/debug context; typed dynamic Endpoint Registry and Automation IDE project only the active Workspace resources.
-  - `FE:src/components/ComputerVision/DebugWorkspace.tsx` — Production Computer Vision application with v0.13.6 strict Workspace ownership: each Workspace owns IOT declarations, Camera declarations/binding, Master/ROI, Working scopes and run/debug context; typed dynamic Endpoint Registry and Automation IDE project only the active Workspace resources.
+  - `FE:src/Pages/ComputerVisionPage.tsx` — Production Computer Vision application with v0.14.1 strict Workspace ownership: each Workspace owns IOT declarations, Camera declarations/binding, Master/ROI, Working scopes, Streaming/Soft Trigger and run/debug context; typed dynamic Endpoint Registry and Automation IDE project only the active Workspace resources.
+  - `FE:src/api/visionAppApi.ts` — Production Computer Vision application with v0.14.1 strict Workspace ownership: each Workspace owns IOT declarations, Camera declarations/binding, Master/ROI, Working scopes, Streaming/Soft Trigger and run/debug context; typed dynamic Endpoint Registry and Automation IDE project only the active Workspace resources.
+  - `FE:src/components/ComputerVision/AutomationCodeEditor.tsx` — Production Computer Vision application with v0.14.1 strict Workspace ownership: each Workspace owns IOT declarations, Camera declarations/binding, Master/ROI, Working scopes, Streaming/Soft Trigger and run/debug context; typed dynamic Endpoint Registry and Automation IDE project only the active Workspace resources.
+  - `FE:src/components/ComputerVision/AutomationIdeWorkspace.tsx` — Production Computer Vision application with v0.14.1 strict Workspace ownership: each Workspace owns IOT declarations, Camera declarations/binding, Master/ROI, Working scopes, Streaming/Soft Trigger and run/debug context; typed dynamic Endpoint Registry and Automation IDE project only the active Workspace resources.
+  - `FE:src/components/ComputerVision/CameraDeclarationWorkspace.tsx` — Production Computer Vision application with v0.14.1 strict Workspace ownership: each Workspace owns IOT declarations, Camera declarations/binding, Master/ROI, Working scopes, Streaming/Soft Trigger and run/debug context; typed dynamic Endpoint Registry and Automation IDE project only the active Workspace resources.
+  - `FE:src/components/ComputerVision/CameraModulePanel.tsx` — Production Computer Vision application with v0.14.1 strict Workspace ownership: each Workspace owns IOT declarations, Camera declarations/binding, Master/ROI, Working scopes, Streaming/Soft Trigger and run/debug context; typed dynamic Endpoint Registry and Automation IDE project only the active Workspace resources.
+  - `FE:src/components/ComputerVision/ComputerVision.css` — Production Computer Vision application with v0.14.1 strict Workspace ownership: each Workspace owns IOT declarations, Camera declarations/binding, Master/ROI, Working scopes, Streaming/Soft Trigger and run/debug context; typed dynamic Endpoint Registry and Automation IDE project only the active Workspace resources.
+  - `FE:src/components/ComputerVision/DebugWorkspace.tsx` — Production Computer Vision application with v0.14.1 strict Workspace ownership: each Workspace owns IOT declarations, Camera declarations/binding, Master/ROI, Working scopes, Streaming/Soft Trigger and run/debug context; typed dynamic Endpoint Registry and Automation IDE project only the active Workspace resources.
 
 ### Contour Extractor LAB Backend
 
@@ -509,7 +509,7 @@ Backend-side updater and maintenance scripts.
 
 Updater scripts, context generators, architectural snapshots, and LLM handoff documentation.
 
-- Detected files: **66**
+- Detected files: **76**
 - Key files:
   - `FE:docs/llm_context/README.md` — Updater scripts, context generators, architectural snapshots, and LLM handoff documentation.
   - `FE:docs/llm_context/SYSTEM_ARCHITECTURE.md` — Updater scripts, context generators, architectural snapshots, and LLM handoff documentation.
@@ -697,6 +697,7 @@ Derived from Python/TypeScript imports. Counts are import edges between source f
 | `BE:app/api/v1/endpoints/utils.py` | `GET` | `/health-check` | `perform_health_check` |
 | `BE:app/api/v1/endpoints/vision_app_api.py` | `DELETE` | `/programs/{program_id}` | `delete_program` |
 | `BE:app/api/v1/endpoints/vision_app_api.py` | `DELETE` | `/programs/{program_id}/automation/trace` | `automation_clear_trace` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `DELETE` | `/programs/{program_id}/workspaces/{workspace_alias}/stream/stop` | `workspace_stream_stop` |
 | `BE:app/api/v1/endpoints/vision_app_api.py` | `GET` | `/cameras/basler/scan` | `basler_scan` |
 | `BE:app/api/v1/endpoints/vision_app_api.py` | `GET` | `/debug/{run_id}/{key}` | `debug_image` |
 | `BE:app/api/v1/endpoints/vision_app_api.py` | `GET` | `/programs` | `list_programs` |
@@ -710,6 +711,10 @@ Derived from Python/TypeScript imports. Counts are import edges between source f
 | `BE:app/api/v1/endpoints/vision_app_api.py` | `GET` | `/programs/{program_id}/master` | `master_preview` |
 | `BE:app/api/v1/endpoints/vision_app_api.py` | `GET` | `/programs/{program_id}/master/blur-preview` | `master_blur_preview` |
 | `BE:app/api/v1/endpoints/vision_app_api.py` | `GET` | `/programs/{program_id}/runner/status` | `runner_status` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `GET` | `/programs/{program_id}/workspaces/{workspace_alias}/stream/frame` | `workspace_stream_frame` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `GET` | `/programs/{program_id}/workspaces/{workspace_alias}/stream/status` | `workspace_stream_status` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `GET` | `/programs/{program_id}/workspaces/{workspace_alias}/utilities/gather/folder-info` | `utility_gather_folder_info` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `GET` | `/programs/{program_id}/workspaces/{workspace_alias}/utilities/gather/folder-preview` | `utility_gather_folder_preview` |
 | `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/new` | `create_program` |
 | `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/automation/endpoints/preview` | `automation_endpoints_preview` |
 | `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/automation/keyboard` | `automation_keyboard` |
@@ -733,7 +738,14 @@ Derived from Python/TypeScript imports. Counts are import edges between source f
 | `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/simulator/iot/{device_alias}/{point_alias}` | `simulator_iot` |
 | `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/test-run` | `test_run` |
 | `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/workspaces/{workspace_alias}/activate` | `workspace_activate` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/workspaces/{workspace_alias}/cycle` | `workspace_cycle` |
 | `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/workspaces/{workspace_alias}/run` | `workspace_run` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/workspaces/{workspace_alias}/soft-trigger/analyze` | `workspace_soft_trigger_analyze` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/workspaces/{workspace_alias}/soft-trigger/preview` | `workspace_soft_trigger_preview` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/workspaces/{workspace_alias}/stream/start` | `workspace_stream_start` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/workspaces/{workspace_alias}/utilities/gather/batch` | `utility_gather_batch` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/workspaces/{workspace_alias}/utilities/gather/burst` | `utility_gather_burst` |
+| `BE:app/api/v1/endpoints/vision_app_api.py` | `POST` | `/programs/{program_id}/workspaces/{workspace_alias}/utilities/gather/capture` | `utility_gather_capture` |
 | `BE:app/api/v1/endpoints/vision_app_api.py` | `PUT` | `/programs/{program_id}` | `save_program` |
 
 ## 7. Frontend routes

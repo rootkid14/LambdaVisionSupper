@@ -158,6 +158,10 @@ Production Computer Vision application with v0.13.6 Workspace-owned resources: p
 - `BE:tests/vision_app/test_vision_app_v1340.py`
 - `BE:tests/vision_app/test_vision_app_v1350.py`
 - `BE:tests/vision_app/test_vision_app_v1360.py`
+- `BE:tests/vision_app/test_vision_app_v1410.py`
+- `BE:tests/vision_app/test_vision_app_v1420.py`
+- `BE:tests/vision_app/test_vision_app_v1500.py`
+- `BE:tests/vision_app/test_vision_app_v1510.py`
 - `BE:app/services/vision_labs/service/runtime.py`
 - `BE:app/services/vision_labs/service/repository.py`
 - `FE:src/Pages/LabView.tsx`

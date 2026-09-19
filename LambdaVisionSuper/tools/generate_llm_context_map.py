@@ -226,13 +226,13 @@ def _profiles() -> tuple[ModuleProfile, ...]:
             "fe_vision_app",
             "FE",
             "Computer Vision Program UI",
-            "Production Computer Vision application with v0.13.6 strict Workspace ownership: each Workspace owns IOT declarations, Camera declarations/binding, Master/ROI, Working scopes and run/debug context; typed dynamic Endpoint Registry and Automation IDE project only the active Workspace resources.",
+            "Production Computer Vision application with v0.14.1 strict Workspace ownership: each Workspace owns IOT declarations, Camera declarations/binding, Master/ROI, Working scopes, Streaming/Soft Trigger and run/debug context; typed dynamic Endpoint Registry and Automation IDE project only the active Workspace resources.",
             (
                 "exact:src/Pages/ComputerVisionPage.tsx",
                 "prefix:src/components/ComputerVision/",
                 "exact:src/api/visionAppApi.ts",
             ),
-            "Computer Vision is the production orchestration layer. v0.13.6 treats each Workspace as a fully independent inspection program: its own IOT declarations, Camera declarations/binding, Master image, ROI/locator definition, Working filter/logic scopes and debug/run context. New Workspaces start hardware-empty and no runtime resource may fall back to another Workspace.",
+            "Computer Vision is the production orchestration layer. v0.14.1 keeps each Workspace fully independent: its own IOT declarations, Camera declarations/binding, Master/ROI, Working scopes and backend stream/Soft Trigger. Basler stream identity is workspace-scoped, browser preview is lazy, and no hardware/runtime resource may fall back to another Workspace.",
             3,
         ),
         ModuleProfile(
@@ -1985,3 +1985,7 @@ if __name__ == "__main__":
 # v0.13.5 Computer Vision: atomic fresh-workspace creation; parent-owned workspace transactions; workspace-keyed UI remount prevents React state leakage across inspection programs.
 
 # v0.13.6 Computer Vision: IOT + Camera declarations are Workspace-owned; legacy globals migrate only into Workspace 1; active runtime projection prevents device/camera state leakage across workspaces.
+
+# v0.14.1 Computer Vision: workspace-owned Basler Streaming Service + lazy browser preview + per-workspace Soft Trigger + full keyboard.key namespace; HTTP/TCP streaming pending.
+
+# v0.14.2 Computer Vision: backend-rendered Raw/Gray/Threshold/Overlay Soft Trigger tuning views; Program-level serialized Soft Trigger inspection dispatcher; per-Workspace skip/latest/FIFO backpressure policies with queue/drop/wait telemetry in UI and Endpoint Registry.

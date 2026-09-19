@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict, deque
 from threading import Event, RLock, Thread
-from time import monotonic, perf_counter
+from time import monotonic, perf_counter, sleep
 from typing import Any
 
 import cv2
@@ -18,6 +18,8 @@ from app.services.vision_app.camera_resource_runtime import CameraResourceContro
 from app.services.vision_app.endpoint_registry import EndpointRegistry, safe_alias
 from app.services.vision_app.frame_slot_store import VISION_FRAME_SLOTS
 from app.services.vision_app.io_runtime import ModbusIOController
+from app.services.vision_app.streaming_runtime import StreamingServiceManager
+from app.services.vision_app.utilities_runtime import UtilityGatherRuntime
 from app.services.vision_app.models import VisionProgramDefinition, model_to_dict
 from app.services.vision_app.repository import VisionProgramRepository
 from app.services.vision_app.runtime import VisionProgramRuntime
@@ -39,6 +41,13 @@ class AutomationManager:
         self.camera_resources = CameraResourceController(self.camera)
         self.io = io or ModbusIOController()
         self.registry = EndpointRegistry()
+        self.streaming = StreamingServiceManager(
+            self.repository,
+            self.camera,
+            on_trigger=self._on_soft_trigger,
+            on_status=self._on_stream_status,
+        )
+        self.utilities = UtilityGatherRuntime()
         self._states: dict[str, AutomationSystemState] = {}
         self._snapshots: dict[str, VisionRunSnapshot] = {}
         self._latest_frames: dict[tuple[str, str], np.ndarray] = {}
@@ -46,6 +55,11 @@ class AutomationManager:
         self._threads: dict[str, Thread] = {}
         self._stops: dict[str, Event] = {}
         self._lock = RLock()
+        # v0.14.2: Program-level serialized inspection dispatcher.
+        self._soft_dispatch_lock = RLock()
+        self._soft_dispatch_busy: set[str] = set()
+        self._soft_dispatch_queue: dict[str, deque[dict[str, Any]]] = defaultdict(deque)
+        self._soft_delivery: dict[tuple[str, str], dict[str, Any]] = {}
 
     def state(self, program_id: str) -> AutomationSystemState:
         with self._lock:
@@ -72,14 +86,358 @@ class AutomationManager:
 
     @staticmethod
     def normalize_key(key: str) -> str:
-        raw = (key or "").strip().lower()
-        mapping = {" ": "space", "spacebar": "space", "arrowup": "arrow_up", "arrowdown": "arrow_down", "arrowleft": "arrow_left", "arrowright": "arrow_right", "esc": "escape"}
-        return mapping.get(raw, raw.replace("-", "_"))
+        raw_original = (key or "").strip()
+        if raw_original.lower().startswith("key."):
+            return "key." + raw_original.split(".", 1)[1].upper().replace("-", "_")
+        raw = raw_original.lower()
+        mapping = {
+            " ": "key.SPACE", "space": "key.SPACE", "spacebar": "key.SPACE",
+            "enter": "key.ENTER", "escape": "key.ESCAPE", "esc": "key.ESCAPE",
+            "arrowup": "key.ARROW_UP", "arrowdown": "key.ARROW_DOWN",
+            "arrowleft": "key.ARROW_LEFT", "arrowright": "key.ARROW_RIGHT",
+        }
+        if raw in mapping:
+            return mapping[raw]
+        if len(raw_original) == 1 and raw_original.isalpha():
+            return f"key.{raw_original.upper()}"
+        if len(raw_original) == 1 and raw_original.isdigit():
+            return f"key.NUM_{raw_original}"
+        if raw.startswith("f") and raw[1:].isdigit():
+            return f"key.{raw.upper()}"
+        return "key." + raw_original.upper().replace("-", "_").replace(" ", "_")
 
     def set_keyboard_state(self, program_id: str, key: str, pressed: bool) -> AutomationSystemState:
         state = self.state(program_id)
-        state.keyboard_states[self.normalize_key(key)] = bool(pressed)
+        canonical = self.normalize_key(key)
+        state.keyboard_states[canonical] = bool(pressed)
+        # Preserve old short aliases so existing scripts continue working.
+        reverse = {
+            "key.SPACE": "space", "key.ENTER": "enter", "key.ESCAPE": "escape",
+            "key.ARROW_UP": "arrow_up", "key.ARROW_DOWN": "arrow_down",
+            "key.ARROW_LEFT": "arrow_left", "key.ARROW_RIGHT": "arrow_right",
+        }
+        if canonical in reverse:
+            state.keyboard_states[reverse[canonical]] = bool(pressed)
+        if canonical.startswith("key.F"):
+            state.keyboard_states[canonical.split(".", 1)[1].lower()] = bool(pressed)
         return state
+
+    def _on_stream_status(self, program_id: str, workspace_alias: str, camera_alias: str, stream: dict[str, Any], soft: dict[str, Any]) -> None:
+        state = self.state(program_id)
+        state.stream_states[workspace_alias] = dict(stream)
+        state.soft_trigger_states[workspace_alias] = dict(soft) if soft else {}
+
+    def _delivery_metrics(self, program_id: str, workspace_alias: str, config) -> dict[str, Any]:
+        key = (program_id, workspace_alias)
+        metrics = self._soft_delivery.get(key)
+        if metrics is None:
+            metrics = {
+                "inspection_busy": False,
+                "queue_depth": 0,
+                "queue_capacity": 0,
+                "triggered_total": 0,
+                "accepted_total": 0,
+                "queued_total": 0,
+                "processed_total": 0,
+                "skipped_busy": 0,
+                "dropped_overflow": 0,
+                "replaced_latest": 0,
+                "failed_total": 0,
+                "max_queue_depth": 0,
+                "last_queue_wait_ms": 0.0,
+                "avg_queue_wait_ms": 0.0,
+                "last_processing_ms": 0.0,
+                "last_action": "",
+                "_wait_total_ms": 0.0,
+                "_wait_samples": 0,
+            }
+            self._soft_delivery[key] = metrics
+        policy = getattr(config, "backpressure_policy", "skip")
+        capacity = 0 if policy == "skip" else 1 if policy == "latest" else max(1, int(getattr(config, "queue_capacity", 3)))
+        metrics["queue_capacity"] = capacity
+        return metrics
+
+    def _refresh_soft_queue_depth_locked(self, program_id: str) -> set[str]:
+        affected = {alias for (pid, alias) in self._soft_delivery if pid == program_id}
+        for alias in affected:
+            self._soft_delivery[(program_id, alias)]["queue_depth"] = 0
+        for item in self._soft_dispatch_queue.get(program_id, ()):
+            alias = item["workspace_alias"]
+            affected.add(alias)
+            metrics = self._soft_delivery.get((program_id, alias))
+            if metrics is not None:
+                metrics["queue_depth"] += 1
+                metrics["max_queue_depth"] = max(metrics["max_queue_depth"], metrics["queue_depth"])
+        return affected
+
+    def _publish_soft_delivery(self, program_id: str, workspace_alias: str) -> None:
+        metrics = self._soft_delivery.get((program_id, workspace_alias))
+        if metrics is None:
+            return
+        public = {key: value for key, value in metrics.items() if not key.startswith("_")}
+        self.streaming.update_delivery_metrics(program_id, workspace_alias, **public)
+        state = self.state(program_id)
+        soft = state.soft_trigger_states.setdefault(workspace_alias, {})
+        soft.update(public)
+
+    def _publish_many_soft_delivery(self, program_id: str, aliases: set[str]) -> None:
+        for alias in aliases:
+            self._publish_soft_delivery(program_id, alias)
+
+    def _queue_soft_trigger_locked(self, program_id: str, item: dict[str, Any], config) -> tuple[bool, set[str]]:
+        """Return (accepted, aliases_that_need_status_refresh)."""
+        alias = item["workspace_alias"]
+        metrics = self._delivery_metrics(program_id, alias, config)
+        queue = self._soft_dispatch_queue[program_id]
+        policy = getattr(config, "backpressure_policy", "skip")
+        affected = {alias}
+
+        if policy == "skip":
+            metrics["skipped_busy"] += 1
+            metrics["last_action"] = "skipped_busy"
+            return False, affected
+
+        if policy == "latest":
+            items = list(queue)
+            replaced = False
+            for index in range(len(items) - 1, -1, -1):
+                if items[index]["workspace_alias"] == alias:
+                    items[index] = item
+                    replaced = True
+                    break
+            if replaced:
+                queue.clear()
+                queue.extend(items)
+                metrics["replaced_latest"] += 1
+                metrics["accepted_total"] += 1
+                metrics["queued_total"] += 1
+                metrics["last_action"] = "replaced_latest"
+            else:
+                queue.append(item)
+                metrics["accepted_total"] += 1
+                metrics["queued_total"] += 1
+                metrics["last_action"] = "queued_latest"
+            affected |= self._refresh_soft_queue_depth_locked(program_id)
+            return True, affected
+
+        capacity = max(1, int(getattr(config, "queue_capacity", 3)))
+        same_workspace = [index for index, queued in enumerate(queue) if queued["workspace_alias"] == alias]
+        if len(same_workspace) < capacity:
+            queue.append(item)
+            metrics["accepted_total"] += 1
+            metrics["queued_total"] += 1
+            metrics["last_action"] = "queued_fifo"
+            affected |= self._refresh_soft_queue_depth_locked(program_id)
+            return True, affected
+
+        overflow = getattr(config, "overflow_policy", "drop_oldest")
+        if overflow == "drop_newest":
+            metrics["dropped_overflow"] += 1
+            metrics["last_action"] = "dropped_newest"
+            return False, affected
+
+        items = list(queue)
+        drop_index = same_workspace[0]
+        items.pop(drop_index)
+        items.append(item)
+        queue.clear()
+        queue.extend(items)
+        metrics["accepted_total"] += 1
+        metrics["queued_total"] += 1
+        metrics["dropped_overflow"] += 1
+        metrics["last_action"] = "dropped_oldest_queued_new"
+        affected |= self._refresh_soft_queue_depth_locked(program_id)
+        return True, affected
+
+    def _process_soft_trigger_item(self, program_id: str, item: dict[str, Any]) -> None:
+        workspace_alias = item["workspace_alias"]
+        camera_alias = item["camera_alias"]
+        image = item["image"]
+        sequence = item["sequence"]
+        program = self.repository.get(program_id)
+        workspace = workspace_by_alias(program, workspace_alias)
+
+        if workspace.soft_trigger.snapshot_to_image_slot:
+            # Workspace-local latest-frame storage avoids overwriting another
+            # Workspace's input while this item waits in the dispatcher.
+            self.set_latest_frame(program_id, image, workspace_alias=workspace_alias, announce=False)
+
+        self.emit(program, f"workspace.{workspace_alias}.soft_trigger_dispatched", {
+            "workspace": workspace_alias,
+            "camera": camera_alias,
+            "sequence": sequence,
+        })
+        if workspace.soft_trigger.run_inspection:
+            self.run_workspace_cycle(program_id, image=image, workspace_alias=workspace_alias)
+
+    def _run_soft_dispatch(self, program_id: str, first_item: dict[str, Any] | None) -> None:
+        item = first_item
+        while True:
+            if item is None:
+                while self.state(program_id).run_state in {"INSPECTING", "DECIDING"}:
+                    sleep(0.01)
+                with self._soft_dispatch_lock:
+                    queue = self._soft_dispatch_queue[program_id]
+                    if not queue:
+                        self._soft_dispatch_busy.discard(program_id)
+                        aliases = {alias for (pid, alias) in self._soft_delivery if pid == program_id}
+                        for alias in aliases:
+                            self._soft_delivery[(program_id, alias)]["inspection_busy"] = False
+                        self._refresh_soft_queue_depth_locked(program_id)
+                        self._publish_many_soft_delivery(program_id, aliases)
+                        return
+                    item = queue.popleft()
+                    aliases = self._refresh_soft_queue_depth_locked(program_id)
+                self._publish_many_soft_delivery(program_id, aliases)
+
+            alias = item["workspace_alias"]
+            try:
+                program = self.repository.get(program_id)
+                workspace = workspace_by_alias(program, alias)
+                config = workspace.soft_trigger
+            except Exception:
+                config = None
+
+            with self._soft_dispatch_lock:
+                metrics = self._delivery_metrics(program_id, alias, config) if config is not None else self._soft_delivery.setdefault((program_id, alias), {})
+                wait_ms = max(0.0, (monotonic() - float(item["enqueued_at"])) * 1000.0)
+                metrics["inspection_busy"] = True
+                metrics["last_queue_wait_ms"] = wait_ms
+                metrics["_wait_total_ms"] = float(metrics.get("_wait_total_ms", 0.0)) + wait_ms
+                metrics["_wait_samples"] = int(metrics.get("_wait_samples", 0)) + 1
+                metrics["avg_queue_wait_ms"] = metrics["_wait_total_ms"] / max(1, metrics["_wait_samples"])
+                metrics["last_action"] = "processing"
+            self._publish_soft_delivery(program_id, alias)
+
+            started = perf_counter()
+            ok = True
+            try:
+                self._process_soft_trigger_item(program_id, item)
+            except Exception as exc:
+                ok = False
+                state = self.state(program_id)
+                state.last_error = f"Soft Trigger {alias}: {exc}"
+                soft = state.soft_trigger_states.setdefault(alias, {})
+                soft["last_error"] = str(exc)
+            elapsed_ms = (perf_counter() - started) * 1000.0
+
+            with self._soft_dispatch_lock:
+                metrics = self._soft_delivery[(program_id, alias)]
+                metrics["last_processing_ms"] = elapsed_ms
+                if ok:
+                    metrics["processed_total"] += 1
+                    metrics["last_action"] = "processed"
+                else:
+                    metrics["failed_total"] += 1
+                    metrics["last_action"] = "inspection_failed"
+
+                queue = self._soft_dispatch_queue[program_id]
+                item = queue.popleft() if queue else None
+                aliases = self._refresh_soft_queue_depth_locked(program_id)
+                if item is None:
+                    self._soft_dispatch_busy.discard(program_id)
+                    for affected_alias in aliases | {alias}:
+                        if (program_id, affected_alias) in self._soft_delivery:
+                            self._soft_delivery[(program_id, affected_alias)]["inspection_busy"] = False
+                else:
+                    next_alias = item["workspace_alias"]
+                    if (program_id, next_alias) in self._soft_delivery:
+                        self._soft_delivery[(program_id, next_alias)]["inspection_busy"] = True
+                    aliases.add(next_alias)
+                aliases.add(alias)
+            self._publish_many_soft_delivery(program_id, aliases)
+            if item is None:
+                return
+
+    def _clear_soft_dispatch(self, program_id: str) -> None:
+        with self._soft_dispatch_lock:
+            queue = self._soft_dispatch_queue.get(program_id)
+            if queue is not None:
+                queue.clear()
+            aliases = self._refresh_soft_queue_depth_locked(program_id)
+            for alias in aliases:
+                metrics = self._soft_delivery[(program_id, alias)]
+                if not metrics.get("inspection_busy"):
+                    metrics["last_action"] = "offline_queue_cleared"
+        self._publish_many_soft_delivery(program_id, aliases)
+
+    def _on_soft_trigger(self, program_id: str, workspace_alias: str, camera_alias: str, image: np.ndarray, sequence: int) -> None:
+        """Apply the Workspace backpressure policy before starting inspection."""
+        try:
+            program = self.repository.get(program_id)
+            workspace = workspace_by_alias(program, workspace_alias)
+            config = workspace.soft_trigger
+            payload = {"workspace": workspace_alias, "camera": camera_alias, "sequence": sequence}
+
+            # Threshold crossings remain observable even if the inspection frame
+            # is later skipped by the busy policy.
+            self.emit(program, f"workspace.{workspace_alias}.soft_triggered", payload)
+            self._append_trace(program_id, AutomationTraceEntry(
+                service_id="soft_trigger",
+                service_name=f"Soft Trigger · {workspace.name}",
+                phase="stream",
+                level="info",
+                message="Soft Trigger threshold crossed",
+                endpoint=f"workspace.{workspace_alias}.soft_triggered",
+                value=payload,
+            ))
+
+            item = {
+                "workspace_alias": workspace_alias,
+                "camera_alias": camera_alias,
+                "image": np.ascontiguousarray(image.copy()),
+                "sequence": sequence,
+                "enqueued_at": monotonic(),
+            }
+
+            if not config.run_inspection:
+                metrics = self._delivery_metrics(program_id, workspace_alias, config)
+                metrics["triggered_total"] += 1
+                metrics["accepted_total"] += 1
+                metrics["last_action"] = "event_only"
+                if config.snapshot_to_image_slot:
+                    self.set_latest_frame(program_id, image, workspace_alias=workspace_alias, announce=False)
+                self._publish_soft_delivery(program_id, workspace_alias)
+                return
+
+            launch_worker = False
+            first_item = None
+            affected: set[str] = {workspace_alias}
+            with self._soft_dispatch_lock:
+                metrics = self._delivery_metrics(program_id, workspace_alias, config)
+                metrics["triggered_total"] += 1
+                external_busy = self.state(program_id).run_state in {"INSPECTING", "DECIDING"}
+                dispatcher_busy = program_id in self._soft_dispatch_busy
+
+                if not external_busy and not dispatcher_busy:
+                    self._soft_dispatch_busy.add(program_id)
+                    metrics["accepted_total"] += 1
+                    metrics["inspection_busy"] = True
+                    metrics["last_action"] = "processing"
+                    first_item = item
+                    launch_worker = True
+                else:
+                    accepted, affected = self._queue_soft_trigger_locked(program_id, item, config)
+                    if accepted and not dispatcher_busy:
+                        # An unrelated manual/IDE inspection is busy. Start one
+                        # waiter thread; it will drain the queue when run_state frees.
+                        self._soft_dispatch_busy.add(program_id)
+                        launch_worker = True
+                        first_item = None
+
+            self._publish_many_soft_delivery(program_id, affected)
+            if launch_worker:
+                Thread(
+                    target=self._run_soft_dispatch,
+                    args=(program_id, first_item),
+                    daemon=True,
+                    name=f"soft-dispatch-{program_id}",
+                ).start()
+        except Exception as exc:
+            state = self.state(program_id)
+            state.last_error = f"Soft Trigger {workspace_alias}: {exc}"
+            soft = state.soft_trigger_states.setdefault(workspace_alias, {})
+            soft["last_error"] = str(exc)
 
     def _append_trace(self, program_id: str, entry: AutomationTraceEntry) -> None:
         self._trace[program_id].append(entry)
@@ -189,6 +547,125 @@ class AutomationManager:
             state.workspace_activation_sequence += 1
         return state
 
+    def _workspace_camera_declaration(self, program: VisionProgramDefinition, workspace):
+        if not workspace.camera_id:
+            raise RuntimeError(f'Workspace {workspace.name} has no assigned camera')
+        camera = next((item for item in workspace.cameras.devices if item.declaration_id == workspace.camera_id and item.enabled), None)
+        if camera is None:
+            raise RuntimeError(f'Workspace camera declaration not found/enabled: {workspace.camera_id}')
+        return camera
+
+    def gather_burst(
+        self,
+        program_id: str,
+        workspace_alias: str,
+        plan,
+        *,
+        samples: int = 1,
+        interval_ms: int = 0,
+        first_image: np.ndarray | None = None,
+    ) -> dict[str, Any]:
+        """Persist N temporal samples for one Workspace using one explicit gather plan.
+
+        When first_image is supplied it becomes sample #1. Additional samples use the
+        Workspace-owned camera declaration. Basler capture is conflict-free with the
+        persistent stream because CameraResourceController snapshots Streaming_frame.
+        """
+        program = self.repository.get(program_id)
+        workspace = workspace_by_alias(program, workspace_alias)
+        alias = safe_alias(workspace.alias, workspace.workspace_id)
+        count = max(1, min(100, int(samples)))
+        delay = max(0, min(60000, int(interval_ms))) / 1000.0
+        camera = None
+        if first_image is None or count > 1:
+            camera = self._workspace_camera_declaration(program, workspace)
+
+        results: list[dict[str, Any]] = []
+        saved_count = 0
+        failed_count = 0
+        for index in range(count):
+            if index == 0 and first_image is not None:
+                image = np.ascontiguousarray(first_image.copy())
+            else:
+                assert camera is not None
+                image = self.camera_resources.capture(program_id, camera)
+            self.set_latest_frame(program_id, image, workspace_alias=alias, announce=False)
+            result = self.utilities.save_frame(image, plan)
+            result['sample_index'] = index
+            results.append(result)
+            saved_count += int(result.get('saved_count', 0))
+            failed_count += int(result.get('failed_count', 0))
+            if index + 1 < count and delay > 0.0:
+                sleep(delay)
+        return {
+            'workspace': alias,
+            'samples_requested': count,
+            'samples_processed': len(results),
+            'saved_count': saved_count,
+            'failed_count': failed_count,
+            'results': results,
+        }
+
+    def run_workspace_cycle(self, program_id: str, image: np.ndarray | None = None, workspace_alias: str | None = None) -> dict[str, Any]:
+        """Run the production Workspace cycle while honoring Utilities Active.
+
+        OFF            -> Working only (legacy behavior).
+        UTILITIES_ONLY -> gather configured samples and intentionally skip Working.
+        BOTH           -> gather first, then inspect the exact primary frame once.
+
+        Gathering finishes before Working emits run_finish, so burst collection cannot
+        race an automation step that removes the product after inspection completes.
+        """
+        program = self.repository.get(program_id)
+        workspace = workspace_by_alias(program, workspace_alias or self.state(program_id).active_workspace)
+        alias = safe_alias(workspace.alias, workspace.workspace_id)
+        config = workspace.utilities.gathering
+        mode = str(config.mode or 'off')
+        if mode == 'off':
+            return {'mode': mode, 'workspace': alias, 'utilities': None, 'working': self.run_inspection(program_id, image=image, workspace_alias=alias)}
+
+        state = self.state(program_id)
+        state.last_workspace = alias
+        state.run_state = 'CAPTURING'
+        state.last_error = ''
+        try:
+            if image is None:
+                primary = self._workspace_input(program, workspace)
+            else:
+                primary = np.ascontiguousarray(image.copy())
+                self.set_latest_frame(program_id, primary, workspace_alias=alias, announce=False)
+
+            gathered = self.gather_burst(
+                program_id,
+                alias,
+                config.plan,
+                samples=config.samples_per_cycle,
+                interval_ms=config.interval_ms,
+                first_image=primary,
+            )
+            self.emit(program, f'workspace.{alias}.utilities_gathered', {
+                'workspace': alias,
+                'samples': gathered['samples_processed'],
+                'saved_count': gathered['saved_count'],
+                'failed_count': gathered['failed_count'],
+            })
+
+            if mode == 'utilities_only':
+                state.run_state = 'FINISHED'
+                state.last_event = f'workspace.{alias}.cycle_finish'
+                self.emit(program, f'workspace.{alias}.cycle_finish', {'workspace': alias, 'mode': mode, 'result': 'NONE'})
+                return {'mode': mode, 'workspace': alias, 'utilities': gathered, 'working': None}
+
+            state.run_state = 'IDLE'
+            working = self.run_inspection(program_id, image=primary, workspace_alias=alias)
+            self.emit(program, f'workspace.{alias}.cycle_finish', {'workspace': alias, 'mode': mode, 'result': 'OK' if working.overall_ok else 'NG'})
+            return {'mode': mode, 'workspace': alias, 'utilities': gathered, 'working': working}
+        except Exception as exc:
+            state.run_state = 'ERROR'
+            state.last_error = str(exc)
+            self.emit(program, f'workspace.{alias}.cycle_error', {'workspace': alias, 'mode': mode, 'error': str(exc)})
+            raise
+
     def run_inspection(self, program_id: str, image: np.ndarray | None = None, workspace_alias: str | None = None):
         program = self.repository.get(program_id)
         workspace = workspace_by_alias(program, workspace_alias or self.state(program_id).active_workspace)
@@ -283,6 +760,14 @@ class AutomationManager:
             if rest == ['active']: return state.active_workspace == alias
             if rest == ['result']: return state.workspace_results.get(alias, 'NONE')
             if rest == ['input_binding']: return workspace.input_binding
+            soft_state = state.soft_trigger_states.get(alias, {})
+            if rest == ['utilities', 'active_mode']: return workspace.utilities.gathering.mode
+            if rest == ['utilities', 'samples_per_cycle']: return int(workspace.utilities.gathering.samples_per_cycle)
+            if rest == ['soft_trigger', 'enabled']: return workspace.soft_trigger.enabled
+            if rest == ['soft_trigger', 'armed']: return bool(soft_state.get('armed', False))
+            if rest == ['soft_trigger', 'pixel_count']: return int(soft_state.get('pixel_count', 0))
+            if rest == ['soft_trigger', 'active_ratio']: return float(soft_state.get('active_ratio', 0.0))
+            if rest == ['soft_trigger', 'fires']: return int(soft_state.get('fires', 0))
             if rest and rest[0] == 'vision':
                 snap = self.snapshot(program.program_id)
                 if snap is None or state.last_workspace != alias: raise KeyError(f'No snapshot for {alias}')
@@ -290,13 +775,23 @@ class AutomationManager:
                 legacy = 'vision.' + '.'.join(rest[1:])
                 return self._read_snapshot_path(snap, legacy)
         if path.startswith('keyboard.'):
-            return bool(self.state(program.program_id).keyboard_states.get(self.normalize_key(path.split('.', 1)[1]), False))
+            suffix = path.split('.', 1)[1]
+            if suffix.startswith('key.'):
+                key = self.normalize_key(suffix)
+            else:
+                key = self.normalize_key(suffix)
+            return bool(self.state(program.program_id).keyboard_states.get(key, self.state(program.program_id).keyboard_states.get(suffix, False)))
         camera_path = self._camera_path(program, path)
         if camera_path is not None:
             camera, rest = camera_path
+            camera_alias = safe_alias(camera.alias, camera.declaration_id)
+            stream_state = self.state(program.program_id).stream_states.get(self.state(program.program_id).active_workspace, {})
             if rest == ['exposure_us']: return camera.exposure_us
-            if rest == ['streaming']: return VISION_FRAME_SLOTS.streaming(program.program_id, safe_alias(camera.alias, camera.declaration_id))
-            slot = '.'.join(['camera', safe_alias(camera.alias, camera.declaration_id)] + rest)
+            if rest == ['streaming']: return bool(stream_state.get('running', VISION_FRAME_SLOTS.streaming(program.program_id, camera_alias)))
+            if rest == ['stream_fps']: return stream_state.get('fps', 0.0)
+            if rest == ['stream_sequence']: return stream_state.get('sequence', 0)
+            if rest == ['stream_error']: return stream_state.get('last_error', '')
+            slot = '.'.join(['camera', camera_alias] + rest)
             if VISION_FRAME_SLOTS.has(program.program_id, slot): return {'slot': slot, 'sequence': VISION_FRAME_SLOTS.sequence(program.program_id, slot)}
         if path.startswith('event.'):
             return event.get(path.split('.', 1)[1])
@@ -348,7 +843,11 @@ class AutomationManager:
 
     def _call_action(self, program: VisionProgramDefinition, path: str, args: list[Any], kwargs: dict[str, Any], dry_run: bool) -> Any:
         if path == 'system.run_inspection':
-            return 'WOULD_RUN_INSPECTION' if dry_run else self.run_inspection(program.program_id)
+            if dry_run: return 'WOULD_RUN_WORKSPACE_CYCLE'
+            cycle = self.run_workspace_cycle(program.program_id)
+            return cycle['working'] if cycle['working'] is not None else cycle['utilities']
+        if path == 'system.run_working':
+            return 'WOULD_RUN_WORKING' if dry_run else self.run_inspection(program.program_id)
         if path == 'system.commit_result':
             if not args: raise ValueError('system.commit_result requires OK or NG')
             if not dry_run: self.commit_result(program.program_id, args[0])
@@ -362,10 +861,23 @@ class AutomationManager:
             if rest == ['activate']:
                 if not dry_run: self.activate_workspace(program.program_id, alias)
                 return True
-            if rest == ['run_inspection']:
-                return f'WOULD_RUN_{alias}' if dry_run else self.run_inspection(program.program_id, workspace_alias=alias)
+            if rest in (['run_inspection'], ['run_cycle']):
+                if dry_run: return f'WOULD_RUN_CYCLE_{alias}'
+                cycle = self.run_workspace_cycle(program.program_id, workspace_alias=alias)
+                return cycle['working'] if cycle['working'] is not None else cycle['utilities']
+            if rest == ['run_working']:
+                return f'WOULD_RUN_WORKING_{alias}' if dry_run else self.run_inspection(program.program_id, workspace_alias=alias)
             if rest == ['clear']:
                 if not dry_run: self.clear_working_screen(program.program_id, alias)
+                return True
+            if rest == ['soft_trigger', 'arm']:
+                if not dry_run:
+                    self.streaming.arm_workspace(program, alias, reason_prefix='ide_soft')
+                return True
+            if rest == ['soft_trigger', 'disarm']:
+                if not dry_run:
+                    self.streaming.disarm_workspace(program, alias, reason_prefix='ide_soft')
+                    self.state(program.program_id).soft_trigger_states.pop(alias, None)
                 return True
         camera_path = self._camera_path(program, path)
         if camera_path is not None:
@@ -373,10 +885,10 @@ class AutomationManager:
             if rest == ['capture']:
                 return f'WOULD_CAPTURE_{alias}' if dry_run else bool(self.capture(program.program_id, alias) is not None)
             if rest == ['start_stream']:
-                if not dry_run: self.camera_resources.start_stream(program.program_id, camera)
+                if not dry_run: self.streaming.ensure(program.program_id, self.state(program.program_id).active_workspace, camera, f'ide:{alias}')
                 return True
             if rest == ['stop_stream']:
-                if not dry_run: self.camera_resources.stop_stream(program.program_id, camera)
+                if not dry_run: self.streaming.release(program.program_id, self.state(program.program_id).active_workspace, f'ide:{alias}')
                 return True
             custom_alias = rest[0] if rest else ''
             for custom in camera.custom_apis:
@@ -441,10 +953,27 @@ class AutomationManager:
         return self.state(program_id)
 
     def online(self, program_id: str) -> AutomationSystemState:
-        state = self.start(program_id); state.online = True; return state
+        program = self.repository.get(program_id)
+        state = self.start(program_id)
+        state.online = True
+        self.streaming.arm_program(program)
+        return state
 
     def offline(self, program_id: str) -> AutomationSystemState:
-        state = self.stop(program_id); state.online = False; return state
+        program = self.repository.get(program_id)
+        self.streaming.disarm_program(program)
+        self._clear_soft_dispatch(program_id)
+        state = self.stop(program_id)
+        state.online = False
+        state.soft_trigger_states = {}
+        return state
+
+    def shutdown_program(self, program_id: str) -> None:
+        try:
+            self.offline(program_id)
+        except Exception:
+            self.stop(program_id)
+            self.streaming.stop_program(program_id)
 
     def _scheduler_loop(self, program_id: str, stop: Event) -> None:
         due: dict[str, float] = {}

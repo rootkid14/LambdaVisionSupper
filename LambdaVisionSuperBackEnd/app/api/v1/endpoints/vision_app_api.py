@@ -12,7 +12,7 @@ from app.services.vision_app.camera_runtime import CameraController
 from app.services.vision_app.automation_manager import AutomationManager
 from app.services.vision_app.debug_store import VISION_DEBUG_STORE
 from app.services.vision_app.io_runtime import ModbusIOController
-from app.services.vision_app.models import VisionProgramDefinition, model_to_dict
+from app.services.vision_app.models import SoftTriggerConfig, UtilityBatchRequest, UtilityBurstRequest, UtilityGatherPlan, VisionProgramDefinition, model_to_dict
 from app.services.vision_app.endpoint_registry import safe_alias
 from app.services.vision_app.frame_slot_store import VISION_FRAME_SLOTS
 from app.services.vision_app.workspace_runtime import projected_program, workspace_by_alias
@@ -20,6 +20,7 @@ from app.services.vision_app.repository import VisionProgramRepository
 from app.services.vision_app.roi_search import blur_preview, locate_all
 from app.services.vision_app.runner import VisionTriggerRunnerManager
 from app.services.vision_app.runtime import VisionProgramRuntime
+from app.services.vision_app.utilities_runtime import UtilityGatherRuntime
 
 router = APIRouter()
 repository = VisionProgramRepository()
@@ -28,6 +29,7 @@ io_controller = ModbusIOController()
 camera_controller = CameraController()
 automation_manager = AutomationManager(repository, runtime, camera_controller, io_controller)
 runner_manager = VisionTriggerRunnerManager(repository, runtime, camera_controller, io_controller)
+utilities_runtime = automation_manager.utilities
 
 
 def _error(exc: Exception, status: int = 400) -> HTTPException:
@@ -121,7 +123,7 @@ def save_program(program_id: str, program: VisionProgramDefinition):
 def delete_program(program_id: str):
     try:
         runner_manager.stop(program_id)
-        automation_manager.stop(program_id)
+        automation_manager.shutdown_program(program_id)
         if not repository.delete(program_id):
             raise FileNotFoundError(f"Vision Program not found: {program_id}")
         return {"success": True}
@@ -212,6 +214,25 @@ def workspace_run(program_id: str, workspace_alias: str):
     try:
         result = automation_manager.run_inspection(program_id, workspace_alias=workspace_alias)
         return {"success": True, "run": model_to_dict(result), "system_state": model_to_dict(automation_manager.state(program_id))}
+    except FileNotFoundError as exc:
+        raise _error(exc, 404)
+    except Exception as exc:
+        raise _error(exc)
+
+
+@router.post("/programs/{program_id}/workspaces/{workspace_alias}/cycle", summary="Run production Workspace cycle honoring Utilities Active")
+def workspace_cycle(program_id: str, workspace_alias: str):
+    try:
+        cycle = automation_manager.run_workspace_cycle(program_id, workspace_alias=workspace_alias)
+        working = cycle.get("working")
+        return {
+            "success": True,
+            "mode": cycle.get("mode"),
+            "workspace": cycle.get("workspace"),
+            "utilities": cycle.get("utilities"),
+            "run": model_to_dict(working) if working is not None else None,
+            "system_state": model_to_dict(automation_manager.state(program_id)),
+        }
     except FileNotFoundError as exc:
         raise _error(exc, 404)
     except Exception as exc:
@@ -485,7 +506,7 @@ def automation_start(program_id: str):
 
 @router.post("/programs/{program_id}/automation/stop", summary="Stop Loop Automation scheduler")
 def automation_stop(program_id: str):
-    return {"success": True, "state": model_to_dict(automation_manager.stop(program_id))}
+    return {"success": True, "state": model_to_dict(automation_manager.shutdown_program(program_id))}
 
 
 @router.get("/programs/{program_id}/automation/state", summary="Read Automation/System state")
@@ -532,5 +553,160 @@ async def automation_set_latest_frame(program_id: str, request: Request, workspa
         return {"success": True, "shape": list(image.shape)}
     except FileNotFoundError as exc:
         raise _error(exc, 404)
+    except Exception as exc:
+        raise _error(exc)
+
+@router.get("/programs/{program_id}/workspaces/{workspace_alias}/utilities/gather/folder-info", summary="Inspect an offline Utilities image folder")
+def utility_gather_folder_info(program_id: str, workspace_alias: str, source_dir: str):
+    try:
+        repository.get(program_id)
+        return {"success": True, **utilities_runtime.folder_info(source_dir)}
+    except Exception as exc:
+        raise _error(exc)
+
+
+@router.get("/programs/{program_id}/workspaces/{workspace_alias}/utilities/gather/folder-preview", summary="Preview one offline Utilities source image")
+def utility_gather_folder_preview(program_id: str, workspace_alias: str, source_dir: str, index: int = 0, quality: int = 90):
+    try:
+        repository.get(program_id)
+        image, path, resolved, count = utilities_runtime.folder_image(source_dir, index)
+        from urllib.parse import quote
+        return Response(
+            content=_encode_jpeg(image, quality),
+            media_type="image/jpeg",
+            headers={
+                "X-Image-Index": str(resolved),
+                "X-Image-Count": str(count),
+                "X-Image-Name": quote(path.name, safe=""),
+            },
+        )
+    except Exception as exc:
+        raise _error(exc)
+
+
+@router.post("/programs/{program_id}/workspaces/{workspace_alias}/utilities/gather/capture", summary="Capture active Workspace camera and persist routed full-frame/ROI samples")
+def utility_gather_capture(program_id: str, workspace_alias: str, plan: UtilityGatherPlan):
+    try:
+        program = repository.get(program_id)
+        workspace = workspace_by_alias(program, workspace_alias)
+        if not workspace.camera_id:
+            raise RuntimeError("Workspace has no assigned camera")
+        camera = next((item for item in workspace.cameras.devices if item.declaration_id == workspace.camera_id), None)
+        if camera is None:
+            raise RuntimeError(f"Workspace camera declaration not found: {workspace.camera_id}")
+        image = automation_manager.camera_resources.capture(program_id, camera)
+        alias = safe_alias(workspace.alias, workspace.workspace_id)
+        automation_manager.set_latest_frame(program_id, image, workspace_alias=alias, announce=False)
+        result = utilities_runtime.save_frame(image, plan)
+        return {"success": True, "workspace": alias, "camera": safe_alias(camera.alias, camera.declaration_id), **result}
+    except Exception as exc:
+        raise _error(exc)
+
+
+@router.post("/programs/{program_id}/workspaces/{workspace_alias}/utilities/gather/burst", summary="Capture multiple temporal samples and persist routed/augmented outputs")
+def utility_gather_burst(program_id: str, workspace_alias: str, request: UtilityBurstRequest):
+    try:
+        repository.get(program_id)
+        result = automation_manager.gather_burst(
+            program_id,
+            workspace_alias,
+            request,
+            samples=request.samples,
+            interval_ms=request.interval_ms,
+        )
+        return {"success": True, **result}
+    except Exception as exc:
+        raise _error(exc)
+
+
+@router.post("/programs/{program_id}/workspaces/{workspace_alias}/utilities/gather/batch", summary="Batch-extract full-frame/ROI samples from an offline image folder")
+def utility_gather_batch(program_id: str, workspace_alias: str, request: UtilityBatchRequest):
+    try:
+        repository.get(program_id)
+        return {"success": True, **utilities_runtime.process_folder(request)}
+    except Exception as exc:
+        raise _error(exc)
+
+
+def _workspace_stream_resource(program, workspace_alias: str):
+    workspace = workspace_by_alias(program, workspace_alias)
+    camera = next((c for c in workspace.cameras.devices if c.enabled and c.declaration_id == workspace.camera_id), None)
+    if camera is None:
+        raise RuntimeError(f"Workspace {workspace.name} has no enabled assigned camera")
+    return workspace, camera
+
+
+@router.post("/programs/{program_id}/workspaces/{workspace_alias}/stream/start", summary="Start workspace backend camera stream")
+def workspace_stream_start(program_id: str, workspace_alias: str):
+    try:
+        program = repository.get(program_id)
+        workspace, camera = _workspace_stream_resource(program, workspace_alias)
+        alias = safe_alias(workspace.alias, workspace.workspace_id)
+        return {"success": True, **automation_manager.streaming.ensure(program_id, alias, camera, f"browser:{alias}")}
+    except Exception as exc:
+        raise _error(exc)
+
+
+@router.delete("/programs/{program_id}/workspaces/{workspace_alias}/stream/stop", summary="Release workspace browser stream consumer")
+def workspace_stream_stop(program_id: str, workspace_alias: str):
+    try:
+        program = repository.get(program_id)
+        workspace = workspace_by_alias(program, workspace_alias)
+        alias = safe_alias(workspace.alias, workspace.workspace_id)
+        return {"success": True, **automation_manager.streaming.release(program_id, alias, f"browser:{alias}")}
+    except Exception as exc:
+        raise _error(exc)
+
+
+@router.get("/programs/{program_id}/workspaces/{workspace_alias}/stream/status", summary="Read workspace stream/Soft Trigger status")
+def workspace_stream_status(program_id: str, workspace_alias: str):
+    try:
+        program = repository.get(program_id)
+        workspace = workspace_by_alias(program, workspace_alias)
+        alias = safe_alias(workspace.alias, workspace.workspace_id)
+        return {"success": True, **automation_manager.streaming.status(program_id, alias)}
+    except Exception as exc:
+        raise _error(exc)
+
+
+@router.get("/programs/{program_id}/workspaces/{workspace_alias}/stream/frame", summary="Lazy workspace stream JPEG")
+def workspace_stream_frame(program_id: str, workspace_alias: str, after_sequence: int = 0, quality: int = 82):
+    try:
+        program = repository.get(program_id)
+        workspace = workspace_by_alias(program, workspace_alias)
+        alias = safe_alias(workspace.alias, workspace.workspace_id)
+        status = automation_manager.streaming.status(program_id, alias)["stream"]
+        sequence = int(status.get("sequence", 0))
+        if sequence <= int(after_sequence):
+            return Response(status_code=204, headers={"X-Frame-Sequence": str(sequence)})
+        payload, sequence = automation_manager.streaming.jpeg(program_id, alias, quality)
+        return Response(content=payload, media_type="image/jpeg", headers={"X-Frame-Sequence": str(sequence), "Cache-Control": "no-store"})
+    except Exception as exc:
+        raise _error(exc)
+
+
+@router.post("/programs/{program_id}/workspaces/{workspace_alias}/soft-trigger/analyze", summary="Analyze workspace Streaming_frame with draft Soft Trigger settings")
+def workspace_soft_trigger_analyze(program_id: str, workspace_alias: str, config: SoftTriggerConfig):
+    try:
+        program = repository.get(program_id)
+        workspace = workspace_by_alias(program, workspace_alias)
+        alias = safe_alias(workspace.alias, workspace.workspace_id)
+        image, _ = automation_manager.streaming.latest_frame(program_id, alias)
+        return {"success": True, **automation_manager.streaming.analyze_frame(image, config)}
+    except Exception as exc:
+        raise _error(exc)
+
+
+@router.post("/programs/{program_id}/workspaces/{workspace_alias}/soft-trigger/preview", summary="Render exact Soft Trigger threshold debug frame")
+def workspace_soft_trigger_preview(program_id: str, workspace_alias: str, config: SoftTriggerConfig, mode: str = "overlay", after_sequence: int = 0, quality: int = 82):
+    try:
+        program = repository.get(program_id)
+        workspace = workspace_by_alias(program, workspace_alias)
+        alias = safe_alias(workspace.alias, workspace.workspace_id)
+        _image, sequence = automation_manager.streaming.latest_frame(program_id, alias)
+        if int(sequence) <= int(after_sequence):
+            return Response(status_code=204, headers={"X-Frame-Sequence": str(sequence)})
+        payload, sequence = automation_manager.streaming.preview_jpeg(program_id, alias, config, mode=mode, quality=quality)
+        return Response(content=payload, media_type="image/jpeg", headers={"X-Frame-Sequence": str(sequence), "Cache-Control": "no-store"})
     except Exception as exc:
         raise _error(exc)

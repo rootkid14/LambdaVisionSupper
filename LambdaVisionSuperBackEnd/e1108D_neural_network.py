@@ -119,6 +119,8 @@ class FeatureEncoder(nn.Module):
         return self.net(x)
 
 
+
+
 class ResidualMLPBlock(nn.Module):
     """y = LayerNorm(x + F(x))."""
 

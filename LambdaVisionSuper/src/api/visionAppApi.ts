@@ -34,6 +34,7 @@ export interface AutomationSystemState {
   program_id:string; scheduler_running:boolean; online:boolean; active_workspace:string; workspace_activation_sequence:number; last_workspace:string; workspace_results:Record<string,string>; run_state:'IDLE'|'CAPTURING'|'INSPECTING'|'DECIDING'|'FINISHED'|'ERROR';
   result:'NONE'|'OK'|'NG'|'ERROR'; run_id:string; last_run_ms?:number|null; last_error:string;
   frame_sequence:number; clear_sequence:number; result_sequence:number; last_event:string; keyboard_states:Record<string,boolean>;
+  stream_states:Record<string,Record<string,any>>; soft_trigger_states:Record<string,Record<string,any>>;
 }
 export interface AutomationValidationIssue { line:number; column:number; severity:'error'|'warning'; message:string; }
 export interface AutomationExecutionResult {
@@ -52,6 +53,7 @@ export interface CameraCustomApi { api_id:string; alias:string; enabled:boolean;
 export interface CameraDeclaration {
   declaration_id:string; alias:string; enabled:boolean; driver:'basler'|'http'|'simulated';
   basler_device_id:string; exposure_us:number; grab_timeout_ms:number; host:string; port:number; capture_path:string; stream_path:string; http_timeout_s:number;
+  stream_max_fps:number; stream_transport:'native'|'url'|'tcp'|'pending'; stream_url:string; stream_tcp_host:string; stream_tcp_port:number;
   image_slot:string; stream_slot:string; custom_apis:CameraCustomApi[];
 }
 export interface CameraDeclarationConfig { devices:CameraDeclaration[]; }
@@ -69,12 +71,45 @@ export interface ScopePipelineConfig {
   enable_logic:boolean; logic_services:WorkingServiceBinding[];
   enable_decision:boolean; decision:ScopeDecisionConfig;
 }
+export interface SoftTriggerConfig {
+  enabled:boolean; roi:NormalizedRect|null; threshold_mode:'bright'|'dark'; pixel_threshold:number;
+  trigger_pixel_count:number; reset_pixel_count:number; frame_stride:number; cooldown_ms:number;
+  snapshot_to_image_slot:boolean; run_inspection:boolean;
+  backpressure_policy:'skip'|'latest'|'fifo'; queue_capacity:number; overflow_policy:'drop_oldest'|'drop_newest';
+}
 export interface WorkspaceDefinition {
   workspace_id:string; name:string; alias:string; enabled:boolean;
   iot:IotDeclarationConfig; cameras:CameraDeclarationConfig; camera_id:string; input_binding:string;
   master:{rois:MasterRoi[]; master_shape:number[]; locator:RoiLocatorConfig};
   working:{global_scope:ScopePipelineConfig;station_scopes:Record<string,ScopePipelineConfig>;station_execution:'sequential'|'parallel';global_services?:WorkingServiceBinding[];station_services?:Record<string,WorkingServiceBinding[]>};
+  soft_trigger:SoftTriggerConfig;
+  utilities:UtilitiesConfig;
 }
+export interface CameraStreamStatus {
+  camera:string; driver?:string; running:boolean; sequence:number; fps:number; last_error:string; width:number; height:number; consumers:string[];
+}
+export interface SoftTriggerRuntimeStatus {
+  workspace:string; camera:string; enabled:boolean; armed:boolean; pixel_count:number; active_ratio:number; roi_pixels:number;
+  fires:number; last_fire_sequence:number; last_error:string;
+  inspection_busy?:boolean; queue_depth?:number; queue_capacity?:number; triggered_total?:number; accepted_total?:number;
+  queued_total?:number; processed_total?:number; skipped_busy?:number; dropped_overflow?:number; replaced_latest?:number;
+  failed_total?:number; max_queue_depth?:number; last_queue_wait_ms?:number; avg_queue_wait_ms?:number;
+  last_processing_ms?:number; last_action?:string;
+}
+export interface StreamingStatusResponse { success:boolean; stream:CameraStreamStatus; soft_trigger:SoftTriggerRuntimeStatus|null; }
+export interface SoftTriggerAnalysis { success:boolean; pixel_count:number; active_ratio:number; roi_pixels:number; valid:boolean; }
+export interface UtilityGatherRoi { roi_id:string; name:string; rect:NormalizedRect; }
+export interface UtilityGatherRoute { output_id:string; destination:string; enabled:boolean; }
+export interface UtilityGatherAugmentation { enabled:boolean; include_original:boolean; extra_variants:number; shift_x_pct:number; shift_y_pct:number; min_scale:number; max_scale:number; min_iou:number; }
+export interface UtilityGatherPlan { base_dir:string; routes:UtilityGatherRoute[]; rois:UtilityGatherRoi[]; image_format:'jpg'|'png'; jpeg_quality:number; augmentation:UtilityGatherAugmentation; }
+export interface UtilityBatchRequest extends UtilityGatherPlan { source_dir:string; }
+export interface UtilityBurstRequest extends UtilityGatherPlan { samples:number; interval_ms:number; }
+export interface UtilityActiveGatherConfig { mode:'off'|'utilities_only'|'both'; plan:UtilityGatherPlan; samples_per_cycle:number; interval_ms:number; }
+export interface UtilitiesConfig { gathering:UtilityActiveGatherConfig; }
+export interface UtilityGatherResult { success:boolean; workspace:string; camera:string; stem:string; saved_count:number; failed_count:number; saved:{output_id:string;variant?:string;path:string;width:number;height:number;rect?:NormalizedRect}[]; failed:{output_id:string;variant?:string;error:string}[]; }
+export interface UtilityBurstResult { success:boolean; workspace:string; samples_requested:number; samples_processed:number; saved_count:number; failed_count:number; results:Omit<UtilityGatherResult,'success'|'workspace'|'camera'>[]; }
+export interface UtilityBatchResult { success:boolean; source_dir:string; source_count:number; processed_count:number; saved_count:number; failed_count:number; errors:{source?:string;output_id?:string;variant?:string;error:string}[]; }
+export interface UtilityFolderInfo { success:boolean; source_dir:string; count:number; first_name:string; last_name:string; }
 export interface SimulatorConfig { enabled:boolean; camera_sequence_mode:'fixed'|'next'|'loop'; stream_fps:number; }
 export interface VisionProgramDefinition {
   version:number; program_id:string; name:string; description:string;
@@ -141,6 +176,27 @@ export const VisionAppAPI = {
   focusCamera: async (id:string,payload:{x:number;y:number;w:number;h:number;focal_length?:number|null}) => (await axiosClient.post(`${api_version}/computer-vision/programs/${encodeURIComponent(id)}/camera/focus`,payload)).data,
   captureDeclaredCamera: async (id:string,cameraAlias:string):Promise<Blob> => (await axiosClient.post(`${api_version}/computer-vision/programs/${encodeURIComponent(id)}/cameras/${encodeURIComponent(cameraAlias)}/capture`,null,{responseType:'blob',timeout:120000})).data,
   declaredStreamFrame: async (id:string,cameraAlias:string):Promise<Blob> => (await axiosClient.get(`${api_version}/computer-vision/programs/${encodeURIComponent(id)}/cameras/${encodeURIComponent(cameraAlias)}/stream-frame`,{responseType:'blob',timeout:120000})).data,
+  streamStart: async (id:string,workspaceAlias:string):Promise<StreamingStatusResponse> => (await axiosClient.post(`${api_version}/computer-vision/programs/${encodeURIComponent(id)}/workspaces/${encodeURIComponent(workspaceAlias)}/stream/start`)).data,
+  streamStop: async (id:string,workspaceAlias:string):Promise<StreamingStatusResponse> => (await axiosClient.delete(`${api_version}/computer-vision/programs/${encodeURIComponent(id)}/workspaces/${encodeURIComponent(workspaceAlias)}/stream/stop`)).data,
+  streamStatus: async (id:string,workspaceAlias:string):Promise<StreamingStatusResponse> => (await axiosClient.get(`${api_version}/computer-vision/programs/${encodeURIComponent(id)}/workspaces/${encodeURIComponent(workspaceAlias)}/stream/status`)).data,
+  streamLatestFrame: async (id:string,workspaceAlias:string,afterSequence=0):Promise<{blob:Blob|null;sequence:number}> => {
+    const r=await axiosClient.get(`${api_version}/computer-vision/programs/${encodeURIComponent(id)}/workspaces/${encodeURIComponent(workspaceAlias)}/stream/frame`,{params:{after_sequence:afterSequence},responseType:'blob',validateStatus:(s:number)=>s===200||s===204});
+    return {blob:r.status===204?null:r.data,sequence:Number(r.headers?.['x-frame-sequence']??afterSequence)};
+  },
+  analyzeSoftTrigger: async (id:string,workspaceAlias:string,config:SoftTriggerConfig):Promise<SoftTriggerAnalysis> => (await axiosClient.post(`${api_version}/computer-vision/programs/${encodeURIComponent(id)}/workspaces/${encodeURIComponent(workspaceAlias)}/soft-trigger/analyze`,config)).data,
+  softTriggerPreview: async (id:string,workspaceAlias:string,config:SoftTriggerConfig,mode:'raw'|'gray'|'mask'|'overlay',afterSequence=0):Promise<{blob:Blob|null;sequence:number}> => {
+    const r=await axiosClient.post(`${api_version}/computer-vision/programs/${encodeURIComponent(id)}/workspaces/${encodeURIComponent(workspaceAlias)}/soft-trigger/preview`,config,{params:{mode,after_sequence:afterSequence},responseType:'blob',validateStatus:(s:number)=>s===200||s===204});
+    return {blob:r.status===204?null:r.data,sequence:Number(r.headers?.['x-frame-sequence']??afterSequence)};
+  },
+  utilityFolderInfo: async (id:string,workspaceAlias:string,sourceDir:string):Promise<UtilityFolderInfo> => (await axiosClient.get(`${api_version}/computer-vision/programs/${encodeURIComponent(id)}/workspaces/${encodeURIComponent(workspaceAlias)}/utilities/gather/folder-info`,{params:{source_dir:sourceDir}})).data,
+  utilityFolderPreview: async (id:string,workspaceAlias:string,sourceDir:string,index:number):Promise<{blob:Blob;index:number;count:number;name:string}> => {
+    const r=await axiosClient.get(`${api_version}/computer-vision/programs/${encodeURIComponent(id)}/workspaces/${encodeURIComponent(workspaceAlias)}/utilities/gather/folder-preview`,{params:{source_dir:sourceDir,index},responseType:'blob'});
+    return {blob:r.data,index:Number(r.headers?.['x-image-index']??index),count:Number(r.headers?.['x-image-count']??0),name:decodeURIComponent(String(r.headers?.['x-image-name']??''))};
+  },
+  utilityGatherCapture: async (id:string,workspaceAlias:string,plan:UtilityGatherPlan):Promise<UtilityGatherResult> => (await axiosClient.post(`${api_version}/computer-vision/programs/${encodeURIComponent(id)}/workspaces/${encodeURIComponent(workspaceAlias)}/utilities/gather/capture`,plan,{timeout:120000})).data,
+  utilityGatherBurst: async (id:string,workspaceAlias:string,request:UtilityBurstRequest):Promise<UtilityBurstResult> => (await axiosClient.post(`${api_version}/computer-vision/programs/${encodeURIComponent(id)}/workspaces/${encodeURIComponent(workspaceAlias)}/utilities/gather/burst`,request,{timeout:0})).data,
+  utilityGatherBatch: async (id:string,workspaceAlias:string,request:UtilityBatchRequest):Promise<UtilityBatchResult> => (await axiosClient.post(`${api_version}/computer-vision/programs/${encodeURIComponent(id)}/workspaces/${encodeURIComponent(workspaceAlias)}/utilities/gather/batch`,request,{timeout:0})).data,
+  runWorkspaceCycle: async (id:string,workspaceAlias:string):Promise<{mode:'off'|'utilities_only'|'both';workspace:string;utilities:any;run:VisionRunResult|null;system_state:AutomationSystemState}> => (await axiosClient.post(`${api_version}/computer-vision/programs/${encodeURIComponent(id)}/workspaces/${encodeURIComponent(workspaceAlias)}/cycle`)).data,
   uploadSimCameraFrame: async (id:string,cameraAlias:string,file:Blob) => (await axiosClient.post(`${api_version}/computer-vision/programs/${encodeURIComponent(id)}/cameras/${encodeURIComponent(cameraAlias)}/sim-frame`,file,rawBody(file))).data,
   setSimIotPoint: async (id:string,deviceAlias:string,pointAlias:string,value:any) => (await axiosClient.post(`${api_version}/computer-vision/programs/${encodeURIComponent(id)}/simulator/iot/${encodeURIComponent(deviceAlias)}/${encodeURIComponent(pointAlias)}`,{value})).data,
   programOnline: async (id:string):Promise<AutomationSystemState> => (await axiosClient.post(`${api_version}/computer-vision/programs/${encodeURIComponent(id)}/online`)).data.state,

@@ -61,6 +61,15 @@ class CameraResourceController:
     def capture(self, program_id: str, camera: CameraDeclaration) -> np.ndarray:
         if not camera.enabled:
             raise RuntimeError(f"Camera is disabled: {camera.alias}")
+        # When Basler streaming already owns the device, a capture is a zero-conflict
+        # snapshot of the latest Streaming_frame into Current_image. Opening a second
+        # InstantCamera against the same device would otherwise fight the stream.
+        if camera.driver == 'basler':
+            stream_path = self.stream_slot_path(camera)
+            if VISION_FRAME_SLOTS.streaming(program_id, self.camera_alias(camera)) and VISION_FRAME_SLOTS.has(program_id, stream_path):
+                image = VISION_FRAME_SLOTS.get(program_id, stream_path)
+                VISION_FRAME_SLOTS.put(program_id, self.image_slot_path(camera), image)
+                return image
         if camera.driver == 'simulated':
             # Simulator writes its source directly into the same slot. Capture means
             # snapshot the current simulated stream/source frame into Current_image.
@@ -78,6 +87,9 @@ class CameraResourceController:
         return image
 
     def stream_frame(self, program_id: str, camera: CameraDeclaration) -> np.ndarray:
+        stream = self.stream_slot_path(camera)
+        if VISION_FRAME_SLOTS.streaming(program_id, self.camera_alias(camera)) and VISION_FRAME_SLOTS.has(program_id, stream):
+            return VISION_FRAME_SLOTS.get(program_id, stream)
         if camera.driver == 'simulated':
             stream = self.stream_slot_path(camera)
             if VISION_FRAME_SLOTS.has(program_id, stream):

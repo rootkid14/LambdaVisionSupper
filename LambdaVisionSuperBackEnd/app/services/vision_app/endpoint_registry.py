@@ -65,6 +65,7 @@ class EndpointRegistry:
                 continue
             alias = safe_alias(camera.alias, camera.declaration_id)
             root = f"camera.{alias}"
+            stream_state = (getattr(state, "stream_states", {}) or {}).get(getattr(state, "active_workspace", ""), {}) if state is not None else {}
             specs.append(EndpointSpec(path=root, kind="data", data_type="camera", description=f"{camera.driver} camera resource", source=root, object_type=camera.driver))
             specs.append(EndpointSpec(path=f"{root}.{camera.image_slot}", kind="data", data_type="image_slot", description="Latest stable captured frame", source=root, object_type="image_slot"))
             specs.append(EndpointSpec(path=f"{root}.{camera.stream_slot}", kind="data", data_type="stream_slot", description="Volatile engineering stream frame", source=root, object_type="stream_slot"))
@@ -72,7 +73,10 @@ class EndpointRegistry:
             specs.append(EndpointSpec(path=f"{root}.start_stream", kind="action", callable=True, readable=False, description="Enable engineering stream polling", source=root, example=f"{root}.start_stream()", object_type="camera_action"))
             specs.append(EndpointSpec(path=f"{root}.stop_stream", kind="action", callable=True, readable=False, description="Disable engineering stream polling", source=root, example=f"{root}.stop_stream()", object_type="camera_action"))
             specs.append(EndpointSpec(path=f"{root}.exposure_us", kind="state", data_type="number", readable=True, writable=camera.driver == "basler", description="Camera exposure in microseconds", source=root, unit="µs", object_type="camera_property"))
-            specs.append(EndpointSpec(path=f"{root}.streaming", kind="state", data_type="bool", readable=True, writable=False, description="Engineering stream preview state", source=root, allowed_values=["ON", "OFF"], object_type="camera_property"))
+            specs.append(EndpointSpec(path=f"{root}.streaming", kind="state", data_type="bool", readable=True, writable=False, description="Backend streaming service state", source=root, last_value=bool(stream_state.get("running", False)), allowed_values=["ON", "OFF"], object_type="camera_property"))
+            specs.append(EndpointSpec(path=f"{root}.stream_fps", kind="state", data_type="number", readable=True, writable=False, description="Measured backend stream FPS", source=root, last_value=stream_state.get("fps"), unit="fps", object_type="camera_stream_metric"))
+            specs.append(EndpointSpec(path=f"{root}.stream_sequence", kind="state", data_type="integer", readable=True, writable=False, description="Latest Streaming_frame sequence", source=root, last_value=stream_state.get("sequence", 0), object_type="camera_stream_metric"))
+            specs.append(EndpointSpec(path=f"{root}.stream_error", kind="state", data_type="string", readable=True, writable=False, description="Latest stream error", source=root, last_value=stream_state.get("last_error", ""), object_type="camera_stream_metric"))
             for custom in camera.custom_apis:
                 if not custom.enabled:
                     continue
@@ -136,10 +140,46 @@ class EndpointRegistry:
             specs.append(EndpointSpec(path=f"{root}.result", kind="state", data_type="inspection_result", description="Latest workspace result", source=root, last_value=result, allowed_values=["OK", "NG", "NONE", "ERROR"]))
             specs.append(EndpointSpec(path=f"{root}.input_binding", kind="data", data_type="string", description="Configured image-slot binding", source=root, last_value=workspace.input_binding))
             specs.append(EndpointSpec(path=f"{root}.activate", kind="action", callable=True, readable=False, description="Make this the active workspace/UI context", source=root, example=f"{root}.activate()"))
-            specs.append(EndpointSpec(path=f"{root}.run_inspection", kind="action", callable=True, readable=False, description="Run this workspace using its bound image slot", source=root, example=f"{root}.run_inspection()"))
+            specs.append(EndpointSpec(path=f"{root}.run_inspection", kind="action", callable=True, readable=False, description="Run the production workspace cycle; honors Utilities Active", source=root, example=f"{root}.run_inspection()"))
+            specs.append(EndpointSpec(path=f"{root}.run_cycle", kind="action", callable=True, readable=False, description="Explicit alias for the production workspace cycle", source=root, example=f"{root}.run_cycle()"))
+            specs.append(EndpointSpec(path=f"{root}.run_working", kind="action", callable=True, readable=False, description="Run Working inspection only; bypass Utilities Active", source=root, example=f"{root}.run_working()"))
+            utility_root = f"{root}.utilities"
+            gathering = workspace.utilities.gathering
+            specs.append(EndpointSpec(path=utility_root, kind="data", data_type="utilities", description="Workspace Utilities configuration", source=root, object_type="utilities"))
+            specs.append(EndpointSpec(path=f"{utility_root}.active_mode", kind="state", data_type="string", description="Utilities Active routing mode", source=utility_root, last_value=gathering.mode, allowed_values=["off", "utilities_only", "both"]))
+            specs.append(EndpointSpec(path=f"{utility_root}.samples_per_cycle", kind="state", data_type="integer", description="Temporal gather samples produced by each production cycle", source=utility_root, last_value=gathering.samples_per_cycle))
             specs.append(EndpointSpec(path=f"{root}.clear", kind="action", callable=True, readable=False, description="Clear this workspace Working state", source=root, example=f"{root}.clear()"))
             specs.append(EndpointSpec(path=f"{root}.logic_ready", kind="event", description="Workspace Filter/Logic pipeline completed", source=root))
-            specs.append(EndpointSpec(path=f"{root}.run_finish", kind="event", description="Workspace run finished", source=root))
+            specs.append(EndpointSpec(path=f"{root}.run_finish", kind="event", description="Workspace Working inspection finished", source=root))
+            specs.append(EndpointSpec(path=f"{root}.utilities_gathered", kind="event", description="Utilities Active gathering completed for this cycle", source=root))
+            specs.append(EndpointSpec(path=f"{root}.cycle_finish", kind="event", description="Production workspace cycle finished", source=root))
+            specs.append(EndpointSpec(path=f"{root}.cycle_error", kind="event", description="Production workspace cycle failed", source=root))
+            soft_root = f"{root}.soft_trigger"
+            soft_state = (getattr(state, "soft_trigger_states", {}) or {}).get(alias, {}) if state is not None else {}
+            specs.append(EndpointSpec(path=soft_root, kind="data", data_type="soft_trigger", description="Streaming-frame threshold trigger", source=root, object_type="soft_trigger"))
+            specs.append(EndpointSpec(path=f"{soft_root}.enabled", kind="state", data_type="bool", description="Configured to arm when program goes ONLINE", source=soft_root, last_value=bool(workspace.soft_trigger.enabled), allowed_values=["ON", "OFF"]))
+            specs.append(EndpointSpec(path=f"{soft_root}.armed", kind="state", data_type="bool", description="Runtime trigger is armed", source=soft_root, last_value=bool(soft_state.get("armed", False)), allowed_values=["ON", "OFF"]))
+            specs.append(EndpointSpec(path=f"{soft_root}.pixel_count", kind="state", data_type="integer", description="Active threshold pixels in trigger ROI", source=soft_root, last_value=soft_state.get("pixel_count", 0), unit="px"))
+            specs.append(EndpointSpec(path=f"{soft_root}.active_ratio", kind="state", data_type="number", description="Active threshold pixel ratio in trigger ROI", source=soft_root, last_value=soft_state.get("active_ratio", 0.0)))
+            specs.append(EndpointSpec(path=f"{soft_root}.fires", kind="state", data_type="integer", description="Soft-trigger fire count since runtime start", source=soft_root, last_value=soft_state.get("fires", 0)))
+            specs.append(EndpointSpec(path=f"{soft_root}.backpressure_policy", kind="state", data_type="string", description="Configured busy-frame policy", source=soft_root, last_value=getattr(workspace.soft_trigger, "backpressure_policy", "skip"), allowed_values=["skip", "latest", "fifo"]))
+            specs.append(EndpointSpec(path=f"{soft_root}.queue_capacity", kind="state", data_type="integer", description="Configured FIFO cache capacity", source=soft_root, last_value=getattr(workspace.soft_trigger, "queue_capacity", 3)))
+            specs.append(EndpointSpec(path=f"{soft_root}.inspection_busy", kind="state", data_type="bool", description="Program inspection dispatcher is busy", source=soft_root, last_value=bool(soft_state.get("inspection_busy", False)), allowed_values=["ON", "OFF"]))
+            specs.append(EndpointSpec(path=f"{soft_root}.queue_depth", kind="state", data_type="integer", description="Waiting Soft Trigger frames", source=soft_root, last_value=soft_state.get("queue_depth", 0)))
+            specs.append(EndpointSpec(path=f"{soft_root}.processed_total", kind="state", data_type="integer", description="Soft Trigger frames processed by inspection", source=soft_root, last_value=soft_state.get("processed_total", 0)))
+            specs.append(EndpointSpec(path=f"{soft_root}.skipped_busy", kind="state", data_type="integer", description="Triggers skipped because inspection was busy", source=soft_root, last_value=soft_state.get("skipped_busy", 0)))
+            specs.append(EndpointSpec(path=f"{soft_root}.dropped_overflow", kind="state", data_type="integer", description="Frames dropped by queue overflow", source=soft_root, last_value=soft_state.get("dropped_overflow", 0)))
+            specs.append(EndpointSpec(path=f"{soft_root}.replaced_latest", kind="state", data_type="integer", description="Waiting frames replaced by Keep latest policy", source=soft_root, last_value=soft_state.get("replaced_latest", 0)))
+            specs.append(EndpointSpec(path=f"{soft_root}.avg_queue_wait_ms", kind="state", data_type="number", description="Average queue wait before inspection", source=soft_root, last_value=soft_state.get("avg_queue_wait_ms", 0.0), unit="ms"))
+            specs.append(EndpointSpec(path=f"{soft_root}.last_processing_ms", kind="state", data_type="number", description="Last Soft Trigger inspection processing time", source=soft_root, last_value=soft_state.get("last_processing_ms", 0.0), unit="ms"))
+            specs.append(EndpointSpec(path=f"{soft_root}.last_action", kind="state", data_type="string", description="Last backpressure/dispatcher action", source=soft_root, last_value=soft_state.get("last_action", "")))
+            specs.append(EndpointSpec(path=f"{soft_root}.arm", kind="action", callable=True, readable=False, description="Arm this workspace Soft Trigger now", source=soft_root, example=f"{soft_root}.arm()"))
+            specs.append(EndpointSpec(path=f"{soft_root}.disarm", kind="action", callable=True, readable=False, description="Disarm this workspace Soft Trigger", source=soft_root, example=f"{soft_root}.disarm()"))
+            specs.append(EndpointSpec(path=f"{root}.soft_triggered", kind="event", description="Soft Trigger threshold crossed", source=root))
+            specs.append(EndpointSpec(path=f"{root}.soft_trigger_queued", kind="event", description="Soft Trigger frame queued while inspection is busy", source=root))
+            specs.append(EndpointSpec(path=f"{root}.soft_trigger_skipped", kind="event", description="Soft Trigger frame skipped by busy policy", source=root))
+            specs.append(EndpointSpec(path=f"{root}.soft_trigger_overflow", kind="event", description="Soft Trigger queue overflow dropped a frame", source=root))
+            specs.append(EndpointSpec(path=f"{root}.soft_trigger_dispatched", kind="event", description="Soft Trigger frame started inspection", source=root))
             # The single latest snapshot is associated with the latest-run workspace by AutomationManager.
             snap = snapshot if getattr(state, "last_workspace", None) in {None, alias} else None
             self._declared_workspace_vision(program, workspace, snap, specs)
@@ -192,10 +232,38 @@ class EndpointRegistry:
 
     def _keyboard(self, specs: list[EndpointSpec], state: Any | None) -> None:
         specs.append(EndpointSpec(path="keyboard", kind="data", data_type="namespace", description="Application keyboard signal namespace", source="keyboard", object_type="namespace"))
-        keys = ["space", "enter", "escape", "arrow_up", "arrow_down", "arrow_left", "arrow_right"] + [f"f{i}" for i in range(1, 13)]
+        specs.append(EndpointSpec(path="keyboard.key", kind="data", data_type="namespace", description="Full physical-key namespace", source="keyboard", object_type="namespace"))
         values = getattr(state, "keyboard_states", {}) if state is not None else {}
-        for key in keys:
-            specs.append(EndpointSpec(path=f"keyboard.{key}", kind="state", data_type="bool", description=f"Keyboard {key} is currently pressed", source="keyboard", last_value=bool(values.get(key, False)), allowed_values=["ON", "OFF"], object_type="keyboard_key"))
+
+        # Backward-compatible short names used by v0.13.1 scripts.
+        legacy = ["space", "enter", "escape", "arrow_up", "arrow_down", "arrow_left", "arrow_right"] + [f"f{i}" for i in range(1, 13)]
+        for key in legacy:
+            canonical = {
+                "space": "key.SPACE", "enter": "key.ENTER", "escape": "key.ESCAPE",
+                "arrow_up": "key.ARROW_UP", "arrow_down": "key.ARROW_DOWN",
+                "arrow_left": "key.ARROW_LEFT", "arrow_right": "key.ARROW_RIGHT",
+            }.get(key, f"key.{key.upper()}")
+            pressed = bool(values.get(canonical, values.get(key, False)))
+            specs.append(EndpointSpec(path=f"keyboard.{key}", kind="state", data_type="bool", description=f"Keyboard {key} is currently pressed", source="keyboard", last_value=pressed, allowed_values=["ON", "OFF"], object_type="keyboard_key"))
+
+        canonical_keys = (
+            [chr(code) for code in range(ord("A"), ord("Z") + 1)]
+            + [f"NUM_{i}" for i in range(10)]
+            + [f"NUMPAD_{i}" for i in range(10)]
+            + ["SPACE", "ENTER", "ESCAPE", "TAB", "BACKSPACE", "DELETE", "INSERT",
+               "HOME", "END", "PAGE_UP", "PAGE_DOWN", "ARROW_UP", "ARROW_DOWN",
+               "ARROW_LEFT", "ARROW_RIGHT", "SHIFT", "CTRL", "ALT", "META"]
+            + [f"F{i}" for i in range(1, 13)]
+        )
+        for name in canonical_keys:
+            key = f"key.{name}"
+            specs.append(EndpointSpec(
+                path=f"keyboard.{key}", kind="state", data_type="bool",
+                description=f"Physical keyboard key {name}", source="keyboard",
+                last_value=bool(values.get(key, False)), allowed_values=["ON", "OFF"],
+                object_type="keyboard_key",
+                example=f"if keyboard.key.{name} == ON:",
+            ))
 
     @staticmethod
     def _dedupe(specs: list[EndpointSpec]) -> list[EndpointSpec]:
@@ -214,7 +282,8 @@ class EndpointRegistry:
             EndpointSpec(path="system.result", kind="state", data_type="inspection_result", description="Committed product result", source="system", last_value=getattr(state, "result", "NONE"), allowed_values=["OK", "NG", "NONE", "ERROR"]),
             EndpointSpec(path="system.run_id", kind="state", data_type="string", description="Latest run id", source="system", last_value=getattr(state, "run_id", "")),
             EndpointSpec(path="system.last_run_ms", kind="state", data_type="number", description="Latest cycle time", source="system", last_value=getattr(state, "last_run_ms", None), unit="ms"),
-            EndpointSpec(path="system.run_inspection", kind="action", callable=True, readable=False, description="Run active workspace", source="system", example="system.run_inspection()"),
+            EndpointSpec(path="system.run_inspection", kind="action", callable=True, readable=False, description="Run active production workspace cycle; honors Utilities Active", source="system", example="system.run_inspection()"),
+            EndpointSpec(path="system.run_working", kind="action", callable=True, readable=False, description="Run active Working inspection only; bypass Utilities Active", source="system", example="system.run_working()"),
             EndpointSpec(path="system.commit_result", kind="action", callable=True, readable=False, description="Commit final product result", source="system", example="system.commit_result(OK)"),
             EndpointSpec(path="system.clear_working_screen", kind="action", callable=True, readable=False, description="Clear active workspace", source="system"),
             EndpointSpec(path="system.run_started", kind="event", description="Program/workspace cycle started", source="system"),

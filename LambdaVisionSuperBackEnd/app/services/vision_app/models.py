@@ -160,6 +160,13 @@ class CameraDeclaration(BaseModel):
     capture_path: str = "/capture"
     stream_path: str = ""
     http_timeout_s: float = Field(default=8.0, gt=0.1, le=120.0)
+    # Streaming v0.14: Basler uses a persistent native grab loop. HTTP/TCP fields
+    # are declaration scaffolding only until their transport runtimes are added.
+    stream_max_fps: float = Field(default=30.0, ge=0.5, le=240.0)
+    stream_transport: Literal["native", "url", "tcp", "pending"] = "pending"
+    stream_url: str = ""
+    stream_tcp_host: str = ""
+    stream_tcp_port: int = Field(default=0, ge=0, le=65535)
     # Named slots are part of the public object contract.
     image_slot: str = "Current_image"
     stream_slot: str = "Streaming_frame"
@@ -168,7 +175,7 @@ class CameraDeclaration(BaseModel):
 
 def default_camera_declarations() -> list[CameraDeclaration]:
     # Real-hardware first. Simulator is retained only as a legacy hidden driver.
-    return [CameraDeclaration(declaration_id="camera_main", alias="main", driver="http")]
+    return [CameraDeclaration(declaration_id="camera_main", alias="main", driver="http", stream_transport="pending")]
 
 
 class CameraDeclarationConfig(BaseModel):
@@ -275,6 +282,75 @@ class WorkingConfig(BaseModel):
     station_services: dict[str, list[WorkingServiceBinding]] = Field(default_factory=dict)
 
 
+class SoftTriggerConfig(BaseModel):
+    # Streaming-frame trigger owned by one inspection Workspace.
+    enabled: bool = False
+    roi: NormalizedRect | None = None
+    threshold_mode: Literal["bright", "dark"] = "bright"
+    pixel_threshold: int = Field(default=80, ge=0, le=255)
+    trigger_pixel_count: int = Field(default=100, ge=1)
+    reset_pixel_count: int = Field(default=20, ge=0)
+    frame_stride: int = Field(default=1, ge=1, le=120)
+    cooldown_ms: int = Field(default=500, ge=0, le=120000)
+    snapshot_to_image_slot: bool = True
+    run_inspection: bool = True
+    backpressure_policy: Literal["skip", "latest", "fifo"] = "skip"
+    queue_capacity: int = Field(default=3, ge=1, le=128)
+    overflow_policy: Literal["drop_oldest", "drop_newest"] = "drop_oldest"
+
+
+class UtilityGatherRoi(BaseModel):
+    roi_id: str
+    name: str = ""
+    rect: NormalizedRect
+
+
+class UtilityGatherRoute(BaseModel):
+    output_id: str
+    destination: str
+    enabled: bool = True
+
+
+class UtilityGatherAugmentation(BaseModel):
+    enabled: bool = False
+    include_original: bool = True
+    extra_variants: int = Field(default=0, ge=0, le=64)
+    shift_x_pct: float = Field(default=0.05, ge=0.0, le=0.50)
+    shift_y_pct: float = Field(default=0.05, ge=0.0, le=0.50)
+    min_scale: float = Field(default=1.0, ge=0.50, le=2.0)
+    max_scale: float = Field(default=1.10, ge=0.50, le=2.0)
+    min_iou: float = Field(default=0.70, ge=0.0, le=1.0)
+
+
+class UtilityGatherPlan(BaseModel):
+    base_dir: str = ""
+    routes: list[UtilityGatherRoute] = Field(default_factory=list)
+    rois: list[UtilityGatherRoi] = Field(default_factory=list)
+    image_format: Literal["jpg", "png"] = "jpg"
+    jpeg_quality: int = Field(default=94, ge=50, le=100)
+    augmentation: UtilityGatherAugmentation = Field(default_factory=UtilityGatherAugmentation)
+
+
+class UtilityBatchRequest(UtilityGatherPlan):
+    source_dir: str = ""
+
+
+class UtilityBurstRequest(UtilityGatherPlan):
+    samples: int = Field(default=10, ge=1, le=100)
+    interval_ms: int = Field(default=100, ge=0, le=60000)
+
+
+class UtilityActiveGatherConfig(BaseModel):
+    mode: Literal["off", "utilities_only", "both"] = "off"
+    plan: UtilityGatherPlan = Field(default_factory=UtilityGatherPlan)
+    samples_per_cycle: int = Field(default=1, ge=1, le=100)
+    interval_ms: int = Field(default=0, ge=0, le=60000)
+
+
+class UtilitiesConfig(BaseModel):
+    gathering: UtilityActiveGatherConfig = Field(default_factory=UtilityActiveGatherConfig)
+
+
 class WorkspaceDefinition(BaseModel):
     workspace_id: str
     name: str = "Workspace 1"
@@ -289,6 +365,8 @@ class WorkspaceDefinition(BaseModel):
     input_binding: str = ""
     master: MasterSampleConfig = Field(default_factory=MasterSampleConfig)
     working: WorkingConfig = Field(default_factory=WorkingConfig)
+    soft_trigger: SoftTriggerConfig = Field(default_factory=SoftTriggerConfig)
+    utilities: UtilitiesConfig = Field(default_factory=UtilitiesConfig)
 
 
 def default_workspaces() -> list[WorkspaceDefinition]:

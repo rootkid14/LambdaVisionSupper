@@ -75,6 +75,9 @@ class AutomationSystemState(BaseModel):
     result_sequence: int = 0
     last_event: str = ""
     keyboard_states: dict[str, bool] = Field(default_factory=dict)
+    # Volatile runtime status projected into Endpoint Registry / UI.
+    stream_states: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    soft_trigger_states: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 
 class VisionRunSnapshot(BaseModel):
